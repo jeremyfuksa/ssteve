@@ -1,0 +1,103 @@
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build output
+dist/
+build/
+out/
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Testing
+coverage/
+.nyc_output/
+
+# Logs
+logs/
+*.log
+
+# Temporary files
+tmp/
+temp/
+
+# Electron-builder output
+release/
+
+# Electron
+/electron-builder.yml
+
+# TypeScript
+*.tsbuildinfo
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.log
+*.tmp
+*.temp
+
+# Test Results (auto-generated)
+test-results/e2e/playwright/
+test-results/e2e/playwright-report/
+test-results/debug/
+
+# MMSSTV reference source code
+mmsstv-master/
+
+# SSTV Testing Results (generated outputs)
+testing/results/decode/*.png
+testing/results/decode/*.jpg
+testing/results/encode/*.wav
+testing/results/roundtrip/*.png
+testing/results/roundtrip/*.jpg
+testing/results/roundtrip/*.wav
+!testing/results/colaclanth-sstv/
+# Rust build artifacts (Tauri)
+target/
+src-tauri/target/
+platforms/*/src-tauri/target/
+**/target/
+Cargo.lock
+
+# Python cache and bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+*.egg-info/

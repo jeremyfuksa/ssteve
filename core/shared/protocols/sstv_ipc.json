@@ -1,0 +1,134 @@
+{
+  "title": "SSTV Engine IPC Protocol",
+  "version": "1.0.0",
+  "description": "Cross-platform communication protocol for SSTV operations",
+  
+  "requests": {
+    "decode": {
+      "method": "decode",
+      "params": {
+        "audioPath": "string",
+        "outputPath": "string",
+        "skipSeconds": "number (optional, default: 0.0)",
+        "enhance": "object (optional, EnhancementOptions)"
+      }
+    },
+    
+    "encode": {
+      "method": "encode", 
+      "params": {
+        "imagePath": "string",
+        "outputPath": "string",
+        "mode": "string (optional, default: ScottieS1)",
+        "sampleRate": "number (optional, default: 22050)",
+        "bitsPerSample": "number (optional, default: 16)",
+        "vox": "boolean (optional, default: false)",
+        "fskid": "string (optional)",
+        "resize": "boolean (optional, default: true)"
+      }
+    },
+    
+    "enhance": {
+      "method": "enhance",
+      "params": {
+        "inputPath": "string",
+        "outputPath": "string",
+        "preset": "string (optional)",
+        "options": "object (optional, EnhancementOptions)"
+      }
+    },
+    
+    "getSupportedModes": {
+      "method": "getSupportedModes",
+      "params": {}
+    },
+    
+    "checkDependencies": {
+      "method": "checkDependencies", 
+      "params": {}
+    }
+  },
+  
+  "responses": {
+    "SSTVResult": {
+      "success": "boolean",
+      "message": "string",
+      "mode": "string (optional)",
+      "inputPath": "string (optional)",
+      "outputPath": "string (optional)",
+      "fileSize": "number",
+      "duration": "number (milliseconds)",
+      "enhanced": "boolean",
+      "enhancements": "object (optional, EnhancementOptions)",
+      "error": "string (optional)",
+      "metadata": "object (optional)"
+    },
+    
+    "ModesResult": {
+      "success": "boolean",
+      "modes": "array of strings",
+      "error": "string (optional)"
+    },
+    
+    "DependencyResult": {
+      "success": "boolean",
+      "available": "boolean",
+      "missing": "array of strings (optional)",
+      "error": "string (optional)"
+    }
+  },
+  
+  "types": {
+    "EnhancementOptions": {
+      "contrast": "number (default: 1.25)",
+      "brightness": "number (default: 1.05)", 
+      "saturation": "number (default: 1.1)",
+      "autoLevel": "boolean (default: false)",
+      "gamma": "number (default: 1.0)",
+      "sharpen": "boolean (default: false)",
+      "whiteBalance": "boolean (default: true)"
+    }
+  },
+  
+  "communication": {
+    "methods": [
+      "JSON over stdin/stdout",
+      "JSON over named pipes",
+      "JSON over TCP sockets",
+      "JSON over HTTP REST API"
+    ],
+    
+    "example_request": {
+      "id": "unique-request-id",
+      "method": "decode",
+      "params": {
+        "audioPath": "/path/to/audio.wav",
+        "outputPath": "/path/to/output.png",
+        "enhance": {
+          "contrast": 1.3,
+          "brightness": 1.1,
+          "autoLevel": true
+        }
+      }
+    },
+    
+    "example_response": {
+      "id": "unique-request-id",
+      "result": {
+        "success": true,
+        "message": "Successfully decoded Scottie S1 SSTV image",
+        "mode": "Scottie S1",
+        "inputPath": "/path/to/audio.wav",
+        "outputPath": "/path/to/output.png",
+        "fileSize": 245760,
+        "duration": 2340,
+        "enhanced": true,
+        "enhancements": {
+          "contrast": 1.3,
+          "brightness": 1.1,
+          "autoLevel": true
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,18 @@
+# SSTV Engine Core Dependencies
+# Universal Python requirements for all platforms
+
+# Core SSTV libraries
+sstv>=0.1.0                    # colaclanth/sstv for decoding
+pysstv>=0.4.0                  # PySSTV for encoding
+
+# Image processing
+Pillow>=9.0.0                  # PIL for image enhancement
+numpy>=1.21.0                  # NumPy for array operations
+
+# Audio processing (optional, for future features)
+scipy>=1.7.0                   # SciPy for signal processing
+soundfile>=0.10.0              # Audio file I/O
+
+# Development and testing
+pytest>=7.0.0                  # Testing framework
+pytest-asyncio>=0.21.0         # Async testing support

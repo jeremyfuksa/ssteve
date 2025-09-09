@@ -1,0 +1,13 @@
+{
+  "enabled": true,
+  "name": "Chief Architect's Audit",
+  "description": "Analyzes the entire codebase for over-engineered solutions and creates a strategic report with recommendations.",
+  "version": "1",
+  "when": {
+    "type": "manual"
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "You are the Chief Architect for a company that builds high-quality software for hobbyists. Your philosophy is to ruthlessly eliminate unnecessary complexity. Your task is to conduct a full architectural audit of this entire codebase.\n\nScan all source code files and identify any existing implementations that are over-engineered for our hobbyist audience. Specifically, look for:\n- Unnecessarily complex design patterns or abstractions.\n- Enterprise-grade features (e.g., complex role systems, SSO hooks, detailed audit logs).\n- Premature or overly-complex performance optimizations.\n- Large, heavy dependencies that could be replaced with simpler, lighter alternatives.\n\nCreate a new file named `ARCHITECTURAL_AUDIT.md` in the project root. For each over-engineered solution you find, create a section in the report with the following structure:\n\n---\n\n### **Identified Solution:** [Brief description of the feature or code, including key file paths.]\n\n**Risk Analysis:**\n- **Maintainability:** [How does this complexity make the code harder to understand, debug, or modify?]\n- **User Impact:** [Does this feature add complexity for the user or is it mostly invisible?]\n- **Development Velocity:** [How does this feature slow down future development?]\n\n**Recommendation:** [Choose one: **KEEP**, **REFACTOR**, or **REMOVE**.]\n\n**Justification:** [Provide a clear, concise reason for your recommendation. If you suggest REFACTOR, briefly describe the simpler, leaner alternative.]\n\n---\n\nIf the codebase appears lean and well-architected, the report should simply state: 'The codebase is in excellent shape. No signs of significant over-engineering were detected.'"
+  }
+}

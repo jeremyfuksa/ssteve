@@ -1,0 +1,67 @@
+{
+  "productName": "SSTV Station",
+  "version": "1.0.0",
+  "identifier": "com.sstv.station",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:1420"
+  },
+  "app": {
+    "windows": [
+      {
+        "fullscreen": false,
+        "resizable": false,
+        "title": "SSTV Station",
+        "width": 720,
+        "height": 480,
+        "minWidth": 720,
+        "minHeight": 480,
+        "maxWidth": 720,
+        "maxHeight": 480
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "category": "Utility",
+    "copyright": "",
+    "externalBin": [],
+    "resources": [],
+    "icon": [] ,
+    "shortDescription": "SSTV decoder and encoder",
+    "longDescription": "Professional SSTV (Slow-scan Television) decoder and encoder application for amateur radio operators.",
+    "targets": "all"
+  },
+  "plugins": {
+    "shell": {
+      "all": false,
+      "execute": true,
+      "sidecar": false,
+      "open": false
+    },
+    "dialog": {
+      "all": false,
+      "ask": false,
+      "confirm": false,
+      "message": false,
+      "open": true,
+      "save": true
+    },
+    "fs": {
+      "all": false,
+      "readFile": true,
+      "writeFile": true,
+      "readDir": true,
+      "copyFile": true,
+      "create": true,
+      "exists": true,
+      "rename": true,
+      "remove": true
+    }
+  }
+}
