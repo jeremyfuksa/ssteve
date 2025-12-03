@@ -19,6 +19,11 @@
   overflow: hidden;
 }
 
+.sstv-station.drag-over {
+  outline: 1px dashed #00ff41;
+  outline-offset: 6px;
+}
+
 /* Function Button Bank */
 .function-buttons {
   height: 52px;
@@ -414,6 +419,11 @@
   cursor: not-allowed;
 }
 
+.control-btn.processing {
+  opacity: 0.6;
+  cursor: wait;
+}
+
 .control-btn.primary {
   background: linear-gradient(180deg, #004411 0%, #002208 50%, #001104 100%);
   border-color: #00aa33;
@@ -476,6 +486,59 @@
   border-top: 1px solid #333;
   font-size: 9px;
   color: #888;
+}
+
+.file-info {
+  margin-top: 6px;
+  font-size: 10px;
+  color: #b7ffd1;
+}
+
+.recent-files {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.recent-header {
+  font-size: 10px;
+  color: #00ff41;
+  letter-spacing: 0.5px;
+}
+
+.recent-files-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.recent-file-btn {
+  background: #111;
+  border: 1px solid #333;
+  color: #e6e6e6;
+  padding: 4px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.recent-file-btn:hover {
+  border-color: #00ff41;
+  color: #b7ffd1;
+}
+
+.recent-empty {
+  color: #777;
+  font-size: 10px;
+}
+
+.processing-indicator {
+  font-size: 10px;
+  color: #ffaa00;
+  margin-bottom: 6px;
+  letter-spacing: 0.5px;
 }
 
 /* Animations */
@@ -587,4 +650,52 @@
 .mode-settings .receive-only,
 .mode-settings .transmit-only {
   display: none !important;
+}
+
+/* Toast notifications */
+.toast-container {
+  position: fixed;
+  bottom: 16px;
+  right: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 1000;
+  pointer-events: none;
+}
+
+.toast {
+  min-width: 220px;
+  background: rgba(0, 0, 0, 0.9);
+  border: 1px solid #555;
+  color: #e6e6e6;
+  padding: 10px 12px;
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 0.25s ease, transform 0.25s ease, border-color 0.25s ease;
+  pointer-events: auto;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.toast.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.toast-success {
+  border-color: #00ff41;
+  color: #b7ffd1;
+}
+
+.toast-error {
+  border-color: #ff4444;
+  color: #ffc2c2;
+}
+
+.toast-info {
+  border-color: #00aaff;
+  color: #cce6ff;
 }

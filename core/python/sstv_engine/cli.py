@@ -244,16 +244,22 @@ def enhance_cli():
     sys.exit(0 if result.success else 1)
 
 if __name__ == "__main__":
-    # Simple dispatcher based on script name
-    import os
-    script_name = os.path.basename(sys.argv[0])
-    
-    if "decode" in script_name:
+    # Subcommand dispatcher
+    if len(sys.argv) < 2:
+        print("Usage: python -m sstv_engine.cli [decode|encode|enhance] ...")
+        sys.exit(1)
+
+    subcommand = sys.argv[1]
+    # Remove the subcommand from argv so argparse sees the right args
+    sys.argv = [sys.argv[0]] + sys.argv[2:]
+
+    if subcommand == "decode":
         decode_cli()
-    elif "encode" in script_name:
+    elif subcommand == "encode":
         encode_cli()
-    elif "enhance" in script_name:
+    elif subcommand == "enhance":
         enhance_cli()
     else:
+        print(f"Unknown subcommand: {subcommand}")
         print("Usage: python -m sstv_engine.cli [decode|encode|enhance] ...")
         sys.exit(1)

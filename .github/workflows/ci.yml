@@ -21,8 +21,12 @@ jobs:
       - name: Install and build web (Vite)
         working-directory: sstv-station
         run: |
-          npm ci
+          npm install
           npm run build --if-present
+
+      - name: Install Playwright browsers (Chromium only)
+        working-directory: sstv-station
+        run: npx playwright install --with-deps chromium
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -44,17 +48,22 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Install Python deps (optional)
+      - name: Install Python deps
         run: |
           python -m venv venv
           source venv/bin/activate
           pip install -r core/python/requirements.txt
           python -c "import sys;print(sys.version)"
 
-      - name: Python smoke tests (guarded)
-        env:
-          RUN_ENGINE_TESTS: ${{ secrets.RUN_ENGINE_TESTS || '0' }}
+      - name: Python engine tests
         run: |
           source venv/bin/activate
           python -m pip install pytest
-          pytest -q core/python/tests || true
+          pytest -q core/python/tests
+
+      - name: Playwright e2e (headless)
+        working-directory: sstv-station
+        env:
+          PLAYWRIGHT_WEB_SERVER: '1'
+        run: |
+          npm run test:e2e

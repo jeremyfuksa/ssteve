@@ -4,6 +4,7 @@ SSTV Encoder - Universal Python encoder using PySSTV
 
 import os
 import subprocess
+import sys
 import time
 from typing import List
 from .types import SSTVResult, SSTVEncodeRequest
@@ -67,9 +68,9 @@ class SSTVEncoder:
             # Create output directory if needed
             os.makedirs(os.path.dirname(request.output_path), exist_ok=True)
             
-            # Build PySSTV command
+            # Build PySSTV command using current Python interpreter
             cmd = [
-                'python3', '-m', 'pysstv',
+                sys.executable, '-m', 'pysstv',
                 '--mode', request.mode,
                 '--rate', str(request.sample_rate),
                 '--bits', str(request.bits_per_sample)

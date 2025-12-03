@@ -24,17 +24,15 @@ struct SSTVResult {
     vis_code: Option<i32>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-struct AudioDevice {
-    id: String,
-    name: String,
-    is_default: bool,
-}
-
 // Security: Path validation to prevent directory traversal
 fn validate_user_path(path_str: &str) -> Result<PathBuf, String> {
     let path = Path::new(path_str);
     
+    // Reject null bytes
+    if path_str.bytes().any(|b| b == 0) {
+        return Err("Invalid path: null byte detected".to_string());
+    }
+
     // Check for path traversal attempts
     if path_str.contains("..") || path_str.contains("~") {
         return Err("Invalid path: path traversal not allowed".to_string());
@@ -59,12 +57,30 @@ fn validate_user_path(path_str: &str) -> Result<PathBuf, String> {
 // (removed) validate_resource_path: replaced by get_python_engine_path with dev fallback
 
 // Resolve Python engine root path for both packaged and dev builds
+// Returns the path to the Python engine directory (containing sstv_engine package)
 fn get_python_engine_path(app_handle: &tauri::AppHandle) -> Result<PathBuf, String> {
-    // First try packaged resource_dir
+    // First try packaged resource_dir (bundled Python venv)
     if let Ok(resource_dir) = app_handle.path().resource_dir() {
-        let candidate = resource_dir.join("core").join("python");
-        if candidate.exists() && candidate.is_dir() {
-            return Ok(candidate);
+        // In packaged mode, resources/python contains the bundled venv
+        let bundled_python = resource_dir.join("python");
+        if bundled_python.exists() && bundled_python.is_dir() {
+            // The sstv_engine package is in lib/pythonX.Y/site-packages
+            // We need to find the actual Python version
+            let lib_dir = bundled_python.join("lib");
+            if lib_dir.exists() {
+                if let Ok(entries) = std::fs::read_dir(&lib_dir) {
+                    for entry in entries.flatten() {
+                        let name = entry.file_name();
+                        let name_str = name.to_string_lossy();
+                        if name_str.starts_with("python") {
+                            let site_packages = entry.path().join("site-packages");
+                            if site_packages.exists() {
+                                return Ok(site_packages);
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -128,7 +144,12 @@ fn sanitize_error_message(error: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::sanitize_error_message;
+    use super::{
+        parse_decode_output, parse_encode_output, sanitize_error_message, validate_user_path,
+    };
+    use std::fs::File;
+    use std::io::Write;
+    use std::path::PathBuf;
 
     #[test]
     fn sanitize_removes_paths_and_traces() {
@@ -138,6 +159,83 @@ mod tests {
         assert!(!s.contains("C:\\"));
         assert!(!s.contains("Traceback"));
         assert!(s.len() > 0);
+    }
+
+    #[test]
+    fn validate_user_path_allows_valid_paths() {
+        let mut temp_path = std::env::temp_dir();
+        temp_path.push("sstv_validate_ok.txt");
+
+        // Create temp file
+        let mut f = File::create(&temp_path).expect("create temp file");
+        writeln!(f, "ok").unwrap();
+
+        let validated = validate_user_path(temp_path.to_string_lossy().as_ref())
+            .expect("expected valid path");
+
+        assert_eq!(
+            validated,
+            PathBuf::from(&temp_path).canonicalize().unwrap()
+        );
+
+        let _ = std::fs::remove_file(&temp_path);
+    }
+
+    #[test]
+    fn validate_user_path_blocks_traversal() {
+        let err = validate_user_path("../etc/passwd");
+        assert!(err.is_err());
+    }
+
+    #[test]
+    fn validate_user_path_blocks_null_bytes() {
+        let err = validate_user_path("foo\0bar");
+        assert!(err.is_err());
+    }
+
+    #[test]
+    fn parse_decode_extracts_image_and_mode() {
+        let stdout = b"SUCCESS:true\nIMAGE:/tmp/out.png\nMODE:ScottieS1\nVIS:112\n";
+        let parsed = parse_decode_output(stdout);
+        assert!(parsed.success);
+        assert_eq!(parsed.image_path.as_deref(), Some("/tmp/out.png"));
+        assert_eq!(parsed.mode.as_deref(), Some("ScottieS1"));
+        assert_eq!(parsed.vis_code, Some(112));
+        assert!(parsed.message.contains("decoded successfully"));
+    }
+
+    #[test]
+    fn parse_decode_handles_error_line() {
+        let stdout = b"SUCCESS:false\nERROR:Something went wrong\n";
+        let parsed = parse_decode_output(stdout);
+        assert!(!parsed.success);
+        assert!(parsed.message.to_lowercase().contains("something"));
+    }
+
+    #[test]
+    fn parse_encode_extracts_audio_path() {
+        let stdout = b"SUCCESS:true\nAUDIO:/tmp/out.wav\n";
+        let parsed = parse_encode_output(stdout, "ScottieS1");
+        assert!(parsed.success);
+        assert_eq!(parsed.audio_path.as_deref(), Some("/tmp/out.wav"));
+        assert!(parsed.message.contains("ScottieS1"));
+    }
+
+    #[test]
+    fn parse_encode_handles_error_line() {
+        let stdout = b"SUCCESS:false\nERROR:No audio\n";
+        let parsed = parse_encode_output(stdout, "ScottieS1");
+        assert!(!parsed.success);
+        assert!(parsed.message.to_lowercase().contains("audio"));
+        assert!(parsed.audio_path.is_none());
+    }
+
+    #[test]
+    fn default_modes_returns_expected_list() {
+        let modes = super::default_sstv_modes();
+        assert_eq!(modes.len(), 6);
+        assert!(modes.contains(&"ScottieS1".to_string()));
+        assert!(modes.contains(&"Robot36".to_string()));
     }
 }
 
@@ -179,6 +277,40 @@ fn execute_python_securely(
     Ok(output)
 }
 
+struct ParseEncodeResult {
+    success: bool,
+    message: String,
+    audio_path: Option<String>,
+}
+
+fn parse_encode_output(stdout: &[u8], mode: &str) -> ParseEncodeResult {
+    let stdout = String::from_utf8_lossy(stdout);
+    let mut success = false;
+    let mut message = "Unknown result".to_string();
+    let mut audio_path = None;
+
+    for line in stdout.lines() {
+        if line.starts_with("SUCCESS:") {
+            success = line.split(':').nth(1).unwrap_or("false") == "true";
+        } else if line.starts_with("AUDIO:") {
+            if success {
+                audio_path = Some(line.split(':').nth(1).unwrap_or("").to_string());
+            }
+        } else if line.starts_with("ERROR:") {
+            message = sanitize_error_message(line.split(':').nth(1).unwrap_or("Unknown error"));
+        }
+    }
+
+    if success {
+        message = format!("SSTV audio encoded successfully ({})", mode);
+    }
+
+    ParseEncodeResult {
+        success,
+        message,
+        audio_path,
+    }
+}
 // Decode SSTV from audio file
 #[tauri::command]
 async fn decode_sstv_file(app_handle: tauri::AppHandle, audio_path: String) -> Result<SSTVResult, String> {
@@ -259,13 +391,47 @@ except Exception:
         });
     }
 
-    // Parse Python output
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    let ParseDecodeResult {
+        success,
+        mut message,
+        image_path,
+        vis_code,
+        mode,
+    } = parse_decode_output(&output.stdout);
+
+    if success {
+        if let Some(m) = mode {
+            message = format!("SSTV image decoded successfully ({})", m);
+        } else {
+            message = "SSTV image decoded successfully".to_string();
+        }
+    }
+
+    Ok(SSTVResult {
+        success,
+        message,
+        image_path,
+        audio_path: None,
+        progress: None,
+        vis_code,
+    })
+}
+
+struct ParseDecodeResult {
+    success: bool,
+    message: String,
+    image_path: Option<String>,
+    vis_code: Option<i32>,
+    mode: Option<String>,
+}
+
+fn parse_decode_output(stdout: &[u8]) -> ParseDecodeResult {
+    let stdout = String::from_utf8_lossy(stdout);
     let mut success = false;
     let mut message = "Unknown result".to_string();
     let mut image_path = None;
     let mut vis_code = None;
-    let mut mode: Option<String> = None;
+    let mut mode = None;
 
     for line in stdout.lines() {
         if line.starts_with("SUCCESS:") {
@@ -285,22 +451,19 @@ except Exception:
         }
     }
 
-    if success {
-        if let Some(m) = mode {
-            message = format!("SSTV image decoded successfully ({})", m);
-        } else {
-            message = "SSTV image decoded successfully".to_string();
-        }
+    if success && mode.is_some() {
+        message = format!("SSTV image decoded successfully ({})", mode.clone().unwrap());
+    } else if success {
+        message = "SSTV image decoded successfully".to_string();
     }
 
-    Ok(SSTVResult {
+    ParseDecodeResult {
         success,
         message,
         image_path,
-        audio_path: None,
-        progress: None,
         vis_code,
-    })
+        mode,
+    }
 }
 
 // Encode image to SSTV audio
@@ -391,27 +554,11 @@ except Exception:
         });
     }
 
-    // Parse Python output
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let mut success = false;
-    let mut message = "Unknown result".to_string();
-    let mut audio_path = None;
-
-    for line in stdout.lines() {
-        if line.starts_with("SUCCESS:") {
-            success = line.split(':').nth(1).unwrap_or("false") == "true";
-        } else if line.starts_with("AUDIO:") {
-            if success {
-                audio_path = Some(line.split(':').nth(1).unwrap_or("").to_string());
-            }
-        } else if line.starts_with("ERROR:") {
-            message = sanitize_error_message(line.split(':').nth(1).unwrap_or("Unknown error"));
-        }
-    }
-
-    if success {
-        message = format!("SSTV audio encoded successfully ({})", mode);
-    }
+    let ParseEncodeResult {
+        success,
+        mut message,
+        audio_path,
+    } = parse_encode_output(&output.stdout, &mode);
 
     Ok(SSTVResult {
         success,
@@ -464,14 +611,7 @@ except Exception:
 
     if !output.status.success() {
         // Return default modes if Python execution fails
-        return Ok(vec![
-            "ScottieS1".to_string(),
-            "ScottieS2".to_string(), 
-            "ScottieDX".to_string(),
-            "MartinM1".to_string(),
-            "MartinM2".to_string(),
-            "Robot36".to_string(),
-        ]);
+        return Ok(default_sstv_modes());
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -483,17 +623,21 @@ except Exception:
 
     if modes.is_empty() {
         // Return default modes if no modes found
-        Ok(vec![
-            "ScottieS1".to_string(),
-            "ScottieS2".to_string(), 
-            "ScottieDX".to_string(),
-            "MartinM1".to_string(),
-            "MartinM2".to_string(),
-            "Robot36".to_string(),
-        ])
+        Ok(default_sstv_modes())
     } else {
         Ok(modes)
     }
+}
+
+fn default_sstv_modes() -> Vec<String> {
+    vec![
+        "ScottieS1".to_string(),
+        "ScottieS2".to_string(),
+        "ScottieDX".to_string(),
+        "MartinM1".to_string(),
+        "MartinM2".to_string(),
+        "Robot36".to_string(),
+    ]
 }
 
 // Check Python engine status
@@ -567,41 +711,67 @@ except Exception:
     })
 }
 
-// Security: Enhanced helper function with path validation
+// Get Python executable path - handles both bundled and dev modes
 fn get_venv_python_path(python_engine_path: &Path) -> Result<PathBuf, String> {
     // Validate that python_engine_path exists and is a directory
     if !python_engine_path.exists() || !python_engine_path.is_dir() {
         return Err("Invalid Python engine path".to_string());
     }
-    
-    // Check for virtual environment in secure manner
-    let venv_path = python_engine_path
-        .parent()
-        .ok_or("Invalid python engine path structure")?
-        .parent()
-        .ok_or("Invalid project structure")?
-        .join("venv");
-    
-    // Ensure venv path is within expected project structure
-    if venv_path.exists() && venv_path.is_dir() {
+
+    // Check if this is a bundled venv (engine_path ends in site-packages)
+    // In that case, Python is at ../../bin/python3 relative to site-packages
+    if python_engine_path.ends_with("site-packages") {
+        // site-packages -> pythonX.Y -> lib -> venv_root
+        if let Some(venv_root) = python_engine_path.parent().and_then(|p| p.parent()).and_then(|p| p.parent()) {
+            let venv_python = if cfg!(windows) {
+                venv_root.join("Scripts").join("python.exe")
+            } else {
+                venv_root.join("bin").join("python3")
+            };
+
+            if venv_python.exists() && venv_python.is_file() {
+                return Ok(venv_python);
+            }
+        }
+    }
+
+    // Dev mode: check for .venv in the python engine directory
+    let dev_venv = python_engine_path.join(".venv");
+    if dev_venv.exists() && dev_venv.is_dir() {
         let venv_python = if cfg!(windows) {
-            venv_path.join("Scripts").join("python.exe")
+            dev_venv.join("Scripts").join("python.exe")
         } else {
-            venv_path.join("bin").join("python")
+            dev_venv.join("bin").join("python3")
         };
-        
+
         if venv_python.exists() && venv_python.is_file() {
             return Ok(venv_python);
         }
     }
-    
+
+    // Legacy: check for venv at project root (two levels up from core/python)
+    if let Some(project_root) = python_engine_path.parent().and_then(|p| p.parent()) {
+        let legacy_venv = project_root.join("venv");
+        if legacy_venv.exists() && legacy_venv.is_dir() {
+            let venv_python = if cfg!(windows) {
+                legacy_venv.join("Scripts").join("python.exe")
+            } else {
+                legacy_venv.join("bin").join("python")
+            };
+
+            if venv_python.exists() && venv_python.is_file() {
+                return Ok(venv_python);
+            }
+        }
+    }
+
     // Fallback to system Python with validation
     let system_python = if cfg!(windows) {
         PathBuf::from("python.exe")
     } else {
         PathBuf::from("python3")
     };
-    
+
     // Verify system Python exists
     match std::process::Command::new(&system_python).arg("--version").output() {
         Ok(output) if output.status.success() => Ok(system_python),

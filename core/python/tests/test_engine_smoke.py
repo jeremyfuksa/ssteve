@@ -1,4 +1,3 @@
-import os
 import sys
 import tempfile
 from pathlib import Path
@@ -12,10 +11,6 @@ if str(ENGINE_PATH) not in sys.path:
     sys.path.insert(0, str(ENGINE_PATH))
 
 
-RUN = os.environ.get("RUN_ENGINE_TESTS", "0") == "1"
-
-
-@pytest.mark.skipif(not RUN, reason="Set RUN_ENGINE_TESTS=1 to run engine smoke tests")
 def test_encode_smoke_tmp_image():
     from PIL import Image
     from sstv_engine.encoder import SSTVEncoder
@@ -46,10 +41,8 @@ def test_encode_smoke_tmp_image():
         assert wav_path.exists()
 
 
-@pytest.mark.skipif(not RUN, reason="Set RUN_ENGINE_TESTS=1 to run engine smoke tests")
 def test_imports_cli_available():
     # Basic import checks for the CLI module paths
     import sstv_engine.cli as cli  # noqa: F401
     import sstv_engine.decoder as dec  # noqa: F401
     import sstv_engine.enhancer as enh  # noqa: F401
-

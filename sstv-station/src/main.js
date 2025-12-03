@@ -1,27 +1,77 @@
 import { invoke } from '@tauri-apps/api/core';
-import { open } from '@tauri-apps/plugin-dialog';
+import { open, save } from '@tauri-apps/plugin-dialog';
+import { copyFile, remove } from '@tauri-apps/plugin-fs';
 import './style.css';
+
+class Toast {
+  constructor(container) {
+    this.container = container || this.createContainer();
+  }
+
+  createContainer() {
+    const div = document.createElement('div');
+    div.id = 'toast-container';
+    div.className = 'toast-container';
+    document.body.appendChild(div);
+    return div;
+  }
+
+  show(message, type = 'info', duration = 4000) {
+    if (!this.container) return;
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.textContent = message;
+    this.container.appendChild(toast);
+
+    requestAnimationFrame(() => {
+      toast.classList.add('visible');
+    });
+
+    setTimeout(() => {
+      toast.classList.remove('visible');
+      setTimeout(() => toast.remove(), 300);
+    }, duration);
+  }
+}
 
 class SSTVStation {
   constructor() {
     this.currentMode = 'RECEIVE';
     this.isDecoding = false;
+    this.isProcessing = false;
     this.audioContext = null;
     this.audioStream = null;
     this.currentImageData = null;
+    this.currentEncodedAudio = null;
     this.progressiveCanvas = null;
     this.progressiveCtx = null;
     this.currentProgress = 0;
     this.decodedImages = [];
     this.galleryIndex = 0;
+    this.processingButtonState = {};
+    this.toast = null;
+    this.recentFiles = [];
+    this.maxRecentFiles = 6;
+    this.defaultTitle = document.title || 'SSTV Station';
+    this.currentFileName = 'None';
     
     this.init();
   }
 
   async init() {
     this.setupUI();
-    await this.checkPythonEngine();
-    await this.loadSSTVModes();
+    this.recentFiles = this.loadRecentFiles();
+    this.renderRecentFiles();
+    this.setupKeyboardShortcuts();
+    this.setupDragAndDrop();
+    this.updateDocumentTitle();
+    if (!this.hasTauriBridge()) {
+      this.updateStatus('Tauri bridge unavailable. Running in browser-only preview.');
+      this.loadSSTVModes(true);
+    } else {
+      await this.checkPythonEngine();
+      await this.loadSSTVModes();
+    }
     this.setupAudioSystem();
   }
 
@@ -152,6 +202,9 @@ class SSTVStation {
               <button id="encode-audio" class="control-btn" style="display: none;">
                 ENCODE AUDIO
               </button>
+              <button id="save-audio" class="control-btn" style="display: none;" disabled>
+                SAVE AUDIO
+              </button>
               <button id="enhance-image" class="control-btn" disabled>
                 ENHANCE
               </button>
@@ -169,18 +222,30 @@ class SSTVStation {
             <!-- Status Panel -->
             <div class="status-panel">
               <div class="status-header">STATUS</div>
+              <div id="processing-indicator" class="processing-indicator" style="display: none;">PROCESSING...</div>
               <div id="detailed-status">Initializing SSTV Station...</div>
               <div class="device-info">
                 <span>DEVICE: <span id="audio-device">Built-in Microphone</span></span>
               </div>
+              <div class="file-info">
+                <span>FILE: <span id="current-file-name">None</span></span>
+              </div>
+              <div class="recent-files" id="recent-files-section">
+                <div class="recent-header">RECENT</div>
+                <div id="recent-files-list" class="recent-files-list">
+                  <span class="recent-empty">No recent files yet</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
+        <div id="toast-container" class="toast-container"></div>
       </div>
     `;
 
     // Setup event listeners
     this.setupEventListeners();
+    this.toast = new Toast(document.getElementById('toast-container'));
   }
 
   setupEventListeners() {
@@ -217,6 +282,10 @@ class SSTVStation {
 
     document.getElementById('encode-audio').addEventListener('click', () => {
       this.encodeFromImage();
+    });
+
+    document.getElementById('save-audio').addEventListener('click', () => {
+      this.saveEncodedAudio();
     });
 
     document.getElementById('gallery-prev').addEventListener('click', () => {
@@ -260,6 +329,192 @@ class SSTVStation {
     });
   }
 
+  setupKeyboardShortcuts() {
+    document.addEventListener('keydown', (e) => this.handleKeyDown(e));
+  }
+
+  handleKeyDown(e) {
+    const targetTag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : '';
+    if (targetTag === 'input' || targetTag === 'textarea') return;
+
+    const isOpenShortcut = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'o';
+    const isSaveShortcut = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's';
+
+    if (isOpenShortcut) {
+      e.preventDefault();
+      if (this.isProcessing) return;
+      if (this.currentMode === 'TRANSMIT') {
+        this.encodeFromImage();
+      } else {
+        this.loadAudioFile();
+      }
+    }
+
+    if (isSaveShortcut) {
+      e.preventDefault();
+      if (this.isProcessing) return;
+      if (this.currentMode === 'TRANSMIT' && this.currentEncodedAudio) {
+        this.saveEncodedAudio();
+      } else if (this.currentImageData) {
+        this.saveCurrentImage();
+      } else if (this.toast) {
+        this.toast.show('Nothing to save yet', 'info');
+      }
+    }
+  }
+
+  setupDragAndDrop() {
+    const root = document.querySelector('.sstv-station');
+    if (!root) return;
+
+    const addHighlight = (event) => {
+      event.preventDefault();
+      root.classList.add('drag-over');
+    };
+    const removeHighlight = (event) => {
+      event.preventDefault();
+      root.classList.remove('drag-over');
+    };
+
+    ['dragenter', 'dragover'].forEach(eventName => {
+      root.addEventListener(eventName, addHighlight);
+    });
+    ['dragleave', 'dragend'].forEach(eventName => {
+      root.addEventListener(eventName, removeHighlight);
+    });
+
+    root.addEventListener('drop', (event) => {
+      event.preventDefault();
+      root.classList.remove('drag-over');
+
+      if (!event.dataTransfer || !event.dataTransfer.files || event.dataTransfer.files.length === 0) {
+        return;
+      }
+
+      const file = event.dataTransfer.files[0];
+      const filePath = file.path || file.name;
+      const fileName = file.name || this.extractFileName(filePath);
+
+      if (!filePath) {
+        if (this.toast) this.toast.show('File path unavailable in this environment', 'error');
+        return;
+      }
+
+      this.handleDroppedFile(filePath, fileName);
+    });
+  }
+
+  handleDroppedFile(filePath, fileName) {
+    const fileType = this.detectFileType(filePath);
+    if (!fileType) {
+      if (this.toast) this.toast.show('Unsupported file type', 'error');
+      return;
+    }
+
+    if (!this.hasTauriBridge()) {
+      if (this.toast) this.toast.show('Drag-and-drop works in the desktop app', 'info');
+      return;
+    }
+
+    if (fileType === 'audio') {
+      this.setMode('RECEIVE');
+      this.loadAudioFile(filePath, fileName);
+    } else if (fileType === 'image') {
+      this.setMode('TRANSMIT');
+      this.encodeFromImage(filePath, fileName);
+    }
+  }
+
+  detectFileType(path) {
+    const lowered = path.toLowerCase();
+    const audioExt = ['.wav', '.mp3', '.ogg', '.flac'];
+    const imageExt = ['.png', '.jpg', '.jpeg', '.bmp'];
+
+    if (audioExt.some(ext => lowered.endsWith(ext))) return 'audio';
+    if (imageExt.some(ext => lowered.endsWith(ext))) return 'image';
+    return null;
+  }
+
+  setCurrentFileName(name) {
+    this.currentFileName = name || 'None';
+    const label = document.getElementById('current-file-name');
+    if (label) label.textContent = this.currentFileName;
+    this.updateDocumentTitle();
+  }
+
+  updateDocumentTitle() {
+    document.title = (this.currentFileName && this.currentFileName !== 'None')
+      ? `${this.defaultTitle} - ${this.currentFileName}`
+      : this.defaultTitle;
+  }
+
+  loadRecentFiles() {
+    try {
+      const stored = window.localStorage.getItem('sstv-recent-files');
+      const parsed = stored ? JSON.parse(stored) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (error) {
+      console.error('Failed to load recent files', error);
+      return [];
+    }
+  }
+
+  persistRecentFiles() {
+    try {
+      window.localStorage.setItem('sstv-recent-files', JSON.stringify(this.recentFiles));
+    } catch (error) {
+      console.error('Failed to persist recent files', error);
+    }
+  }
+
+  addRecentFile(path, name, type) {
+    if (!path) return;
+    const entry = {
+      path,
+      name: name || this.extractFileName(path),
+      type
+    };
+
+    this.recentFiles = [
+      entry,
+      ...this.recentFiles.filter(item => item.path !== path)
+    ].slice(0, this.maxRecentFiles);
+
+    this.persistRecentFiles();
+    this.renderRecentFiles();
+  }
+
+  renderRecentFiles() {
+    const list = document.getElementById('recent-files-list');
+    if (!list) return;
+
+    list.innerHTML = '';
+    if (!this.recentFiles || this.recentFiles.length === 0) {
+      const empty = document.createElement('span');
+      empty.className = 'recent-empty';
+      empty.textContent = 'No recent files yet';
+      list.appendChild(empty);
+      return;
+    }
+
+    this.recentFiles.forEach(item => {
+      const btn = document.createElement('button');
+      btn.className = 'recent-file-btn';
+      btn.textContent = item.name || this.extractFileName(item.path);
+      btn.title = item.path;
+      btn.addEventListener('click', () => {
+        if (item.type === 'audio') {
+          this.setMode('RECEIVE');
+          this.loadAudioFile(item.path, item.name);
+        } else if (item.type === 'image') {
+          this.setMode('TRANSMIT');
+          this.encodeFromImage(item.path, item.name);
+        }
+      });
+      list.appendChild(btn);
+    });
+  }
+
   setMode(mode) {
     this.currentMode = mode;
     
@@ -289,6 +544,7 @@ class SSTVStation {
     const adjustmentPanel = document.getElementById('adjustment-panel');
     const galleryBtns = document.querySelectorAll('.gallery-btn');
     const enhanceBtn = document.getElementById('enhance-image');
+    const saveAudioBtn = document.getElementById('save-audio');
     
     // Reset display states
     enhancementPanel.style.display = 'none';
@@ -299,22 +555,36 @@ class SSTVStation {
       case 'RECEIVE':
         this.showSpectrumView();
         document.getElementById('encode-audio').style.display = 'none';
+        saveAudioBtn.style.display = 'none';
         break;
       case 'TRANSMIT':
         document.getElementById('encode-audio').style.display = 'inline-block';
+        if (this.currentEncodedAudio) {
+          saveAudioBtn.style.display = 'inline-block';
+          saveAudioBtn.disabled = false;
+        } else {
+          saveAudioBtn.style.display = 'none';
+        }
         break;
       case 'GALLERY':
         this.showGalleryView();
         galleryBtns.forEach(btn => btn.style.display = 'inline-block');
         this.updateGalleryControls();
+        saveAudioBtn.style.display = 'none';
         break;
       case 'SETTINGS':
         // Settings mode specific UI
+        saveAudioBtn.style.display = 'none';
         break;
     }
   }
 
   async checkPythonEngine() {
+    if (!this.hasTauriBridge()) {
+      this.updateStatus('Tauri bridge unavailable in browser preview');
+      return;
+    }
+
     try {
       const result = await invoke('check_python_engine');
       if (result.success) {
@@ -327,20 +597,31 @@ class SSTVStation {
     }
   }
 
-  async loadSSTVModes() {
-    try {
-      const modes = await invoke('get_sstv_modes');
-      const select = document.getElementById('sstv-mode');
+  async loadSSTVModes(forceDefaults = false) {
+    const select = document.getElementById('sstv-mode');
+    if (!select) return;
+
+    const setOptions = (modes) => {
       select.innerHTML = '';
-      
       modes.forEach(mode => {
         const option = document.createElement('option');
         option.value = mode;
         option.textContent = this.formatModeName(mode);
         select.appendChild(option);
       });
+    };
+
+    if (forceDefaults || !this.hasTauriBridge()) {
+      setOptions(this.defaultModes());
+      return;
+    }
+
+    try {
+      const modes = await invoke('get_sstv_modes');
+      setOptions(modes);
     } catch (error) {
       console.error('Failed to load SSTV modes:', error);
+      setOptions(this.defaultModes());
     }
   }
 
@@ -354,6 +635,23 @@ class SSTVStation {
       'Robot36': 'Robot 36'
     };
     return names[mode] || mode;
+  }
+
+  defaultModes() {
+    return [
+      'ScottieS1',
+      'ScottieS2',
+      'ScottieDX',
+      'MartinM1',
+      'MartinM2',
+      'Robot36'
+    ];
+  }
+
+  hasTauriBridge() {
+    return typeof window !== 'undefined' &&
+      window.__TAURI_INTERNALS__ &&
+      typeof window.__TAURI_INTERNALS__.invoke === 'function';
   }
 
   async setupAudioSystem() {
@@ -584,8 +882,17 @@ class SSTVStation {
     updateLevel();
   }
 
-  async loadAudioFile() {
-    try {
+  async loadAudioFile(filePathOverride = null, providedName = null) {
+    if (!this.hasTauriBridge()) {
+      this.updateStatus('Tauri bridge unavailable; file load disabled in browser preview');
+      if (this.toast) this.toast.show('File load only works in Tauri app', 'info');
+      return;
+    }
+
+    let filePath = filePathOverride;
+    let fileName = providedName || (filePath ? this.extractFileName(filePath) : null);
+
+    if (!filePath) {
       const selected = await open({
         multiple: false,
         filters: [{
@@ -594,44 +901,48 @@ class SSTVStation {
         }]
       });
 
-      if (selected) {
-        const filePath = typeof selected === 'string' ? selected : selected.path || selected;
-        const fileName = (typeof selected === 'object' && selected.name) ? selected.name : (filePath.split(/[\\/]/).pop() || 'audio file');
-        this.updateStatus(`Loading file: ${fileName}`);
-        
-        // Show progressive view
-        this.showProgressiveView();
-        this.updateProgress(0, 'Starting decode...');
+      if (!selected) return;
+      filePath = typeof selected === 'string' ? selected : selected.path || selected;
+      fileName = (typeof selected === 'object' && selected.name) ? selected.name : this.extractFileName(filePath);
+    }
 
-        // Disable controls during decode
-        const loadBtn = document.getElementById('load-file');
-        const listenBtn = document.getElementById('start-listening');
-        loadBtn.disabled = true;
-        listenBtn.disabled = true;
-        
-        const result = await invoke('decode_sstv_file', { audioPath: filePath });
-        
-        if (result.success) {
-          const endMsg = result.message ? result.message : 'Decode complete';
-          this.updateProgress(100, endMsg);
-          
-          // Brief delay to show completion
-          setTimeout(async () => {
-            if (result.image_path) {
-              await this.displayDecodedImage(result.image_path);
-            }
-          }, 500);
-        } else {
-          this.updateStatus(`Decode failed: ${result.message}`);
-          this.showSpectrumView();
-        }
+    if (!filePath) return;
+    await this.decodeAudioFile(filePath, fileName);
+  }
 
-        // Re-enable controls
-        loadBtn.disabled = false;
-        listenBtn.disabled = false;
+  async decodeAudioFile(filePath, fileName) {
+    try {
+      this.setCurrentFileName(fileName || this.extractFileName(filePath));
+      this.updateStatus(`Loading file: ${this.currentFileName}`);
+
+      this.showProgressiveView();
+      this.updateProgress(0, 'Starting decode...');
+      this.setProcessing(true, 'Decoding audio...');
+
+      const result = await invoke('decode_sstv_file', { audioPath: filePath });
+
+      if (result.success) {
+        const endMsg = result.message ? result.message : 'Decode complete';
+        this.updateProgress(100, endMsg);
+
+        // Brief delay to show completion
+        setTimeout(async () => {
+          if (result.image_path) {
+            await this.displayDecodedImage(result.image_path);
+          }
+        }, 500);
+        this.addRecentFile(filePath, this.currentFileName, 'audio');
+        if (this.toast) this.toast.show('Decode complete', 'success');
+      } else {
+        this.updateStatus(`Decode failed: ${result.message}`);
+        this.showSpectrumView();
+        if (this.toast) this.toast.show(`Decode failed: ${result.message}`, 'error');
       }
     } catch (error) {
       this.updateStatus(`File load error: ${error}`);
+      if (this.toast) this.toast.show('File load error', 'error');
+    } finally {
+      this.setProcessing(false);
     }
   }
 
@@ -710,6 +1021,45 @@ class SSTVStation {
   updateStatus(message) {
     document.getElementById('status-text').textContent = message;
     document.getElementById('detailed-status').textContent = message;
+  }
+
+  setProcessing(isProcessing, message) {
+    this.isProcessing = isProcessing;
+    const indicator = document.getElementById('processing-indicator');
+    const buttons = [
+      'start-listening',
+      'load-file',
+      'encode-audio',
+      'save-audio',
+      'enhance-image',
+      'save-image',
+      'gallery-prev',
+      'gallery-next'
+    ];
+
+    if (isProcessing) {
+      this.processingButtonState = {};
+      buttons.forEach(id => {
+        const btn = document.getElementById(id);
+        if (btn) {
+          this.processingButtonState[id] = btn.disabled;
+          btn.disabled = true;
+          btn.classList.add('processing');
+        }
+      });
+      if (indicator) indicator.style.display = 'block';
+      if (message) this.updateStatus(message);
+    } else {
+      buttons.forEach(id => {
+        const btn = document.getElementById(id);
+        if (btn && Object.prototype.hasOwnProperty.call(this.processingButtonState, id)) {
+          btn.disabled = this.processingButtonState[id];
+          btn.classList.remove('processing');
+        }
+      });
+      this.processingButtonState = {};
+      if (indicator) indicator.style.display = 'none';
+    }
   }
 
   toggleImageEnhancement() {
@@ -830,6 +1180,12 @@ class SSTVStation {
   }
 
   async saveCurrentImage() {
+    if (!this.hasTauriBridge()) {
+      this.updateStatus('Save requires Tauri bridge');
+      if (this.toast) this.toast.show('Save is only available in the desktop app', 'info');
+      return;
+    }
+
     if (!this.currentImageData) {
       this.updateStatus('No image to save');
       return;
@@ -851,8 +1207,17 @@ class SSTVStation {
     }
   }
 
-  async encodeFromImage() {
-    try {
+  async encodeFromImage(filePathOverride = null, providedName = null) {
+    if (!this.hasTauriBridge()) {
+      this.updateStatus('Tauri bridge unavailable; encode disabled in browser preview');
+      if (this.toast) this.toast.show('Encode only works in the desktop app', 'info');
+      return;
+    }
+
+    let filePath = filePathOverride;
+    let fileName = providedName || (filePath ? this.extractFileName(filePath) : null);
+
+    if (!filePath) {
       const selected = await open({
         multiple: false,
         filters: [{
@@ -863,16 +1228,28 @@ class SSTVStation {
 
       if (!selected) return;
 
-      const filePath = typeof selected === 'string' ? selected : selected.path || selected;
-      const fileName = (typeof selected === 'object' && selected.name) ? selected.name : (filePath.split(/[\\/]/).pop() || 'image');
+      filePath = typeof selected === 'string' ? selected : selected.path || selected;
+      fileName = (typeof selected === 'object' && selected.name) ? selected.name : this.extractFileName(filePath);
+    }
 
-      // Resolve mode
+    if (!filePath) return;
+    await this.encodeImage(filePath, fileName);
+  }
+
+  async encodeImage(filePath, fileName) {
+    try {
       const modeSelect = document.getElementById('sstv-mode');
       const mode = modeSelect.value || 'ScottieS1';
+      this.currentEncodedAudio = null;
+      const saveAudioBtn = document.getElementById('save-audio');
+      if (saveAudioBtn) {
+        saveAudioBtn.disabled = true;
+        saveAudioBtn.style.display = 'none';
+      }
 
-      this.updateStatus(`Encoding ${fileName} as ${this.formatModeName(mode)}...`);
-      const encodeBtn = document.getElementById('encode-audio');
-      encodeBtn.disabled = true;
+      this.setCurrentFileName(fileName || this.extractFileName(filePath));
+      this.updateStatus(`Encoding ${this.currentFileName} as ${this.formatModeName(mode)}...`);
+      this.setProcessing(true, 'Encoding image to audio...');
 
       const result = await invoke('encode_sstv_image', {
         imagePath: filePath,
@@ -880,16 +1257,75 @@ class SSTVStation {
       });
 
       if (result.success && result.audio_path) {
-        this.updateStatus(`Encode complete: ${result.audio_path}`);
+        this.currentEncodedAudio = {
+          path: result.audio_path,
+          fileName: this.extractFileName(result.audio_path)
+        };
+        this.revealSaveAudioButton();
+        this.updateStatus(`Encode complete: ${this.currentEncodedAudio.fileName}`);
+        this.addRecentFile(filePath, this.currentFileName, 'image');
+        if (this.toast) this.toast.show('Encode complete. Save the audio file.', 'success');
       } else if (result.success) {
         this.updateStatus('Encode complete.');
+        if (this.toast) this.toast.show('Encode complete', 'success');
       } else {
         this.updateStatus(`Encode failed: ${result.message}`);
+        if (this.toast) this.toast.show(`Encode failed: ${result.message}`, 'error');
       }
-
-      encodeBtn.disabled = false;
     } catch (error) {
       this.updateStatus(`Encode error: ${error}`);
+      if (this.toast) this.toast.show('Encode error', 'error');
+    } finally {
+      this.setProcessing(false);
+    }
+  }
+
+  revealSaveAudioButton() {
+    const btn = document.getElementById('save-audio');
+    if (btn) {
+      btn.style.display = 'inline-block';
+      btn.disabled = false;
+    }
+  }
+
+  extractFileName(path) {
+    return path ? (path.split(/[\\/]/).pop() || 'sstv_audio.wav') : 'sstv_audio.wav';
+  }
+
+  async saveEncodedAudio() {
+    if (!this.currentEncodedAudio || !this.currentEncodedAudio.path) {
+      if (this.toast) this.toast.show('No encoded audio available', 'info');
+      return;
+    }
+
+    const suggestedName = this.currentEncodedAudio.fileName || 'sstv_audio.wav';
+    const destination = await save({
+      defaultPath: suggestedName,
+      filters: [{ name: 'Wave Audio', extensions: ['wav'] }]
+    });
+
+    if (!destination) {
+      this.updateStatus('Save canceled');
+      return;
+    }
+
+    try {
+      this.setProcessing(true, 'Saving audio file...');
+      await copyFile(this.currentEncodedAudio.path, destination);
+      if (destination !== this.currentEncodedAudio.path) {
+        await remove(this.currentEncodedAudio.path).catch(() => {});
+      }
+      this.currentEncodedAudio.path = destination;
+      if (this.toast) this.toast.show('Audio saved successfully', 'success');
+      this.updateStatus(`Audio saved: ${destination}`);
+
+      const saveBtn = document.getElementById('save-audio');
+      if (saveBtn) saveBtn.disabled = true;
+    } catch (error) {
+      this.updateStatus(`Save failed: ${error}`);
+      if (this.toast) this.toast.show('Failed to save audio', 'error');
+    } finally {
+      this.setProcessing(false);
     }
   }
 }

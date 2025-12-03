@@ -31,37 +31,15 @@
     "category": "Utility",
     "copyright": "",
     "externalBin": [],
-    "resources": [],
+    "resources": ["resources/python/**/*"],
     "icon": [] ,
     "shortDescription": "SSTV decoder and encoder",
     "longDescription": "Professional SSTV (Slow-scan Television) decoder and encoder application for amateur radio operators.",
     "targets": "all"
   },
   "plugins": {
-    "shell": {
-      "all": false,
-      "execute": true,
-      "sidecar": false,
-      "open": false
-    },
-    "dialog": {
-      "all": false,
-      "ask": false,
-      "confirm": false,
-      "message": false,
-      "open": true,
-      "save": true
-    },
-    "fs": {
-      "all": false,
-      "readFile": true,
-      "writeFile": true,
-      "readDir": true,
-      "copyFile": true,
-      "create": true,
-      "exists": true,
-      "rename": true,
-      "remove": true
-    }
+    "shell": {},
+    "dialog": null,
+    "fs": {}
   }
 }
