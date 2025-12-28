@@ -16,6 +16,8 @@ out/
 *.swo
 .DS_Store
 
+.agents/
+
 # Environment variables
 .env
 .env.local
