@@ -1,0 +1,82 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sstv-core"
+version = "0.1.0"
+description = "SSTeVe SSTV Core Engine - Headless DSP and API backend"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: End Users/Desktop",
+    "Topic :: Communications :: Ham Radio",
+    "Topic :: Multimedia :: Sound/Audio :: Analysis",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+keywords = ["sstv", "slow-scan", "amateur-radio", "ham-radio", "dsp"]
+dependencies = [
+    "sounddevice>=0.4.6",
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "Pillow>=10.0",
+    "sqlalchemy>=2.0",
+    "alembic>=1.12",
+    "fastapi>=0.104",
+    "uvicorn>=0.24",
+    "websockets>=12.0",
+    "pydantic>=2.0",
+    "pyserial>=3.5",
+    "watchdog>=3.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21",
+    "httpx>=0.25",
+    "ruff>=0.1.0",
+    "mypy>=1.0",
+]
+accessibility = [
+    "transformers>=4.35",
+    "pytesseract>=0.3.10",
+]
+
+[project.scripts]
+sstv-decode = "sstv_core.cli:decode"
+sstv-encode = "sstv_core.cli:encode"
+sstv-server = "sstv_core.api.main:run_server"
+
+[project.urls]
+"Homepage" = "https://github.com/placeholder/ssteve"
+"Bug Tracker" = "https://github.com/placeholder/ssteve/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "D", "UP", "ANN", "S", "B", "A", "C4", "RUF"]
+ignore = ["D100", "D104", "ANN101", "ANN102"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true

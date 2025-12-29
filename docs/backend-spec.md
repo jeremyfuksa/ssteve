@@ -230,6 +230,40 @@ CREATE TABLE configurations (
   last_input_device TEXT,
   last_output_device TEXT,
 
+  -- Advanced settings stored as JSON for flexibility
+  -- Schema (all fields optional, nullable):
+  -- {
+  --   "decoder": {
+  --     "vis_detection_threshold": 0.85,        -- float 0.0-1.0
+  --     "sync_detection_threshold": 0.75,       -- float 0.0-1.0
+  --     "afc_enabled": true,                    -- bool
+  --     "afc_range_hz": 100,                    -- int (50, 100, 200)
+  --     "auto_mode_detection_enabled": true,    -- bool
+  --     "slant_auto_correct": true              -- bool
+  --   },
+  --   "encoder": {
+  --     "pre_emphasis_enabled": false,          -- bool
+  --     "color_space": "RGB",                   -- "RGB" or "YUV"
+  --     "jpeg_quality": 85                      -- int 0-100
+  --   },
+  --   "ui": {
+  --     "canvas_zoom": 1.0,                     -- float 0.5-2.0
+  --     "waterfall_fft_size": 1024,             -- int (512, 1024, 2048)
+  --     "waterfall_visible": true,              -- bool
+  --     "telemetry_panel_visible": true,        -- bool
+  --     "operating_mode": "standard"            -- "standard", "night_vision", "sunlight"
+  --   },
+  --   "audio": {
+  --     "buffer_size_samples": 1024,            -- int (512, 1024, 2048)
+  --     "sample_rate_override": null,           -- int or null (48000, 44100)
+  --     "input_gain_override": null             -- float or null (0.0-2.0)
+  --   },
+  --   "experimental": {
+  --     "ai_captions_enabled": false,           -- bool
+  --     "smart_reply_auto_suggest": true,       -- bool
+  --     "telemetry_export_enabled": false       -- bool
+  --   }
+  -- }
   advanced_settings_json TEXT
 );
 
@@ -298,6 +332,53 @@ erDiagram
 ### 3.1 REST API Endpoints (FastAPI)
 
 **Base URL:** `http://localhost:8000/api/v1`
+
+#### Concurrent Operation Limits
+
+**Maximum Concurrent Sessions:**
+- **Decode sessions:** 1 (single radio receiver, single audio input)
+- **Transmit sessions:** 1 (prevent PTT conflicts, single audio output)
+- **Decode + Transmit simultaneously:** NOT ALLOWED (half-duplex operation)
+
+**Enforcement:**
+
+Starting a new decode session while one is active:
+```http
+POST /decode/start
+
+Response: HTTP 409 Conflict
+{
+  "error": "CONCURRENT_OPERATION",
+  "error_code": 6004,
+  "message": "A decode session is already active. Stop the current session before starting a new one.",
+  "active_session_id": "abc-123-def-456",
+  "recoverable": true,
+  "suggested_action": "Stop current decode/transmit before starting new operation"
+}
+```
+
+Attempting to transmit while decoding:
+```http
+POST /transmit
+
+Response: HTTP 409 Conflict
+{
+  "error": "CONCURRENT_OPERATION",
+  "error_code": 6004,
+  "message": "Cannot transmit while decode session is active (half-duplex constraint).",
+  "active_session_id": "xyz-789-ghi-012",
+  "session_type": "decode",
+  "recoverable": true,
+  "suggested_action": "Stop decode session before transmitting"
+}
+```
+
+**Future Enhancements (v2.0):**
+- Multi-receiver support: Multiple USB SDR dongles + traditional radio
+- Transmit queue: Multiple images queued for sequential transmission
+- Full-duplex mode: Separate input/output devices (requires hardware support)
+
+---
 
 #### Decode Operations
 
@@ -478,6 +559,279 @@ PATCH /config
   "duration_sec": 110,
   "timestamp": "2025-12-02T14:35:22Z"
 }
+```
+
+#### 3.2.1 WebSocket Connection Management & Reconnection
+
+**Session Persistence:**
+- Decode/transmit sessions continue server-side even if client disconnects
+- Sessions remain active for **5 minutes** after last WebSocket activity
+- Sessions timeout configurable via `SESSION_TIMEOUT_SEC` environment variable
+
+**Client Disconnection Behavior:**
+
+```python
+# Server-side session management
+class SessionManager:
+    def __init__(self):
+        self.active_sessions = {}  # session_id -> DecodeSession
+        self.session_timeouts = {}  # session_id -> datetime
+
+    async def handle_websocket_disconnect(self, session_id: str):
+        """
+        Called when WebSocket client disconnects.
+
+        Behavior:
+        - Keep decode/transmit running
+        - Set timeout timestamp (now + 5 minutes)
+        - Log disconnect event
+        - Continue emitting events (buffered for reconnect)
+        """
+        session = self.active_sessions.get(session_id)
+        if session:
+            session.websocket_connected = False
+            self.session_timeouts[session_id] = datetime.now() + timedelta(minutes=5)
+            logger.info(f"Client disconnected from session {session_id}, keeping alive for 5min")
+
+    async def cleanup_expired_sessions(self):
+        """
+        Background task: Remove sessions inactive for >5 minutes.
+        Runs every 60 seconds.
+        """
+        while True:
+            await asyncio.sleep(60)
+            now = datetime.now()
+            expired = [
+                sid for sid, timeout in self.session_timeouts.items()
+                if now > timeout
+            ]
+            for session_id in expired:
+                logger.info(f"Session {session_id} expired, cleaning up")
+                await self.active_sessions[session_id].abort()
+                del self.active_sessions[session_id]
+                del self.session_timeouts[session_id]
+```
+
+**Client Reconnection Implementation:**
+
+```typescript
+// Frontend WebSocket reconnection logic
+class SSTVWebSocketClient {
+  private ws: WebSocket | null = null;
+  private reconnectAttempts = 0;
+  private maxReconnectAttempts = 5;
+  private reconnectInterval = 2000; // ms
+  private sessionId: string;
+
+  connect(sessionId: string) {
+    this.sessionId = sessionId;
+    this.ws = new WebSocket(
+      `ws://localhost:8000/api/v1/ws/decode/${sessionId}`
+    );
+
+    this.ws.onopen = () => {
+      console.log(`WebSocket connected to session ${sessionId}`);
+      this.reconnectAttempts = 0; // Reset counter on successful connect
+    };
+
+    this.ws.onclose = (event) => {
+      console.warn(`WebSocket closed: ${event.code} ${event.reason}`);
+      this.attemptReconnect();
+    };
+
+    this.ws.onerror = (error) => {
+      console.error(`WebSocket error:`, error);
+      // onclose will be triggered automatically, don't reconnect here
+    };
+
+    this.ws.onmessage = (event) => {
+      const message = JSON.parse(event.data);
+      this.handleMessage(message);
+    };
+  }
+
+  private attemptReconnect() {
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      console.error(`Max reconnect attempts (${this.maxReconnectAttempts}) reached`);
+      this.emit("connection_failed", {
+        message: "Unable to reconnect to decode session",
+        session_id: this.sessionId,
+      });
+      return;
+    }
+
+    this.reconnectAttempts++;
+    console.log(
+      `Reconnecting in ${this.reconnectInterval}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`
+    );
+
+    setTimeout(() => {
+      this.connect(this.sessionId); // Reuse same session_id
+    }, this.reconnectInterval);
+  }
+
+  disconnect() {
+    this.reconnectAttempts = this.maxReconnectAttempts; // Prevent auto-reconnect
+    if (this.ws) {
+      this.ws.close();
+      this.ws = null;
+    }
+  }
+}
+```
+
+**Catch-Up Events on Reconnect:**
+
+When client reconnects to an active session, server sends buffered events:
+
+```json
+{
+  "type": "session_resume",
+  "session_id": "abc-123-def-456",
+  "missed_events": [
+    {
+      "type": "scanline_update",
+      "line": 64,
+      "total": 256,
+      "progress": 25,
+      "rgb_data": "...",
+      "timestamp": "2025-12-27T14:30:45Z"
+    },
+    {
+      "type": "scanline_update",
+      "line": 65,
+      "total": 256,
+      "progress": 25.4,
+      "rgb_data": "...",
+      "timestamp": "2025-12-27T14:30:46Z"
+    }
+  ],
+  "current_state": {
+    "status": "decoding",
+    "progress": 26,
+    "current_scanline": 67,
+    "mode": "ScottieS1"
+  }
+}
+```
+
+**Server-Side Event Buffering:**
+
+```python
+class DecodeSession:
+    def __init__(self, session_id: str):
+        self.session_id = session_id
+        self.websocket: WebSocket | None = None
+        self.websocket_connected = False
+        self.event_buffer = []  # Buffer events during disconnect
+        self.max_buffer_events = 100  # Limit memory usage
+
+    async def emit_event(self, event: dict):
+        """
+        Emit WebSocket event to client.
+
+        Behavior:
+        - If connected: Send immediately
+        - If disconnected: Buffer event (up to max_buffer_events)
+        - If buffer full: Drop oldest events (FIFO)
+        """
+        if self.websocket_connected and self.websocket:
+            await self.websocket.send_json(event)
+        else:
+            # Buffer event for reconnect
+            if len(self.event_buffer) >= self.max_buffer_events:
+                self.event_buffer.pop(0)  # Drop oldest
+            self.event_buffer.append(event)
+
+    async def handle_websocket_reconnect(self, websocket: WebSocket):
+        """
+        Called when client reconnects to existing session.
+
+        Sends catch-up events and current state.
+        """
+        self.websocket = websocket
+        self.websocket_connected = True
+
+        # Send session resume event with buffered events
+        await websocket.send_json({
+            "type": "session_resume",
+            "session_id": self.session_id,
+            "missed_events": self.event_buffer,
+            "current_state": self.get_current_state()
+        })
+
+        # Clear buffer after sending
+        self.event_buffer.clear()
+```
+
+**Timeout Behavior:**
+
+If session expires (>5 minutes inactive):
+1. Server aborts decode/transmit
+2. Server deletes session data
+3. Client reconnect attempt receives HTTP 404
+4. Client shows error: "Session expired. Please start a new decode."
+
+**UI Reconnection Indicators:**
+
+```typescript
+// Show reconnection status to user
+ws.on("attempting_reconnect", (attempt, max) => {
+  showToast({
+    type: "warning",
+    message: `Connection lost. Reconnecting... (${attempt}/${max})`,
+    duration: null, // Don't auto-dismiss
+  });
+});
+
+ws.on("reconnected", () => {
+  showToast({
+    type: "success",
+    message: "Reconnected! Catching up...",
+    duration: 3000,
+  });
+});
+
+ws.on("connection_failed", () => {
+  showModal({
+    title: "Connection Lost",
+    message: "Unable to reconnect to decode session. The session may have expired.",
+    buttons: [
+      { label: "Start New Decode", action: () => navigateToCapture() },
+      { label: "Close", action: () => dismissModal() },
+    ],
+  });
+});
+```
+
+**Testing Reconnection:**
+
+```python
+# Integration test for reconnection
+async def test_websocket_reconnect():
+    # Start decode session
+    response = await client.post("/decode/start", json={
+        "mode": "ScottieS1",
+        "device_id": "test_device"
+    })
+    session_id = response.json()["session_id"]
+
+    # Connect WebSocket
+    async with client.websocket_connect(f"/ws/decode/{session_id}") as ws1:
+        # Receive first event
+        event1 = await ws1.receive_json()
+        assert event1["type"] == "vis_detected"
+
+    # Disconnect (simulate network failure)
+    # Session continues server-side
+
+    # Reconnect with same session_id
+    async with client.websocket_connect(f"/ws/decode/{session_id}") as ws2:
+        # Should receive session_resume event
+        resume_event = await ws2.receive_json()
+        assert resume_event["type"] == "session_resume"
+        assert len(resume_event["missed_events"]) > 0
+        assert resume_event["current_state"]["status"] == "decoding"
 ```
 
 ---
@@ -735,11 +1089,327 @@ Every smart feature must have a fallback:
 - Includes: Both callsigns, frequency, timestamp, SNR, mode
 - One-click transmit (5 seconds from decode complete to reply)
 
+#### Smart Reply Technical Implementation
+
+**Template Storage:**
+- Bundled templates: `sstv_core/templates/smart_reply/` (3 default templates: QSL Card, Monitor Frame, Minimal Badge)
+- User templates: `~/.ssteve/templates/` (user-created, automatically discovered on startup)
+- Template hot-reload: Watch directory for new templates added at runtime
+
+**Template Engine: Pillow-Based Compositing**
+- No external dependencies beyond Pillow (already required)
+- Template format: PNG base image (320x256 for ScottieS1) + JSON metadata file
+- Supports text overlays, variable positioning, font customization
+
+**Template Metadata Format (JSON):**
+```json
+{
+  "name": "QSL Card",
+  "base_image": "qsl_card_base.png",
+  "default_mode": "ScottieS1",
+  "fields": [
+    {
+      "id": "callsign_received",
+      "label": "Their Callsign",
+      "x": 50,
+      "y": 100,
+      "font_size": 32,
+      "font_family": "Arial",
+      "color": "#FFFFFF",
+      "alignment": "left"
+    },
+    {
+      "id": "callsign_operator",
+      "label": "Your Callsign",
+      "x": 50,
+      "y": 150,
+      "font_size": 24,
+      "color": "#7CFF8A"
+    },
+    {
+      "id": "frequency_mhz",
+      "x": 50,
+      "y": 200,
+      "font_size": 18,
+      "color": "#F2B451",
+      "format": "{value:.3f} MHz"
+    },
+    {
+      "id": "timestamp_utc",
+      "x": 50,
+      "y": 230,
+      "font_size": 16,
+      "color": "#5BD6E8",
+      "format": "{value:%Y-%m-%d %H:%M UTC}"
+    },
+    {
+      "id": "snr_db",
+      "x": 50,
+      "y": 260,
+      "font_size": 16,
+      "color": "#7CFF8A",
+      "format": "SNR: {value}dB"
+    }
+  ]
+}
+```
+
+**API Endpoints:**
+
+```yaml
+GET /smart_reply/templates
+  Response:
+    templates: array of TemplateMetadata
+
+POST /smart_reply/generate
+  Request:
+    image_id: int (received image to reply to)
+    template_id: string (default: "qsl_card")
+    field_overrides: object (optional manual edits)
+      {
+        "callsign_received": "W1AW",
+        "frequency_mhz": 14.230
+      }
+  Response:
+    preview_image_path: string (temp file for preview)
+    template_data: object (all field values used)
+    estimated_tx_duration: int (seconds)
+
+POST /smart_reply/transmit/{preview_id}
+  Request:
+    mode: string (ScottieS1, MartinM1, Robot36)
+    device_id: string
+    ptt_method: string
+  Response:
+    tx_id: uuid (standard transmit flow)
+```
+
+**Fallback Behavior for Missing Metadata:**
+```python
+def populate_smart_reply_fields(image_id: int, overrides: dict = None):
+    """
+    Auto-populate template fields from image metadata.
+
+    Fallback hierarchy:
+    1. User override (manual entry in preview dialog)
+    2. Image metadata (callsign, frequency, SNR from decode)
+    3. Configuration defaults (operator callsign from settings)
+    4. Placeholder text ("N/A", "Unknown")
+    """
+    image = db.query(SSTVImage).get(image_id)
+    config = db.query(Configuration).first()
+
+    fields = {
+        "callsign_received": overrides.get("callsign_received")
+                            or image.callsign
+                            or "UNKNOWN",
+        "callsign_operator": overrides.get("callsign_operator")
+                            or config.station_callsign
+                            or "YOUR_CALL",
+        "frequency_mhz": overrides.get("frequency_mhz")
+                        or image.frequency_hz / 1e6
+                        or config.default_frequency / 1e6,
+        "timestamp_utc": image.timestamp,
+        "snr_db": image.rx_quality_score or "N/A",
+        "mode": image.mode
+    }
+
+    # If critical field missing, prompt user before generating
+    if fields["callsign_received"] == "UNKNOWN":
+        raise ValueError("Callsign required for Smart Reply. Please enter manually.")
+
+    return fields
+```
+
+**Template Rendering (Python Core):**
+```python
+from PIL import Image, ImageDraw, ImageFont
+
+def render_smart_reply_template(template_id: str, field_values: dict) -> str:
+    """
+    Render Smart Reply template with populated fields.
+
+    Returns: Path to generated preview image
+    """
+    template = load_template(template_id)
+    base = Image.open(template["base_image"])
+    draw = ImageDraw.Draw(base)
+
+    for field in template["fields"]:
+        value = field_values.get(field["id"])
+        if value is None:
+            continue
+
+        # Apply format string if specified
+        if "format" in field:
+            text = field["format"].format(value=value)
+        else:
+            text = str(value)
+
+        # Load font
+        font = ImageFont.truetype(
+            field.get("font_family", "Arial.ttf"),
+            field["font_size"]
+        )
+
+        # Parse color
+        color = ImageColor.getrgb(field["color"])
+
+        # Draw text
+        draw.text(
+            (field["x"], field["y"]),
+            text,
+            font=font,
+            fill=color,
+            anchor=field.get("alignment", "left")
+        )
+
+    # Save to temp file
+    preview_path = f"/tmp/smart_reply_{uuid4()}.png"
+    base.save(preview_path)
+    return preview_path
+```
+
 **2. Smart Mode Detection**
 - When VIS fails, analyze sync pulse timing at signal level
 - Suggest most likely mode with confidence score
 - One-click accept or manual override
 - Prevents 2+ minute restart penalty
+
+#### Smart Mode Detection Algorithm
+
+**When to Trigger:**
+- VIS code detection fails (timeout after 30 seconds of listening)
+- VIS code detected but confidence <70% (potential false positive)
+- User manually requests mode detection (button: "Auto-Detect Mode")
+
+**Detection Algorithm:**
+```python
+def detect_mode_from_sync_timing(audio_stream, duration_sec=10.0):
+    """
+    Detect SSTV mode from sync pulse timing when VIS fails.
+
+    Algorithm:
+    1. Detect 1200 Hz sync pulses (Goertzel filter)
+    2. Measure inter-pulse intervals (scanline duration)
+    3. Compare against known mode timings
+    4. Calculate confidence based on timing consistency
+
+    Returns:
+        {
+            "mode": "ScottieS1",
+            "confidence": 0.87,
+            "measured_intervals": [138.2, 138.3, 138.1],  # ms
+            "expected_interval": 138.24,  # ms for Scottie S1
+            "num_samples": 25  # number of scanlines analyzed
+        }
+    """
+    # Mode timing specifications (scanline duration in ms)
+    MODE_TIMINGS = {
+        "ScottieS1": 138.24,
+        "ScottieS2": 71.04,
+        "ScottieDX": 269.04,
+        "MartinM1": 146.43,
+        "MartinM2": 73.22,
+        "Robot36": 150.0,
+        "Robot72": 300.0,
+        "PD90": 126.72,
+        "PD120": 121.6,
+        "PD180": 121.6,
+        "PD240": 121.92
+    }
+
+    # Step 1: Detect sync pulses (1200 Hz, typically 5-9ms duration)
+    sync_pulses = detect_sync_pulses_goertzel(
+        audio_stream,
+        target_freq=1200,
+        duration_sec=duration_sec
+    )
+
+    if len(sync_pulses) < 10:
+        return None  # Not enough data for reliable detection
+
+    # Step 2: Calculate inter-pulse intervals
+    intervals = []
+    for i in range(len(sync_pulses) - 1):
+        interval_ms = (sync_pulses[i+1] - sync_pulses[i]) * 1000
+        intervals.append(interval_ms)
+
+    # Remove outliers (QRM, noise spikes)
+    intervals = remove_outliers(intervals, z_threshold=2.0)
+
+    if len(intervals) < 5:
+        return None  # Too many outliers, unreliable
+
+    # Step 3: Calculate median interval (robust against noise)
+    median_interval = np.median(intervals)
+
+    # Step 4: Score each mode based on deviation
+    mode_scores = {}
+    for mode_name, expected_interval in MODE_TIMINGS.items():
+        deviation = abs(median_interval - expected_interval)
+        percent_error = (deviation / expected_interval) * 100
+
+        # Confidence score: 1.0 at perfect match, 0.0 at >10% error
+        if percent_error < 10:
+            confidence = 1.0 - (percent_error / 10)
+        else:
+            confidence = 0.0
+
+        mode_scores[mode_name] = confidence
+
+    # Step 5: Return best match
+    best_mode = max(mode_scores, key=mode_scores.get)
+    best_confidence = mode_scores[best_mode]
+
+    return {
+        "mode": best_mode,
+        "confidence": best_confidence,
+        "measured_intervals": intervals[:10],  # First 10 for debugging
+        "expected_interval": MODE_TIMINGS[best_mode],
+        "num_samples": len(intervals)
+    }
+```
+
+**Confidence Thresholds:**
+- ≥ 85%: High confidence - Auto-suggest with "Accept" button
+- 70-84%: Medium confidence - Show suggestion with warning "Not sure, but this looks like..."
+- < 70%: Low confidence - Require manual mode selection
+
+**API Integration:**
+```yaml
+POST /decode/detect_mode
+  Request:
+    session_id: uuid (optional, for active decode session)
+    audio_file: file (optional, for offline analysis)
+    duration_sec: float (default 10.0)
+  Response:
+    detection: object or null
+      {
+        "mode": "ScottieS1",
+        "confidence": 0.87,
+        "measured_intervals": [138.2, 138.3],
+        "expected_interval": 138.24
+      }
+    fallback_modes: array (top 3 alternatives)
+      [
+        {"mode": "MartinM1", "confidence": 0.73},
+        {"mode": "PD90", "confidence": 0.45}
+      ]
+```
+
+**User Workflow:**
+1. VIS detection fails → WebSocket event `{"type": "vis_timeout"}`
+2. Core engine automatically attempts mode detection
+3. If confidence ≥ 70%: Emit `{"type": "mode_suggested", "mode": "ScottieS1", "confidence": 0.87}`
+4. UI shows notification: "Couldn't read the VIS code, but this looks like ScottieS1 to me (87% sure). Want to try it?"
+5. User clicks "Try It" → Restart decode with suggested mode
+6. User clicks "Choose Manually" → Show mode selection dialog
+
+**Fallback Strategy:**
+- If mode detection confidence < 70%: Prompt user immediately (don't waste time on bad guess)
+- If user rejects suggestion: Show mode picker with top 3 alternatives highlighted
+- Preserve already-decoded scanlines if possible (don't restart from scratch)
 
 **3. Smart Device Configuration**
 - Auto-detect common SSTV hardware (Digirig, SignaLink, RigBlaster)
@@ -1591,21 +2261,90 @@ sstv-core --cli --verbose --mode ScottieS1 --rx
 
 ## 9. PTT Control Specifications
 
-### 9.1 Supported Methods
+### 9.1 Supported Methods & Timing
 
-**1. Serial PTT (Digirig, RigBlaster)**
-- Assert RTS or DTR signal on serial port
-- Pre-TX delay (default 500ms) for relay settling
-- Post-TX delay (default 200ms) before release
+**1. Serial PTT (Digirig, RigBlaster) - Hardware Control**
 
-**2. VOX PTT (SignaLink, TigerTronics)**
-- No hardware control
-- Add 500ms silence preamble to audio
-- Radio keys on audio presence
+Timing sequence:
+1. Assert RTS/DTR signal on serial port
+2. Wait `ptt_pre_delay_ms` (default 500ms) - **Hardware-level delay** for radio relay settling
+3. Start SSTV audio transmission
+4. Audio transmission completes
+5. Wait `ptt_post_delay_ms` (default 200ms) - Ensure last audio bits transmitted before un-keying
+6. Release RTS/DTR signal
+
+Implementation:
+```python
+def transmit_with_serial_ptt(audio_data, serial_port, pre_delay_ms, post_delay_ms):
+    """Serial PTT transmit flow."""
+    # Step 1: Key the radio (hardware control)
+    serial_port.setRTS(True)  # or setDTR(True)
+
+    # Step 2: Wait for relay/radio to settle
+    time.sleep(pre_delay_ms / 1000.0)  # Hardware-level delay
+
+    # Step 3: Play audio
+    sounddevice.play(audio_data, samplerate=48000)
+    sounddevice.wait()  # Block until audio completes
+
+    # Step 4: Post-delay before un-keying
+    time.sleep(post_delay_ms / 1000.0)
+
+    # Step 5: Un-key the radio
+    serial_port.setRTS(False)
+```
+
+**Critical:** Pre-delay and post-delay are **time delays** (blocking sleep), NOT audio data.
+
+---
+
+**2. VOX PTT (SignaLink, TigerTronics) - Audio-Level Control**
+
+Timing sequence:
+1. Generate `vox_preamble_ms` (default 500ms) of **audio silence or low tone** (1000 Hz at -20dB)
+2. **Inject preamble into audio stream** BEFORE SSTV signal
+3. Start SSTV audio transmission immediately after preamble
+4. Audio transmission completes
+5. Radio automatically un-keys after detecting audio silence (no post-delay needed)
+
+Implementation:
+```python
+def transmit_with_vox_ptt(sstv_audio_data, vox_preamble_ms):
+    """VOX PTT transmit flow."""
+    # Step 1: Generate VOX preamble audio
+    preamble_samples = int((vox_preamble_ms / 1000.0) * 48000)
+    # Option A: Silence
+    preamble = np.zeros(preamble_samples, dtype=np.float32)
+    # Option B: Low-level tone (more reliable VOX trigger)
+    # preamble = generate_tone(1000, preamble_samples, amplitude=0.1)
+
+    # Step 2: Concatenate preamble + SSTV audio
+    combined_audio = np.concatenate([preamble, sstv_audio_data])
+
+    # Step 3: Play combined audio stream (preamble triggers VOX)
+    sounddevice.play(combined_audio, samplerate=48000)
+    sounddevice.wait()
+
+    # Step 4: No explicit un-key needed (VOX detects silence and un-keys)
+```
+
+**Critical:** VOX preamble is **audio data** (injected into WAV stream), NOT a time delay.
+
+**VOX vs Serial Comparison:**
+
+| Aspect | Serial PTT | VOX PTT |
+|--------|-----------|---------|
+| **Pre-delay type** | Time delay (`time.sleep()`) | Audio data (silence/tone in WAV) |
+| **When radio keys** | On RTS/DTR assertion | On audio presence (VOX threshold) |
+| **Post-delay needed** | Yes (ensure last audio transmitted) | No (VOX auto-un-keys on silence) |
+| **Reliability** | High (hardware control) | Medium (depends on VOX sensitivity) |
+| **Setup complexity** | Medium (requires serial cable) | Low (audio-only interface) |
+
+---
 
 **3. None (Monitor Only)**
 - Transmit audio but don't key radio
-- For testing or VOX-equipped radios
+- For testing, local playback, or radios with always-on VOX
 
 ### 9.2 Configuration
 
@@ -1639,6 +2378,168 @@ vox_preamble_ms INTEGER DEFAULT 500
 ---
 
 ## 10. Error Handling Strategy
+
+### 10.0 Error Code Enumeration
+
+All errors returned by the API and WebSocket events use standardized error codes for consistent handling across UI and backend.
+
+**Python Enumeration:**
+```python
+from enum import IntEnum
+
+class SSTVErrorCode(IntEnum):
+    """
+    Standardized error codes for SSTeVe platform.
+
+    Categories:
+    - 1xxx: Audio Device Errors
+    - 2xxx: PTT Control Errors
+    - 3xxx: Decoder/Signal Processing Errors
+    - 4xxx: Database Errors
+    - 5xxx: Image Processing Errors
+    - 6xxx: API/Session Errors
+    - 7xxx: Configuration Errors
+    """
+
+    # Audio Device Errors (1xxx)
+    DEVICE_FAILURE = 1001
+    DEVICE_NOT_FOUND = 1002
+    DEVICE_PERMISSION_DENIED = 1003
+    DEVICE_IN_USE = 1004
+    BUFFER_UNDERRUN = 1005
+    BUFFER_OVERRUN = 1006
+    SAMPLE_RATE_MISMATCH = 1007
+
+    # PTT Control Errors (2xxx)
+    PTT_SERIAL_NOT_FOUND = 2001
+    PTT_SERIAL_PERMISSION_DENIED = 2002
+    PTT_SERIAL_TIMEOUT = 2003
+    PTT_TEST_FAILED = 2004
+    PTT_PORT_IN_USE = 2005
+    PTT_UNSUPPORTED_METHOD = 2006
+
+    # Decoder/Signal Errors (3xxx)
+    VIS_DETECTION_FAILED = 3001
+    VIS_TIMEOUT = 3002
+    SYNC_LOST = 3003
+    DECODE_ABORTED = 3004
+    SIGNAL_TOO_WEAK = 3005
+    SIGNAL_CLIPPING = 3006
+    MODE_DETECTION_FAILED = 3007
+    INVALID_MODE_SPECIFIED = 3008
+
+    # Database Errors (4xxx)
+    DB_INIT_FAILED = 4001
+    DB_LOCKED = 4002
+    DB_CORRUPTED = 4003
+    DB_DISK_FULL = 4004
+    DB_QUERY_FAILED = 4005
+    DB_MIGRATION_FAILED = 4006
+
+    # Image Processing Errors (5xxx)
+    IMAGE_CORRUPTED = 5001
+    IMAGE_FORMAT_UNSUPPORTED = 5002
+    IMAGE_TOO_LARGE = 5003
+    IMAGE_NOT_FOUND = 5004
+    THUMBNAIL_GENERATION_FAILED = 5005
+    IMAGE_SAVE_FAILED = 5006
+
+    # API/Session Errors (6xxx)
+    INVALID_SESSION_ID = 6001
+    SESSION_EXPIRED = 6002
+    SESSION_NOT_FOUND = 6003
+    CONCURRENT_OPERATION = 6004
+    INVALID_REQUEST_PARAMS = 6005
+    UNAUTHORIZED = 6006
+
+    # Configuration Errors (7xxx)
+    CONFIG_LOAD_FAILED = 7001
+    CONFIG_SAVE_FAILED = 7002
+    INVALID_CONFIG_VALUE = 7003
+    MISSING_REQUIRED_CONFIG = 7004
+
+
+def error_code_name(code: int) -> str:
+    """Convert error code to human-readable name."""
+    try:
+        return SSTVErrorCode(code).name
+    except ValueError:
+        return "UNKNOWN_ERROR"
+
+
+def is_recoverable(code: int) -> bool:
+    """Determine if error is recoverable with user action."""
+    recoverable_codes = {
+        # Audio errors - user can reconnect device, change selection
+        SSTVErrorCode.DEVICE_NOT_FOUND,
+        SSTVErrorCode.DEVICE_IN_USE,
+        SSTVErrorCode.BUFFER_UNDERRUN,
+
+        # PTT errors - user can fix permissions, reconnect cable
+        SSTVErrorCode.PTT_SERIAL_NOT_FOUND,
+        SSTVErrorCode.PTT_SERIAL_PERMISSION_DENIED,
+        SSTVErrorCode.PTT_TEST_FAILED,
+
+        # Signal errors - user can adjust radio, re-tune
+        SSTVErrorCode.VIS_TIMEOUT,
+        SSTVErrorCode.SIGNAL_TOO_WEAK,
+        SSTVErrorCode.SIGNAL_CLIPPING,
+        SSTVErrorCode.MODE_DETECTION_FAILED,
+
+        # Session errors - user can retry
+        SSTVErrorCode.SESSION_EXPIRED,
+        SSTVErrorCode.INVALID_REQUEST_PARAMS,
+    }
+    return SSTVErrorCode(code) in recoverable_codes
+
+
+def get_suggested_action(code: int) -> str:
+    """Return user-facing suggested action for error."""
+    suggestions = {
+        SSTVErrorCode.DEVICE_NOT_FOUND: "Please check device connections and try again",
+        SSTVErrorCode.DEVICE_PERMISSION_DENIED: "Grant audio permissions in System Settings",
+        SSTVErrorCode.PTT_SERIAL_NOT_FOUND: "Check PTT cable connection",
+        SSTVErrorCode.PTT_SERIAL_PERMISSION_DENIED: "Grant serial port access in System Settings (Linux: add user to dialout group)",
+        SSTVErrorCode.VIS_TIMEOUT: "Try manual mode selection or check signal strength",
+        SSTVErrorCode.SIGNAL_TOO_WEAK: "Increase radio volume or adjust antenna",
+        SSTVErrorCode.SIGNAL_CLIPPING: "Reduce input gain in Settings",
+        SSTVErrorCode.DB_DISK_FULL: "Free up disk space and restart",
+        SSTVErrorCode.SESSION_EXPIRED: "Click 'Listen' to start a new session",
+        SSTVErrorCode.CONCURRENT_OPERATION: "Stop current decode/transmit before starting new operation",
+    }
+    return suggestions.get(SSTVErrorCode(code), "Check application logs for details")
+```
+
+**WebSocket Error Event Format:**
+```json
+{
+  "type": "error",
+  "error_code": 1002,
+  "error_name": "DEVICE_NOT_FOUND",
+  "message": "Audio input device 'usb_audio_1' not found",
+  "details": {
+    "device_id": "usb_audio_1",
+    "available_devices": ["built_in_microphone", "usb_audio_2"]
+  },
+  "timestamp": "2025-12-27T14:30:45Z",
+  "recoverable": true,
+  "suggested_action": "Please check device connections and try again"
+}
+```
+
+**HTTP Error Response Format:**
+```json
+{
+  "error": "DEVICE_NOT_FOUND",
+  "error_code": 1002,
+  "message": "Audio input device 'usb_audio_1' not found",
+  "details": {
+    "device_id": "usb_audio_1"
+  },
+  "recoverable": true,
+  "suggested_action": "Please check device connections and try again"
+}
+```
 
 ### 10.1 Audio Device Failures
 
@@ -1723,10 +2624,15 @@ vox_preamble_ms INTEGER DEFAULT 500
 ### 11.1 Real-Time Constraints
 
 **Audio Latency:**
-- Target callback latency: 10ms (no audible glitches)
-- Buffer size: start at 1024 samples @ 48kHz (~21ms); allow tuning per device
+- Target callback latency: <20ms (no audible glitches)
+- Initial buffer size: 1024 samples @ 48kHz (~21ms)
+- Adaptive buffering strategy:
+  - If buffer underruns detected: Increase to 2048 samples (~43ms)
+  - If latency acceptable and no glitches: Try 512 samples (~11ms)
+  - Allow per-device override in advanced settings
 - Use separate thread for DSP to avoid blocking UI
-- Document fallback strategy if devices require higher buffer (degraded but stable)
+- Monitor buffer health: Emit WebSocket events on underrun/overrun
+- Fallback: If persistent issues, lock to safe 2048 samples with user notification
 
 **WebSocket Update Rate:**
 - Scanline updates: 10-20 Hz (acceptable for visual feedback)

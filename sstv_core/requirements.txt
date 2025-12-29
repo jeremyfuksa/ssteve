@@ -1,0 +1,47 @@
+# SSTeVe Core Engine Dependencies
+# See: docs/backend-spec.md Section 1.2
+
+# =========================================
+# Core DSP & Audio
+# =========================================
+sounddevice>=0.4.6          # Cross-platform audio I/O (primary)
+numpy>=1.24                 # Signal processing, FFT
+scipy>=1.10                 # Filters, Goertzel algorithm
+Pillow>=10.0                # Image processing
+
+# =========================================
+# Database & Storage
+# =========================================
+sqlalchemy>=2.0             # ORM for SQLite
+alembic>=1.12               # Database migrations
+
+# =========================================
+# API Layer
+# =========================================
+fastapi>=0.104              # REST API framework
+uvicorn>=0.24               # ASGI server
+websockets>=12.0            # WebSocket support for real-time updates
+pydantic>=2.0               # Data validation and serialization
+
+# =========================================
+# PTT Control
+# =========================================
+pyserial>=3.5               # Serial port control (RTS/DTR)
+
+# =========================================
+# Filesystem Integration
+# =========================================
+watchdog>=3.0               # File system monitoring for external edits
+
+# =========================================
+# Development & Testing
+# =========================================
+pytest>=7.0                 # Test framework
+pytest-asyncio>=0.21        # Async test support
+httpx>=0.25                 # Async HTTP client for testing FastAPI
+
+# =========================================
+# Optional: Accessibility (post-MVP)
+# =========================================
+# transformers>=4.35        # AI image captioning (BLIP) for alt-text
+# pytesseract>=0.3.10       # OCR for image text extraction
