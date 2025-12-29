@@ -62,6 +62,20 @@ class AudioAdvancedSettings(BaseModel):
     input_gain_override: float | None = Field(default=None, ge=0.0, le=2.0)
 
 
+class AccessibilitySettings(BaseModel):
+    """Accessibility feature settings from advanced_settings_json."""
+
+    stereo_guidance_enabled: bool = False
+    pilot_tone_freq: float = Field(default=1200.0, ge=200.0, le=3000.0)
+    pilot_tone_volume: float = Field(default=0.15, ge=0.0, le=1.0)
+    slant_threshold_degrees: float = Field(default=2.0, ge=0.1, le=10.0)
+    max_pan_degrees: float = Field(default=10.0, ge=1.0, le=45.0)
+    lock_chime_enabled: bool = True
+    lock_chime_volume: float = Field(default=0.3, ge=0.0, le=1.0)
+    verbose_cli_enabled: bool = False
+    json_logging_enabled: bool = False
+
+
 class ExperimentalSettings(BaseModel):
     """Experimental feature settings from advanced_settings_json."""
 
@@ -77,6 +91,7 @@ class AdvancedSettings(BaseModel):
     encoder: EncoderSettings = Field(default_factory=EncoderSettings)
     ui: UISettings = Field(default_factory=UISettings)
     audio: AudioAdvancedSettings = Field(default_factory=AudioAdvancedSettings)
+    accessibility: AccessibilitySettings = Field(default_factory=AccessibilitySettings)
     experimental: ExperimentalSettings = Field(default_factory=ExperimentalSettings)
 
 
@@ -485,3 +500,24 @@ class ConfigManager:
                 path.mkdir(parents=True, exist_ok=True)
                 (path / "received").mkdir(exist_ok=True)
                 (path / "transmitted").mkdir(exist_ok=True)
+
+    def get_guidance_config(self) -> Any:
+        """Get accessibility guidance configuration.
+
+        Returns:
+            GuidanceConfig instance from accessibility settings.
+        """
+        from sstv_core.accessibility import GuidanceConfig
+
+        advanced = self.get_advanced_settings()
+        acc = advanced.accessibility
+
+        return GuidanceConfig(
+            enabled=acc.stereo_guidance_enabled,
+            pilot_tone_freq=acc.pilot_tone_freq,
+            pilot_tone_volume=acc.pilot_tone_volume,
+            slant_threshold_degrees=acc.slant_threshold_degrees,
+            max_pan_degrees=acc.max_pan_degrees,
+            lock_chime_enabled=acc.lock_chime_enabled,
+            lock_chime_volume=acc.lock_chime_volume,
+        )
