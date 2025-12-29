@@ -125,3 +125,102 @@ class TestScottieS1Decoder:
         assert rgb[0, 0] == 200  # Red
         assert rgb[0, 1] == 100  # Green
         assert rgb[0, 2] == 150  # Blue
+
+
+class TestMartinM1Decoder:
+    """Tests for Martin M1 decoder."""
+
+    def test_decoder_config_defaults(self):
+        from sstv_core.decode.martin_decoder import MartinM1Config
+        config = MartinM1Config()
+        assert config.width == 320
+        assert config.height == 256
+        assert config.sync_duration_ms == 4.862
+
+    def test_decoder_creation(self):
+        from sstv_core.decode.martin_decoder import MartinM1Decoder
+        decoder = MartinM1Decoder()
+        assert decoder.width == 320
+        assert decoder.height == 256
+
+    def test_decoder_reset(self):
+        from sstv_core.decode.martin_decoder import MartinM1Decoder
+        decoder = MartinM1Decoder()
+        decoder.reset()
+        progress = decoder.get_progress()
+        assert progress.lines_decoded == 0
+
+    def test_scanline_to_rgb(self):
+        from sstv_core.decode.martin_decoder import ScanlineData
+        import numpy as np
+        scanline = ScanlineData(
+            line_number=0,
+            green=np.full(320, 100, dtype=np.uint8),
+            blue=np.full(320, 150, dtype=np.uint8),
+            red=np.full(320, 200, dtype=np.uint8),
+        )
+        rgb = scanline.to_rgb_row()
+        assert rgb.shape == (320, 3)
+        assert rgb[0, 0] == 200  # Red
+        assert rgb[0, 1] == 100  # Green
+        assert rgb[0, 2] == 150  # Blue
+
+    def test_frequency_to_luma_conversion(self):
+        from sstv_core.decode.martin_decoder import MartinM1Decoder
+        decoder = MartinM1Decoder()
+        # Test black (1500 Hz -> 0)
+        assert decoder._freq_to_luma(1500.0) == 0
+        # Test white (2300 Hz -> 255)
+        assert decoder._freq_to_luma(2300.0) == 255
+        # Test mid-gray (1900 Hz -> ~127)
+        mid_luma = decoder._freq_to_luma(1900.0)
+        assert 120 < mid_luma < 135
+
+
+class TestRobot36Decoder:
+    """Tests for Robot 36 decoder."""
+
+    def test_decoder_config_defaults(self):
+        from sstv_core.decode.robot_decoder import Robot36Config
+        config = Robot36Config()
+        assert config.width == 320
+        assert config.height == 240
+        assert config.sync_duration_ms == 9.0
+
+    def test_decoder_creation(self):
+        from sstv_core.decode.robot_decoder import Robot36Decoder
+        decoder = Robot36Decoder()
+        assert decoder.width == 320
+        assert decoder.height == 240
+
+    def test_decoder_reset(self):
+        from sstv_core.decode.robot_decoder import Robot36Decoder
+        decoder = Robot36Decoder()
+        decoder.reset()
+        progress = decoder.get_progress()
+        assert progress.lines_decoded == 0
+
+    def test_yuv_to_rgb_white(self):
+        from sstv_core.decode.robot_decoder import Robot36Decoder
+        import numpy as np
+        decoder = Robot36Decoder()
+        # White in YUV: Y=255, U=128, V=128
+        y = np.full((240, 320), 255, dtype=np.uint8)
+        u = np.full((240, 320), 128, dtype=np.uint8)
+        v = np.full((240, 320), 128, dtype=np.uint8)
+        rgb = decoder._yuv_to_rgb(y, u, v)
+        assert rgb.shape == (240, 320, 3)
+        # Should be approximately white
+        assert np.all(rgb >= 250)
+
+    def test_yuv_to_rgb_black(self):
+        from sstv_core.decode.robot_decoder import Robot36Decoder
+        import numpy as np
+        decoder = Robot36Decoder()
+        # Black in YUV: Y=0, U=128, V=128
+        y = np.full((240, 320), 0, dtype=np.uint8)
+        u = np.full((240, 320), 128, dtype=np.uint8)
+        v = np.full((240, 320), 128, dtype=np.uint8)
+        rgb = decoder._yuv_to_rgb(y, u, v)
+        # Should be approximately black
+        assert np.all(rgb <= 5)

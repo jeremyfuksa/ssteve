@@ -170,3 +170,122 @@ class TestTXManager:
         duration = tx.get_estimated_duration()
         # Should be roughly 110 seconds for Scottie S1
         assert 100 < duration < 120
+
+
+class TestMartinM1Encoder:
+    """Tests for Martin M1 encoder."""
+
+    def test_encoder_creation(self):
+        from sstv_core.encode.martin_encoder import MartinM1Encoder
+        encoder = MartinM1Encoder()
+        assert encoder.config.width == 320
+        assert encoder.config.height == 256
+
+    def test_encode_single_scanline(self):
+        from sstv_core.encode.martin_encoder import MartinM1Encoder
+        encoder = MartinM1Encoder()
+        # Create a test RGB row
+        rgb_row = np.zeros((320, 3), dtype=np.uint8)
+        rgb_row[:, 0] = 128  # Red
+        rgb_row[:, 1] = 64   # Green
+        rgb_row[:, 2] = 192  # Blue
+
+        audio = encoder.encode_scanline(rgb_row, 0)
+        assert len(audio) > 0
+        assert audio.dtype == np.float32
+
+    def test_encode_full_image(self):
+        from sstv_core.encode.martin_encoder import MartinM1Encoder
+        encoder = MartinM1Encoder()
+        test_image = np.random.randint(0, 255, (256, 320, 3), dtype=np.uint8)
+        audio = encoder.encode_image(test_image)
+
+        # Check we got audio
+        assert len(audio) > 0
+
+        # Check progress
+        progress = encoder.get_progress()
+        assert progress.lines_encoded == 256
+        assert progress.percent_complete == 100.0
+
+    def test_frequency_conversion(self):
+        from sstv_core.encode.martin_encoder import MartinM1Encoder
+        encoder = MartinM1Encoder()
+
+        # Black should map to 1500 Hz
+        freq_black = encoder._luma_to_freq(0)
+        assert freq_black == 1500.0
+
+        # White should map to 2300 Hz
+        freq_white = encoder._luma_to_freq(255)
+        assert freq_white == 2300.0
+
+    def test_total_duration(self):
+        from sstv_core.encode.martin_encoder import MartinM1Encoder
+        encoder = MartinM1Encoder()
+        duration = encoder.get_total_duration_sec()
+        # Martin M1: 256 lines * ~446ms/line = ~114 seconds
+        assert 110 < duration < 120
+
+
+class TestRobot36Encoder:
+    """Tests for Robot 36 encoder."""
+
+    def test_encoder_creation(self):
+        from sstv_core.encode.robot_encoder import Robot36Encoder
+        encoder = Robot36Encoder()
+        assert encoder.config.width == 320
+        assert encoder.config.height == 240
+
+    def test_rgb_to_yuv_white(self):
+        from sstv_core.encode.robot_encoder import Robot36Encoder
+        encoder = Robot36Encoder()
+        # Create white image
+        white_image = np.full((240, 320, 3), 255, dtype=np.uint8)
+        y, u, v = encoder._rgb_to_yuv(white_image)
+        assert y.shape == (240, 320)
+        assert np.all(y >= 250)  # Y should be near 255
+        assert np.all(u >= 120) and np.all(u <= 136)  # U should be near 128
+        assert np.all(v >= 120) and np.all(v <= 136)  # V should be near 128
+
+    def test_rgb_to_yuv_black(self):
+        from sstv_core.encode.robot_encoder import Robot36Encoder
+        encoder = Robot36Encoder()
+        # Create black image
+        black_image = np.zeros((240, 320, 3), dtype=np.uint8)
+        y, u, v = encoder._rgb_to_yuv(black_image)
+        assert np.all(y <= 5)  # Y should be near 0
+        assert np.all(u >= 120) and np.all(u <= 136)  # U should be near 128
+        assert np.all(v >= 120) and np.all(v <= 136)  # V should be near 128
+
+    def test_encode_single_scanline(self):
+        from sstv_core.encode.robot_encoder import Robot36Encoder
+        encoder = Robot36Encoder()
+        # Create test Y and chroma rows
+        y_row = np.full(320, 128, dtype=np.uint8)
+        chroma_row = np.full(320, 128, dtype=np.uint8)
+
+        audio = encoder.encode_scanline(y_row, chroma_row, 0)
+        assert len(audio) > 0
+        assert audio.dtype == np.float32
+
+    def test_encode_full_image(self):
+        from sstv_core.encode.robot_encoder import Robot36Encoder
+        encoder = Robot36Encoder()
+        test_image = np.random.randint(0, 255, (240, 320, 3), dtype=np.uint8)
+        audio = encoder.encode_image(test_image)
+
+        # Check we got audio
+        assert len(audio) > 0
+
+        # Check progress
+        progress = encoder.get_progress()
+        assert progress.lines_encoded == 240
+        assert progress.percent_complete == 100.0
+
+    def test_total_duration(self):
+        from sstv_core.encode.robot_encoder import Robot36Encoder
+        encoder = Robot36Encoder()
+        duration = encoder.get_total_duration_sec()
+        # Robot 36: 240 lines * ~194ms/line = ~46.5 seconds
+        assert 45 < duration < 50

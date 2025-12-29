@@ -6,6 +6,8 @@ Modules:
     vis_detector: VIS code detection using Goertzel filtering
     sync_detector: Sync pulse detection and mode timing analysis
     scottie_decoder: Scottie S1/S2/DX mode decoder
+    martin_decoder: Martin M1/M2 mode decoder
+    robot_decoder: Robot 36/72 mode decoder
     image_saver: Auto-save functionality for decoded images
 """
 
@@ -18,6 +20,10 @@ __all__ = [
     "ModeTimingEstimate",
     "ScottieS1Decoder",
     "ScottieS1Config",
+    "MartinM1Decoder",
+    "MartinM1Config",
+    "Robot36Decoder",
+    "Robot36Config",
     "ScanlineData",
     "DecodeProgress",
     "ImageSaver",
@@ -60,6 +66,12 @@ def __getattr__(name: str):
             "DecodeProgress": DecodeProgress,
         }
         return mapping[name]
+    elif name in ("MartinM1Decoder", "MartinM1Config"):
+        from sstv_core.decode.martin_decoder import MartinM1Decoder, MartinM1Config
+        return MartinM1Decoder if name == "MartinM1Decoder" else MartinM1Config
+    elif name in ("Robot36Decoder", "Robot36Config"):
+        from sstv_core.decode.robot_decoder import Robot36Decoder, Robot36Config
+        return Robot36Decoder if name == "Robot36Decoder" else Robot36Config
     elif name in ("ImageSaver", "ImageSaveError"):
         from sstv_core.decode.image_saver import ImageSaver, ImageSaveError
         return ImageSaver if name == "ImageSaver" else ImageSaveError

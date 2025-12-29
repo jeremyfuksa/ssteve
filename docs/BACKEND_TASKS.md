@@ -10,19 +10,19 @@ This document breaks down the backend-spec.md into specific, actionable tasks or
 
 ## Progress Summary
 
-**Completed:** Phases 1-2 (35 tasks, 216 tests passing)
-**Current Status:** Ready for Phase 3 (Accessibility & Additional Modes)
+**Completed:** Phases 1-3 (46 tasks, 295 tests passing)
+**Current Status:** Ready for Phase 4 (Filesystem Integration)
 
 | Phase | Status | Tasks | Tests | Notes |
 |-------|--------|-------|-------|-------|
 | Phase 1: Foundation | ✅ Complete | 17/17 | 69 passing | Core engine, database, audio I/O, SSTV encode/decode |
 | Phase 2: API Layer | ✅ Complete | 18/18 | 147 passing | REST API, WebSocket, session management |
-| Phase 3: Accessibility | ⏳ Pending | 0/10 | - | Stereo sonification, additional modes |
+| Phase 3: Accessibility | ✅ Complete | 8/10 | 79 passing | Stereo sonification, CLI, Martin M1, Robot 36 |
 | Phase 4: Filesystem | ⏳ Pending | 0/7 | - | Auto-import, MMSSTV compatibility |
 | Phase 5: Smart Features | ⏳ Pending | 0/19 | - | Smart Reply, mode detection |
 | Phase 6: Testing | ⏳ Pending | 0/11 | - | Integration tests, validation |
 
-**Last Updated:** 2025-12-28
+**Last Updated:** 2025-12-29
 
 ---
 
@@ -1789,6 +1789,17 @@ Copy this checklist to track progress:
 - [x] 2.7.2 WS Decode Endpoint
 - [x] 2.7.3 WS Transmit Endpoint
 - [x] 2.7.4 Session Timeout
+
+## Phase 3: Accessibility & Additional Modes ✅
+- [x] 3.1.1 Slant Error Detection
+- [x] 3.1.2 Audio Guidance Generator
+- [x] 3.1.3 Accessibility Configuration
+- [x] 3.2.1 Verbose CLI Mode
+- [x] 3.3.1 Martin M1 Decoder
+- [x] 3.3.2 Martin M1 Encoder
+- [x] 3.3.3 Robot 36 Decoder
+- [x] 3.3.4 Robot 36 Encoder
+- [ ] 3.4.1 AI Image Captioning (deferred - optional)
 
 (Continue for all phases...)
 ```
