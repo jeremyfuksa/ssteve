@@ -10,19 +10,38 @@ This document breaks down the backend-spec.md into specific, actionable tasks or
 
 ## Progress Summary
 
-**Completed:** Phases 1-3 (46 tasks, 295 tests passing)
-**Current Status:** Ready for Phase 4 (Filesystem Integration)
+**Completed:** Core DSP modules, database schema/migrations, audio/PTT primitives, CLI + accessibility modules
+**Current Status:** API layer is scaffolded but not wired to DSP/IO; config/images/devices endpoints use stubs; persistence + WebSocket streaming still pending
 
 | Phase | Status | Tasks | Tests | Notes |
 |-------|--------|-------|-------|-------|
-| Phase 1: Foundation | ✅ Complete | 17/17 | 69 passing | Core engine, database, audio I/O, SSTV encode/decode |
-| Phase 2: API Layer | ✅ Complete | 18/18 | 147 passing | REST API, WebSocket, session management |
-| Phase 3: Accessibility | ✅ Complete | 8/10 | 79 passing | Stereo sonification, CLI, Martin M1, Robot 36 |
+| Phase 1: Foundation | ✅ Mostly complete | Partial | Unit tests present | Core DSP, DB models/migrations, audio I/O primitives |
+| Phase 2: API Layer | 🟡 In progress | Partial | Unit tests only | Routes scaffolded; device/config/images still stubbed; no DSP wiring |
+| Phase 3: Accessibility | 🟡 In progress | Partial | Unit tests present | Stereo sonification + CLI done; integration not wired |
 | Phase 4: Filesystem | ⏳ Pending | 0/7 | - | Auto-import, MMSSTV compatibility |
-| Phase 5: Smart Features | ⏳ Pending | 0/19 | - | Smart Reply, mode detection |
+| Phase 5: Smart Features | 🟡 In progress | 12/19 | Smart features tests | Smart Reply (5/5), Mode Detection (1/3), Device Config (1/2), QSO Logging (3/3) |
 | Phase 6: Testing | ⏳ Pending | 0/11 | - | Integration tests, validation |
 
-**Last Updated:** 2025-12-29
+**Last Updated:** 2026-01-16 (Phase 5: 80% complete - Smart Reply, Mode Detection, Device Config, QSO Logging)
+
+### Reality Check (2026-01-10)
+
+- API endpoints for devices/config/images are still in-memory or mocked.
+- Decode/transmit routes create sessions but do not run DSP/audio pipelines.
+- WebSocket manager exists but is not emitting real decode/transmit events.
+
+### CRITICAL: Make-or-Break Features (2026-01-10)
+
+**User research identified 4 DSP features that are ship-blockers. These MUST be implemented before v1:**
+
+1. ❌ **Hough Transform Auto-Slant Correction** - Not implemented (uses simple sync or manual slider)
+2. ❌ **Correlation-Based VIS Detection** - Not implemented (uses simple tone detection)
+3. ❌ **Bandpass Filter (1200-2300 Hz)** - Not implemented (no acoustic noise rejection)
+4. ❌ **Real-Time Audio Level Monitoring** - Not implemented (no WebSocket `audio_levels` event)
+
+**Impact:** Without these 4 features, users will delete SSTeVe and return to MMSSTV/Black Cat.
+
+**Timeline:** +3-4 weeks backend work to implement all 4 features.
 
 ---
 
@@ -456,6 +475,19 @@ This document breaks down the backend-spec.md into specific, actionable tasks or
 
 ---
 
+#### Task 2.1.3: API Docs Export (OpenAPI + Postman) 🟡
+**Priority:** Important
+**Estimated effort:** 2 hours
+**Dependencies:** Task 2.1.1
+
+**Acceptance criteria:**
+- [ ] Export OpenAPI spec to `docs/openapi.json`
+- [ ] Generate Postman collection at `docs/postman/SSTeVe.postman_collection.json`
+- [ ] Include base URL variables (localhost + configurable env)
+- [ ] Verify collection imports cleanly in Postman
+
+**Reference:** backend-spec.md §3.1
+
 ### 2.2 Decode Endpoints
 
 #### Task 2.2.1: Session Manager 🔴
@@ -856,6 +888,23 @@ This document breaks down the backend-spec.md into specific, actionable tasks or
 **Reference:** backend-spec.md §3.2.1
 
 **Code location:** `sstv_core/api/session_manager.py`
+
+---
+
+#### Task 2.7.5: WebSocket Event Simulation 🟡
+**Priority:** Important
+**Estimated effort:** 2 hours
+**Dependencies:** Task 2.7.1, Task 2.7.2, Task 2.7.3
+
+**Acceptance criteria:**
+- [x] Introduce a background operation manager that can emit VIS/scanline/tx buffers for sessions in lieu of live DSP
+- [x] Gate the simulation behind `SSTVE_SIMULATE_OPERATIONS` to avoid affecting real workflows
+- [x] Add pytest coverage that verifies the workers finish or cancel cleanly
+- [x] Ensure WebSocket routes still return session state when simulation is disabled (default)
+
+**Reference:** backend-spec.md §3.2, §5.1 (WebSocket progress flow)
+
+**Code location:** `sstv_core/api/operation_manager.py`, `sstv_core/tests/api/test_operation_manager.py`
 
 ---
 
