@@ -19,6 +19,7 @@ from sstv_core.api.models import (
     TransmitStatusResponse,
     TransmitState,
 )
+from sstv_core.api.dsp_manager import dsp_manager
 from sstv_core.api.session_manager import session_manager
 
 
@@ -52,6 +53,16 @@ async def start_transmit(request: TransmitRequest) -> TransmitResponse:
         }
 
         session = await session_manager.create_transmit_session(metadata=metadata)
+
+        # Start real DSP transmit operation
+        await dsp_manager.start_transmit(
+            session_id=session.session_id,
+            image_path=request.image_path,
+            mode=request.mode.value,
+            device_id=request.device_id,
+            vox_enabled=request.vox_enabled,
+            serial_port=request.serial_port,
+        )
 
         # Build WebSocket URL
         ws_url = f"ws://localhost:8000/api/v1/ws/transmit/{session.session_id}"
@@ -169,6 +180,7 @@ async def cancel_transmit(tx_id: UUID) -> None:
             },
         )
 
+    await dsp_manager.stop_transmit(tx_id)
     try:
         await session_manager.cancel_transmit_session(tx_id)
     except ValueError as e:

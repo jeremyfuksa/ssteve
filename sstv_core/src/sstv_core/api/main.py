@@ -238,6 +238,8 @@ def register_routes(app: FastAPI) -> None:
         transmit,
         websocket,
         import_routes,
+        smart_reply,
+        qso,
     )
 
     app.include_router(decode.router, prefix="/api/v1", tags=["Decode"])
@@ -247,6 +249,8 @@ def register_routes(app: FastAPI) -> None:
     app.include_router(images.router, prefix="/api/v1", tags=["Images"])
     app.include_router(websocket.router, prefix="/api/v1", tags=["WebSocket"])
     app.include_router(import_routes.router, prefix="/api/v1", tags=["Import"])
+    app.include_router(smart_reply.router, prefix="/api/v1", tags=["Smart Reply"])
+    app.include_router(qso.router, prefix="/api/v1", tags=["QSO Logging"])
 
     # Override the import_routes get_db dependency with the actual session factory
     import_routes.get_db = get_db_session

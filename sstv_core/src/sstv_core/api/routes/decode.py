@@ -19,6 +19,7 @@ from sstv_core.api.models import (
     DecodeStatusResponse,
     DecodeState,
 )
+from sstv_core.api.dsp_manager import dsp_manager
 from sstv_core.api.session_manager import session_manager
 
 
@@ -51,6 +52,17 @@ async def start_decode(request: DecodeStartRequest) -> DecodeStartResponse:
         }
 
         session = await session_manager.create_decode_session(metadata=metadata)
+
+        # Start real DSP decode operation
+        await dsp_manager.start_decode(
+            session_id=session.session_id,
+            mode=request.mode.value if request.mode else None,
+            auto_detect=request.auto_detect,
+            timeout_seconds=float(request.timeout_seconds or 120.0),
+            save_image=request.save_image,
+            callsign=request.callsign,
+            device_id=request.device_id,
+        )
 
         # Build WebSocket URL
         ws_url = f"ws://localhost:8000/api/v1/ws/decode/{session.session_id}"
@@ -164,6 +176,7 @@ async def stop_decode(session_id: UUID) -> None:
             },
         )
 
+    await dsp_manager.stop_decode(session_id)
     try:
         await session_manager.stop_decode_session(session_id)
     except ValueError as e:

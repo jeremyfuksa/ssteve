@@ -6,14 +6,27 @@ Handles:
 - GET /devices/serial - List available serial ports (for PTT)
 """
 
-from typing import List
+from typing import List, Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, status
 
 from sstv_core.api.models import AudioDevice, SerialPort
 
+try:
+    from serial.tools import list_ports
+except Exception:  # pragma: no cover - depends on optional pyserial
+    list_ports = None
+
 
 router = APIRouter(prefix="/devices", tags=["devices"])
+
+_SSTV_SAMPLE_RATE = 48000
+
+
+def _pick_sample_rate(sample_rates: list[int]) -> int:
+    if _SSTV_SAMPLE_RATE in sample_rates:
+        return _SSTV_SAMPLE_RATE
+    return sample_rates[0] if sample_rates else _SSTV_SAMPLE_RATE
 
 
 @router.get("/audio", response_model=List[AudioDevice])
@@ -29,24 +42,35 @@ async def list_audio_devices() -> List[AudioDevice]:
 
     Used for device selection in the UI.
     """
-    # TODO: Implement actual audio device enumeration using sounddevice
-    # For now, return mock data for API development
-    return [
-        AudioDevice(
-            device_id="0",
-            name="Built-in Audio",
-            channels=2,
-            sample_rate=48000,
-            is_default=True,
-        ),
-        AudioDevice(
-            device_id="1",
-            name="USB Audio Device",
-            channels=2,
-            sample_rate=48000,
-            is_default=False,
-        ),
-    ]
+    try:
+        from sstv_core.audio.device_manager import AudioDeviceManager, AudioDeviceError
+
+        manager = AudioDeviceManager()
+        devices = manager.list_all_devices()
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "DEVICE_FAILURE",
+                "message": f"Can't list audio devices - {e}",
+                "recoverable": True,
+                "suggested_action": "Check your audio connections and try again",
+            },
+        ) from e
+
+    response: List[AudioDevice] = []
+    for device in devices:
+        response.append(
+            AudioDevice(
+                device_id=device.id,
+                name=device.name,
+                channels=device.channels,
+                sample_rate=_pick_sample_rate(device.sample_rates),
+                is_default=device.is_default,
+            )
+        )
+
+    return response
 
 
 @router.get("/serial", response_model=List[SerialPort])
@@ -60,17 +84,29 @@ async def list_serial_ports() -> List[SerialPort]:
 
     Used for PTT serial port selection in the UI.
     """
-    # TODO: Implement actual serial port enumeration using pyserial
-    # For now, return mock data for API development
-    return [
-        SerialPort(
-            port="/dev/ttyUSB0",
-            description="USB Serial Device",
-            manufacturer="FTDI",
-        ),
-        SerialPort(
-            port="/dev/ttyUSB1",
-            description="Arduino Uno",
-            manufacturer="Arduino",
-        ),
-    ]
+    if list_ports is None:
+        return []
+
+    try:
+        ports = list_ports.comports()
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "DEVICE_FAILURE",
+                "message": f"Can't list serial ports - {e}",
+                "recoverable": True,
+                "suggested_action": "Check serial device connections and try again",
+            },
+        ) from e
+
+    response: List[SerialPort] = []
+    for port in ports:
+        response.append(
+            SerialPort(
+                port=port.device,
+                description=port.description or "",
+                manufacturer=port.manufacturer,
+            )
+        )
+    return response

@@ -7,9 +7,13 @@ Handles:
 """
 
 from typing import List, Optional
-from uuid import UUID
+from uuid import UUID, uuid5, NAMESPACE_OID
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import desc
+from sqlalchemy.orm import Session
+
+from sstv_core.api.main import get_db_session
 
 from sstv_core.api.models import ImageMetadata, ImageListResponse, SSTVMode
 
@@ -17,8 +21,51 @@ from sstv_core.api.models import ImageMetadata, ImageListResponse, SSTVMode
 router = APIRouter(prefix="/images", tags=["images"])
 
 
-# Mock image storage (will be replaced with database queries)
-_images: List[ImageMetadata] = []
+def _db_id_to_uuid(db_id: int) -> UUID:
+    """Convert database integer ID to deterministic UUID."""
+    # Use UUID v5 (name-based) to create deterministic UUIDs from integer IDs
+    # This ensures the same database ID always maps to the same UUID
+    return uuid5(NAMESPACE_OID, f"sstv_image_{db_id}")
+
+
+def _uuid_to_db_id(image_uuid: UUID) -> int:
+    """Extract database ID from UUID.
+    
+    Since we use deterministic UUIDs, we can't directly extract the ID.
+    This function is a helper for error messages only.
+    For lookups, we need to iterate or use a proper UUID column in DB.
+    """
+    # For now, return a sentinel that will fail lookup gracefully
+    # TODO: Proper solution is to add UUID column to database
+    raise ValueError(f"Cannot extract database ID from UUID {image_uuid}")
+
+
+def _db_image_to_api(db_image) -> ImageMetadata:
+    """Convert database SSTVImage to API ImageMetadata model."""
+    from sstv_core.database.models import SSTVImage
+    
+    # Determine direction
+    direction = "rx" if db_image.is_received else "tx"
+    
+    # Parse mode enum
+    try:
+        mode = SSTVMode(db_image.mode)
+    except ValueError:
+        mode = SSTVMode.MARTIN_M1  # Default fallback
+    
+    return ImageMetadata(
+        id=_db_id_to_uuid(db_image.id),
+        filename=db_image.filename,
+        filepath=db_image.filepath,
+        timestamp=db_image.timestamp,
+        mode=mode,
+        direction=direction,
+        callsign=db_image.callsign,
+        operator_name=db_image.operator_name,
+        frequency_hz=db_image.frequency_hz,
+        rx_quality_score=db_image.rx_quality_score,
+        comments=db_image.comments,
+    )
 
 
 @router.get("", response_model=ImageListResponse)
@@ -28,6 +75,7 @@ async def list_images(
     direction: Optional[str] = Query(default=None, pattern="^(rx|tx)$", description="Filter by direction"),
     mode: Optional[SSTVMode] = Query(default=None, description="Filter by SSTV mode"),
     callsign: Optional[str] = Query(default=None, description="Filter by callsign"),
+    session: Session = Depends(get_db_session),
 ) -> ImageListResponse:
     """
     List images with pagination and optional filtering.
@@ -46,31 +94,39 @@ async def list_images(
         mode: Filter by SSTV mode
         callsign: Filter by operator callsign
     """
-    # Apply filters
-    filtered = _images
+    from sstv_core.database.models import SSTVImage
+    
+    # Build query
+    query = session.query(SSTVImage)
 
+    # Apply filters
     if direction:
-        filtered = [img for img in filtered if img.direction == direction]
+        is_received = (direction == "rx")
+        query = query.filter(SSTVImage.is_received == is_received)
 
     if mode:
-        filtered = [img for img in filtered if img.mode == mode]
+        query = query.filter(SSTVImage.mode == mode.value)
 
     if callsign:
-        callsign_upper = callsign.upper()
-        filtered = [
-            img for img in filtered
-            if img.callsign and img.callsign.upper() == callsign_upper
-        ]
+        # Case-insensitive callsign match
+        query = query.filter(SSTVImage.callsign.ilike(f"%{callsign}%"))
 
-    # Sort by timestamp descending (newest first)
-    filtered.sort(key=lambda x: x.timestamp, reverse=True)
+    # Get total count before pagination
+    total = query.count()
 
-    # Apply pagination
-    total = len(filtered)
-    paginated = filtered[offset:offset + limit]
+    # Sort by timestamp descending (newest first) and paginate
+    images_db = (
+        query.order_by(desc(SSTVImage.timestamp))
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+
+    # Convert to API models
+    images_api = [_db_image_to_api(img) for img in images_db]
 
     return ImageListResponse(
-        images=paginated,
+        images=images_api,
         total=total,
         limit=limit,
         offset=offset,
@@ -78,7 +134,10 @@ async def list_images(
 
 
 @router.get("/{image_id}", response_model=ImageMetadata)
-async def get_image(image_id: UUID) -> ImageMetadata:
+async def get_image(
+    image_id: UUID,
+    session: Session = Depends(get_db_session),
+) -> ImageMetadata:
     """
     Get metadata for a specific image.
 
@@ -92,10 +151,17 @@ async def get_image(image_id: UUID) -> ImageMetadata:
     Raises:
         404 Not Found: If image doesn't exist
     """
-    for img in _images:
-        if img.id == image_id:
-            return img
-
+    from sstv_core.database.models import SSTVImage
+    
+    # Since UUIDs are deterministic (uuid5), we need to find matching database entry
+    # TODO: Add UUID column to database for efficient lookups
+    all_images = session.query(SSTVImage).all()
+    
+    for db_image in all_images:
+        if _db_id_to_uuid(db_image.id) == image_id:
+            return _db_image_to_api(db_image)
+    
+    # Not found
     raise HTTPException(
         status_code=status.HTTP_404_NOT_FOUND,
         detail={
