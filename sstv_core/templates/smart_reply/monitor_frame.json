@@ -1,0 +1,54 @@
+{
+  "name": "Monitor Frame",
+  "base_image": "monitor_frame_base.png",
+  "default_mode": "ScottieS1",
+  "template_id": "monitor_frame",
+  "fields": [
+    {
+      "id": "callsign_received",
+      "label": "Their Callsign",
+      "x": 160,
+      "y": 20,
+      "font_size": 28,
+      "font_family": "Arial",
+      "color": "#FFFFFF",
+      "alignment": "center"
+    },
+    {
+      "id": "mode",
+      "label": "Mode",
+      "x": 20,
+      "y": 220,
+      "font_size": 14,
+      "color": "#7CFF8A",
+      "format": "Mode: {value}"
+    },
+    {
+      "id": "frequency_mhz",
+      "x": 120,
+      "y": 220,
+      "font_size": 14,
+      "color": "#F2B451",
+      "format": "{value:.3f} MHz",
+      "label": "Frequency"
+    },
+    {
+      "id": "snr_db",
+      "x": 240,
+      "y": 220,
+      "font_size": 14,
+      "color": "#5BD6E8",
+      "format": "{value}dB",
+      "label": "SNR"
+    },
+    {
+      "id": "callsign_operator",
+      "label": "Your Callsign",
+      "x": 160,
+      "y": 240,
+      "font_size": 20,
+      "color": "#FFFFFF",
+      "alignment": "center"
+    }
+  ]
+}

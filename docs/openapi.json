@@ -1,0 +1,1471 @@
+{
+  "components": {
+    "schemas": {
+      "AudioDevice": {
+        "description": "Audio device information.",
+        "properties": {
+          "channels": {
+            "description": "Number of audio channels",
+            "maximum": 32.0,
+            "minimum": 1.0,
+            "title": "Channels",
+            "type": "integer"
+          },
+          "device_id": {
+            "description": "Device identifier (OS-specific)",
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Device Id",
+            "type": "string"
+          },
+          "is_default": {
+            "default": false,
+            "description": "Whether this is the system default device",
+            "title": "Is Default",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "Human-readable device name",
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "sample_rate": {
+            "description": "Sample rate in Hz",
+            "maximum": 192000.0,
+            "minimum": 8000.0,
+            "title": "Sample Rate",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "device_id",
+          "name",
+          "channels",
+          "sample_rate"
+        ],
+        "title": "AudioDevice",
+        "type": "object"
+      },
+      "Configuration": {
+        "description": "System configuration.",
+        "properties": {
+          "afc_range_hz": {
+            "default": 100,
+            "description": "AFC search range in Hz",
+            "maximum": 500.0,
+            "minimum": 0.0,
+            "title": "Afc Range Hz",
+            "type": "integer"
+          },
+          "audio_input_device": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Selected audio input device ID",
+            "title": "Audio Input Device"
+          },
+          "audio_output_device": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Selected audio output device ID",
+            "title": "Audio Output Device"
+          },
+          "auto_afc": {
+            "default": true,
+            "description": "Enable automatic frequency correction",
+            "title": "Auto Afc",
+            "type": "boolean"
+          },
+          "auto_detect_mode": {
+            "default": true,
+            "description": "Enable automatic SSTV mode detection from VIS",
+            "title": "Auto Detect Mode",
+            "type": "boolean"
+          },
+          "auto_squelch": {
+            "default": true,
+            "description": "Enable automatic squelch threshold",
+            "title": "Auto Squelch",
+            "type": "boolean"
+          },
+          "default_transmit_mode": {
+            "$ref": "#/components/schemas/SSTVMode",
+            "default": "MartinM1",
+            "description": "Default SSTV mode for transmissions"
+          },
+          "image_library_path": {
+            "default": "~/sstv_images",
+            "description": "Path to image library directory",
+            "title": "Image Library Path",
+            "type": "string"
+          },
+          "operating_mode": {
+            "$ref": "#/components/schemas/OperatingMode",
+            "default": "standard",
+            "description": "Operating conditions mode"
+          },
+          "ptt_method": {
+            "$ref": "#/components/schemas/PTTMethod",
+            "default": "none",
+            "description": "PTT control method"
+          },
+          "ptt_post_delay_ms": {
+            "default": 200,
+            "description": "PTT post-delay in milliseconds (audio completion)",
+            "maximum": 5000.0,
+            "minimum": 0.0,
+            "title": "Ptt Post Delay Ms",
+            "type": "integer"
+          },
+          "ptt_pre_delay_ms": {
+            "default": 500,
+            "description": "PTT pre-delay in milliseconds (radio stabilization)",
+            "maximum": 5000.0,
+            "minimum": 0.0,
+            "title": "Ptt Pre Delay Ms",
+            "type": "integer"
+          },
+          "ptt_serial_port": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Serial port for PTT (if using serial PTT)",
+            "title": "Ptt Serial Port"
+          },
+          "squelch_threshold_db": {
+            "default": -40.0,
+            "description": "Squelch threshold in dB (manual mode)",
+            "maximum": 0.0,
+            "minimum": -100.0,
+            "title": "Squelch Threshold Db",
+            "type": "number"
+          }
+        },
+        "title": "Configuration",
+        "type": "object"
+      },
+      "DecodeStartRequest": {
+        "description": "Request to start a decode session.",
+        "properties": {
+          "auto_detect": {
+            "default": true,
+            "description": "Enable VIS-based mode auto-detection",
+            "title": "Auto Detect",
+            "type": "boolean"
+          },
+          "callsign": {
+            "anyOf": [
+              {
+                "maxLength": 20,
+                "minLength": 3,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Operator callsign (for QSO logging)",
+            "title": "Callsign"
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SSTVMode"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "SSTV mode (null for auto-detect)"
+          },
+          "save_image": {
+            "default": true,
+            "description": "Save decoded image to library",
+            "title": "Save Image",
+            "type": "boolean"
+          },
+          "timeout_seconds": {
+            "anyOf": [
+              {
+                "maximum": 3600.0,
+                "minimum": 10.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 300,
+            "description": "Max listening duration in seconds (null for unlimited)",
+            "title": "Timeout Seconds"
+          }
+        },
+        "title": "DecodeStartRequest",
+        "type": "object"
+      },
+      "DecodeStartResponse": {
+        "description": "Response from starting a decode session.",
+        "properties": {
+          "session_id": {
+            "description": "Unique session identifier for tracking",
+            "format": "uuid",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "started_at": {
+            "description": "Session start timestamp (UTC)",
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/DecodeState",
+            "description": "Current session state"
+          },
+          "websocket_url": {
+            "description": "WebSocket URL for real-time updates",
+            "title": "Websocket Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "state",
+          "websocket_url",
+          "started_at"
+        ],
+        "title": "DecodeStartResponse",
+        "type": "object"
+      },
+      "DecodeState": {
+        "description": "Decode session states.",
+        "enum": [
+          "listening",
+          "vis_detected",
+          "decoding",
+          "completed",
+          "failed",
+          "stopped"
+        ],
+        "title": "DecodeState",
+        "type": "string"
+      },
+      "DecodeStatusResponse": {
+        "description": "Decode session status.",
+        "properties": {
+          "completed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Error message if state is 'failed'",
+            "title": "Error"
+          },
+          "frequency_offset_hz": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Frequency offset from nominal (AFC)",
+            "title": "Frequency Offset Hz"
+          },
+          "image_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Image ID if decode completed and saved",
+            "title": "Image Id"
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SSTVMode"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Detected/selected SSTV mode"
+          },
+          "mode_confidence": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Mode detection confidence (0-1)",
+            "title": "Mode Confidence"
+          },
+          "progress_percent": {
+            "default": 0.0,
+            "description": "Decode progress (0-100)",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Progress Percent",
+            "type": "number"
+          },
+          "scanlines_received": {
+            "default": 0,
+            "description": "Number of scanlines decoded",
+            "minimum": 0.0,
+            "title": "Scanlines Received",
+            "type": "integer"
+          },
+          "session_id": {
+            "format": "uuid",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "snr_db": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Signal-to-noise ratio in dB",
+            "title": "Snr Db"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/DecodeState"
+          }
+        },
+        "required": [
+          "session_id",
+          "state",
+          "started_at"
+        ],
+        "title": "DecodeStatusResponse",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "ImageListResponse": {
+        "description": "Paginated image list.",
+        "properties": {
+          "images": {
+            "description": "List of image metadata",
+            "items": {
+              "$ref": "#/components/schemas/ImageMetadata"
+            },
+            "title": "Images",
+            "type": "array"
+          },
+          "limit": {
+            "description": "Pagination limit",
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "description": "Pagination offset",
+            "minimum": 0.0,
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "description": "Total number of images matching filters",
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "images",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "ImageListResponse",
+        "type": "object"
+      },
+      "ImageMetadata": {
+        "description": "Metadata for a stored SSTV image.",
+        "properties": {
+          "callsign": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Operator callsign",
+            "title": "Callsign"
+          },
+          "direction": {
+            "description": "Receive or transmit",
+            "pattern": "^(rx|tx)$",
+            "title": "Direction",
+            "type": "string"
+          },
+          "filepath": {
+            "description": "Absolute path to image file",
+            "title": "Filepath",
+            "type": "string"
+          },
+          "frequency_offset_hz": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Frequency offset (RX only)",
+            "title": "Frequency Offset Hz"
+          },
+          "height": {
+            "description": "Image height in pixels",
+            "minimum": 1.0,
+            "title": "Height",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Unique image identifier",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/SSTVMode",
+            "description": "SSTV mode used"
+          },
+          "snr_db": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Signal quality (RX only)",
+            "title": "Snr Db"
+          },
+          "thumbnail_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Path to thumbnail image",
+            "title": "Thumbnail Path"
+          },
+          "timestamp": {
+            "description": "Capture/transmit timestamp (UTC)",
+            "format": "date-time",
+            "title": "Timestamp",
+            "type": "string"
+          },
+          "width": {
+            "description": "Image width in pixels",
+            "minimum": 1.0,
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "filepath",
+          "mode",
+          "direction",
+          "timestamp",
+          "width",
+          "height"
+        ],
+        "title": "ImageMetadata",
+        "type": "object"
+      },
+      "OperatingMode": {
+        "description": "Operating conditions modes (accessibility, not aesthetic).",
+        "enum": [
+          "standard",
+          "night_vision",
+          "sunlight"
+        ],
+        "title": "OperatingMode",
+        "type": "string"
+      },
+      "PTTMethod": {
+        "description": "PTT control methods.",
+        "enum": [
+          "serial_rts",
+          "serial_dtr",
+          "vox",
+          "none"
+        ],
+        "title": "PTTMethod",
+        "type": "string"
+      },
+      "SSTVMode": {
+        "description": "Supported SSTV modes.",
+        "enum": [
+          "MartinM1",
+          "MartinM2",
+          "ScottieS1",
+          "ScottieS2",
+          "ScottieDX",
+          "Robot36",
+          "Robot72",
+          "PD90",
+          "PD120",
+          "PD180",
+          "PD240",
+          "WraaseSC2_180"
+        ],
+        "title": "SSTVMode",
+        "type": "string"
+      },
+      "SerialPort": {
+        "description": "Serial port information for PTT control.",
+        "properties": {
+          "description": {
+            "default": "",
+            "description": "Human-readable port description",
+            "maxLength": 512,
+            "title": "Description",
+            "type": "string"
+          },
+          "manufacturer": {
+            "anyOf": [
+              {
+                "maxLength": 256,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Device manufacturer",
+            "title": "Manufacturer"
+          },
+          "port": {
+            "description": "Serial port identifier (e.g., COM3, /dev/ttyUSB0)",
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Port",
+            "type": "string"
+          }
+        },
+        "required": [
+          "port"
+        ],
+        "title": "SerialPort",
+        "type": "object"
+      },
+      "TransmitRequest": {
+        "description": "Request to transmit an SSTV image.",
+        "properties": {
+          "callsign": {
+            "anyOf": [
+              {
+                "maxLength": 20,
+                "minLength": 3,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Operator callsign (overlaid on image)",
+            "title": "Callsign"
+          },
+          "image_path": {
+            "description": "Absolute path to image file",
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "Image Path",
+            "type": "string"
+          },
+          "include_vis": {
+            "default": true,
+            "description": "Include VIS code in transmission",
+            "title": "Include Vis",
+            "type": "boolean"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/SSTVMode",
+            "description": "SSTV mode for transmission"
+          },
+          "vox_enabled": {
+            "default": false,
+            "description": "Use VOX (silence preamble) instead of PTT",
+            "title": "Vox Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "image_path",
+          "mode"
+        ],
+        "title": "TransmitRequest",
+        "type": "object"
+      },
+      "TransmitResponse": {
+        "description": "Response from starting a transmission.",
+        "properties": {
+          "estimated_duration_seconds": {
+            "description": "Estimated transmission duration",
+            "minimum": 0.0,
+            "title": "Estimated Duration Seconds",
+            "type": "number"
+          },
+          "started_at": {
+            "description": "Transmission start timestamp (UTC)",
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/TransmitState",
+            "description": "Current transmission state"
+          },
+          "tx_id": {
+            "description": "Unique transmission identifier",
+            "format": "uuid",
+            "title": "Tx Id",
+            "type": "string"
+          },
+          "websocket_url": {
+            "description": "WebSocket URL for real-time updates",
+            "title": "Websocket Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tx_id",
+          "state",
+          "websocket_url",
+          "estimated_duration_seconds",
+          "started_at"
+        ],
+        "title": "TransmitResponse",
+        "type": "object"
+      },
+      "TransmitState": {
+        "description": "Transmit session states.",
+        "enum": [
+          "pending",
+          "ptt_engaged",
+          "transmitting",
+          "completed",
+          "failed",
+          "cancelled"
+        ],
+        "title": "TransmitState",
+        "type": "string"
+      },
+      "TransmitStatusResponse": {
+        "description": "Transmission status.",
+        "properties": {
+          "completed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "elapsed_seconds": {
+            "default": 0.0,
+            "description": "Elapsed transmission time",
+            "minimum": 0.0,
+            "title": "Elapsed Seconds",
+            "type": "number"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Error message if state is 'failed'",
+            "title": "Error"
+          },
+          "estimated_duration_seconds": {
+            "description": "Total estimated duration",
+            "minimum": 0.0,
+            "title": "Estimated Duration Seconds",
+            "type": "number"
+          },
+          "image_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Image ID if saved to library",
+            "title": "Image Id"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/SSTVMode"
+          },
+          "progress_percent": {
+            "default": 0.0,
+            "description": "Transmission progress (0-100)",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Progress Percent",
+            "type": "number"
+          },
+          "scanlines_transmitted": {
+            "default": 0,
+            "description": "Number of scanlines transmitted",
+            "minimum": 0.0,
+            "title": "Scanlines Transmitted",
+            "type": "integer"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/TransmitState"
+          },
+          "tx_id": {
+            "format": "uuid",
+            "title": "Tx Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tx_id",
+          "state",
+          "mode",
+          "estimated_duration_seconds",
+          "started_at"
+        ],
+        "title": "TransmitStatusResponse",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "SSTV (Slow-Scan Television) encode/decode engine",
+    "title": "SSTeVe API",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/config": {
+      "get": {
+        "description": "Get the current system configuration.\n\nReturns all configuration settings including:\n- Audio device selections\n- PTT method and settings\n- Default SSTV mode\n- Image library path\n- Operating mode (standard/night vision/sunlight)\n- Auto-detection settings (mode, AFC, squelch)",
+        "operationId": "get_config_api_v1_config_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Configuration"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Config",
+        "tags": [
+          "Config",
+          "config"
+        ]
+      },
+      "patch": {
+        "description": "Update specific configuration fields.\n\nOnly the provided fields will be updated; others remain unchanged.\nThis is useful for changing individual settings without replacing\nthe entire configuration.\n\nExample:\n    PATCH /config\n    {\"ptt_method\": \"serial_rts\", \"ptt_serial_port\": \"/dev/ttyUSB0\"}\n\nRaises:\n    400 Bad Request: If update would create invalid configuration",
+        "operationId": "patch_config_api_v1_config_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "title": "Updates",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Configuration"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Patch Config",
+        "tags": [
+          "Config",
+          "config"
+        ]
+      },
+      "post": {
+        "description": "Replace the entire configuration.\n\nUpdates all configuration settings at once. Any fields not provided\nwill be reset to their defaults.\n\nRaises:\n    400 Bad Request: If configuration is invalid (e.g., serial PTT without port)",
+        "operationId": "update_config_api_v1_config_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Configuration"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Configuration"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Config",
+        "tags": [
+          "Config",
+          "config"
+        ]
+      }
+    },
+    "/api/v1/decode/start": {
+      "post": {
+        "description": "Start a new decode session.\n\nCreates a listening session that waits for SSTV signals. The session\nwill auto-detect the SSTV mode from VIS code (if enabled) or use the\nspecified mode.\n\nReturns:\n    DecodeStartResponse with session ID and WebSocket URL for real-time updates.\n\nRaises:\n    409 Conflict: If another decode/transmit session is already active (half-duplex)",
+        "operationId": "start_decode_api_v1_decode_start_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DecodeStartRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DecodeStartResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start Decode",
+        "tags": [
+          "Decode",
+          "decode"
+        ]
+      }
+    },
+    "/api/v1/decode/status/{session_id}": {
+      "get": {
+        "description": "Get the current status of a decode session.\n\nReturns detailed progress information including:\n- Current state (listening, decoding, completed, etc.)\n- Detected SSTV mode and confidence\n- Progress percentage and scanlines received\n- Signal quality metrics (SNR, frequency offset)\n\nRaises:\n    404 Not Found: If session doesn't exist",
+        "operationId": "get_decode_status_api_v1_decode_status__session_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DecodeStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Decode Status",
+        "tags": [
+          "Decode",
+          "decode"
+        ]
+      }
+    },
+    "/api/v1/decode/stop/{session_id}": {
+      "post": {
+        "description": "Stop an active decode session.\n\nGracefully stops listening for SSTV signals. If a decode is in progress,\nthe partial image will be discarded.\n\nRaises:\n    404 Not Found: If session doesn't exist\n    409 Conflict: If session is already in a terminal state",
+        "operationId": "stop_decode_api_v1_decode_stop__session_id__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Stop Decode",
+        "tags": [
+          "Decode",
+          "decode"
+        ]
+      }
+    },
+    "/api/v1/devices/audio": {
+      "get": {
+        "description": "List available audio input/output devices.\n\nReturns all audio devices detected by the system, including:\n- Device ID (OS-specific identifier)\n- Human-readable name\n- Channel count and sample rate\n- Default device indicator\n\nUsed for device selection in the UI.",
+        "operationId": "list_audio_devices_api_v1_devices_audio_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AudioDevice"
+                  },
+                  "title": "Response List Audio Devices Api V1 Devices Audio Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Audio Devices",
+        "tags": [
+          "Devices",
+          "devices"
+        ]
+      }
+    },
+    "/api/v1/devices/serial": {
+      "get": {
+        "description": "List available serial ports for PTT control.\n\nReturns all serial ports detected by the system, including:\n- Port identifier (e.g., COM3, /dev/ttyUSB0)\n- Description and manufacturer (if available)\n\nUsed for PTT serial port selection in the UI.",
+        "operationId": "list_serial_ports_api_v1_devices_serial_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SerialPort"
+                  },
+                  "title": "Response List Serial Ports Api V1 Devices Serial Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Serial Ports",
+        "tags": [
+          "Devices",
+          "devices"
+        ]
+      }
+    },
+    "/api/v1/health": {
+      "get": {
+        "description": "Health check endpoint.\n\nReturns:\n    Status and version information.",
+        "operationId": "health_check_api_v1_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Health Check Api V1 Health Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health Check",
+        "tags": [
+          "Health"
+        ]
+      }
+    },
+    "/api/v1/images": {
+      "get": {
+        "description": "List images with pagination and optional filtering.\n\nSupports filtering by:\n- Direction: \"rx\" (received) or \"tx\" (transmitted)\n- Mode: SSTV mode (e.g., \"MartinM1\", \"ScottieS1\")\n- Callsign: Operator callsign\n\nImages are returned in reverse chronological order (newest first).\n\nQuery Parameters:\n    limit: Number of images per page (1-100, default: 20)\n    offset: Pagination offset (default: 0)\n    direction: Filter by \"rx\" or \"tx\"\n    mode: Filter by SSTV mode\n    callsign: Filter by operator callsign",
+        "operationId": "list_images_api_v1_images_get",
+        "parameters": [
+          {
+            "description": "Number of images per page",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "description": "Number of images per page",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Pagination offset",
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "description": "Pagination offset",
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Filter by direction",
+            "in": "query",
+            "name": "direction",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^(rx|tx)$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by direction",
+              "title": "Direction"
+            }
+          },
+          {
+            "description": "Filter by SSTV mode",
+            "in": "query",
+            "name": "mode",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/SSTVMode"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by SSTV mode",
+              "title": "Mode"
+            }
+          },
+          {
+            "description": "Filter by callsign",
+            "in": "query",
+            "name": "callsign",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by callsign",
+              "title": "Callsign"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImageListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Images",
+        "tags": [
+          "Images",
+          "images"
+        ]
+      }
+    },
+    "/api/v1/images/{image_id}": {
+      "get": {
+        "description": "Get metadata for a specific image.\n\nReturns detailed information about the image including:\n- File path and dimensions\n- SSTV mode used\n- Direction (RX/TX)\n- Signal quality metrics (for RX images)\n- Timestamp and callsign\n\nRaises:\n    404 Not Found: If image doesn't exist",
+        "operationId": "get_image_api_v1_images__image_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "image_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Image Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImageMetadata"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Image",
+        "tags": [
+          "Images",
+          "images"
+        ]
+      }
+    },
+    "/api/v1/transmit": {
+      "post": {
+        "description": "Start a new SSTV transmission.\n\nEncodes the image, engages PTT (if configured), and transmits the SSTV signal.\nThe transmission duration depends on the SSTV mode selected.\n\nReturns:\n    TransmitResponse with transmission ID and WebSocket URL for real-time updates.\n\nRaises:\n    409 Conflict: If another decode/transmit session is already active (half-duplex)\n    404 Not Found: If image file doesn't exist\n    400 Bad Request: If image format is unsupported or invalid",
+        "operationId": "start_transmit_api_v1_transmit_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransmitRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransmitResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start Transmit",
+        "tags": [
+          "Transmit",
+          "transmit"
+        ]
+      }
+    },
+    "/api/v1/transmit/cancel/{tx_id}": {
+      "post": {
+        "description": "Cancel an active transmission.\n\nReleases PTT and stops transmitting. The partial transmission will be aborted.\n\nRaises:\n    404 Not Found: If transmission doesn't exist\n    409 Conflict: If transmission is already in a terminal state",
+        "operationId": "cancel_transmit_api_v1_transmit_cancel__tx_id__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tx_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tx Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cancel Transmit",
+        "tags": [
+          "Transmit",
+          "transmit"
+        ]
+      }
+    },
+    "/api/v1/transmit/status/{tx_id}": {
+      "get": {
+        "description": "Get the current status of a transmission.\n\nReturns detailed progress information including:\n- Current state (pending, ptt_engaged, transmitting, completed, etc.)\n- Progress percentage and scanlines transmitted\n- Elapsed time and estimated total duration\n\nRaises:\n    404 Not Found: If transmission doesn't exist",
+        "operationId": "get_transmit_status_api_v1_transmit_status__tx_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tx_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tx Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransmitStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Transmit Status",
+        "tags": [
+          "Transmit",
+          "transmit"
+        ]
+      }
+    }
+  }
+}

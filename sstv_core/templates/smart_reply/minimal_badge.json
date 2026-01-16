@@ -1,0 +1,37 @@
+{
+  "name": "Minimal Badge",
+  "base_image": "minimal_badge_base.png",
+  "default_mode": "Robot36",
+  "template_id": "minimal_badge",
+  "fields": [
+    {
+      "id": "callsign_received",
+      "label": "Their Callsign",
+      "x": 160,
+      "y": 80,
+      "font_size": 48,
+      "font_family": "Arial",
+      "color": "#FFFFFF",
+      "alignment": "center"
+    },
+    {
+      "id": "callsign_operator",
+      "label": "Your Callsign",
+      "x": 160,
+      "y": 140,
+      "font_size": 24,
+      "color": "#7CFF8A",
+      "alignment": "center"
+    },
+    {
+      "id": "timestamp_utc",
+      "x": 160,
+      "y": 180,
+      "font_size": 14,
+      "color": "#5BD6E8",
+      "format": "{value:%Y-%m-%d %H:%M UTC}",
+      "label": "Timestamp",
+      "alignment": "center"
+    }
+  ]
+}
