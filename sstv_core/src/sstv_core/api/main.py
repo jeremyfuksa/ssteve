@@ -6,21 +6,51 @@ Provides REST API and WebSocket endpoints for SSTV decode/transmit operations.
 from __future__ import annotations
 
 import logging
+import os
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
+from typing import AsyncIterator, Iterator
 
-from fastapi import FastAPI, Request, status
+from fastapi import Depends, FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy.engine import Engine
+from sqlalchemy.orm import Session, sessionmaker
+
+from sstv_core.api.operation_manager import operation_manager
+from sstv_core.api.session_manager import session_manager
+from sstv_core.api.dsp_manager import dsp_manager
 
 logger = logging.getLogger(__name__)
 
 __version__ = "0.1.0"
 
+_db_engine: Engine | None = None
+_db_session_factory: sessionmaker[Session] | None = None
+
 
 # =============================================================================
 # Application Lifecycle
 # =============================================================================
+
+
+def _ensure_database_initialized() -> None:
+    global _db_engine, _db_session_factory
+
+    if _db_session_factory is not None:
+        return
+
+    try:
+        from sstv_core.database import init_database
+    except ImportError:
+        logger.warning("Database module not yet implemented - using in-memory storage")
+        return
+
+    db_path = os.environ.get("SSTVE_DB_PATH")
+    logger.debug("Initializing database with path %s", db_path)
+    engine, session_factory = init_database(db_path=db_path)
+    _db_engine = engine
+    _db_session_factory = session_factory
+    logger.debug("Database initialized %s", session_factory)
 
 
 @asynccontextmanager
@@ -36,17 +66,23 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     - Close database connections
     """
     logger.info("SSTeVe API starting up (version %s)", __version__)
-
-    # Initialize database (if available)
+    global _db_engine, _db_session_factory
+    _ensure_database_initialized()
     try:
-        from sstv_core.database import init_database, get_or_create_config
-        init_database()
-        get_or_create_config()
+        from sstv_core.database import get_or_create_config
     except ImportError:
         logger.warning("Database module not yet implemented - using in-memory storage")
+    else:
+        if _db_session_factory is not None:
+            with _db_session_factory() as session:
+                get_or_create_config(session)
+
+    # Pass session factory to DSP manager for database integration
+    if _db_session_factory is not None:
+        dsp_manager._db_session_factory = _db_session_factory
+        logger.info("Database session factory connected to DSP manager")
 
     # Start background tasks
-    from sstv_core.api.session_manager import session_manager
     await session_manager.start_cleanup_task()
 
     yield
@@ -54,6 +90,23 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Cleanup
     logger.info("SSTeVe API shutting down")
     await session_manager.stop_cleanup_task()
+    await operation_manager.stop_all()
+    if _db_engine is not None:
+        _db_engine.dispose()
+        _db_engine = None
+        _db_session_factory = None
+
+
+def get_db_session() -> Iterator[Session]:
+    """Dependency for providing a database session."""
+    _ensure_database_initialized()
+    if _db_session_factory is None:
+        raise RuntimeError("Database not initialized")
+    session = _db_session_factory()
+    try:
+        yield session
+    finally:
+        session.close()
 
 
 # =============================================================================
@@ -184,6 +237,7 @@ def register_routes(app: FastAPI) -> None:
         images,
         transmit,
         websocket,
+        import_routes,
     )
 
     app.include_router(decode.router, prefix="/api/v1", tags=["Decode"])
@@ -192,6 +246,10 @@ def register_routes(app: FastAPI) -> None:
     app.include_router(config.router, prefix="/api/v1", tags=["Config"])
     app.include_router(images.router, prefix="/api/v1", tags=["Images"])
     app.include_router(websocket.router, prefix="/api/v1", tags=["WebSocket"])
+    app.include_router(import_routes.router, prefix="/api/v1", tags=["Import"])
+
+    # Override the import_routes get_db dependency with the actual session factory
+    import_routes.get_db = get_db_session
 
 
 # =============================================================================

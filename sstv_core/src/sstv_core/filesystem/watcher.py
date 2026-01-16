@@ -1,0 +1,469 @@
+"""File system watcher for SSTeVe image library.
+
+Monitors a directory for SSTV image additions, modifications, and deletions,
+automatically importing new images to the database with metadata extraction.
+
+Features:
+- Auto-import new images (jpg, png, bmp)
+- Update metadata on file edits
+- Remove database records on file deletion
+- Debounce rapid changes (500ms)
+- Handle rename/move operations
+- Thread-safe operation
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import threading
+from pathlib import Path
+from typing import TYPE_CHECKING, Callable, Any, Optional
+from datetime import datetime, timedelta
+
+from watchdog.observers import Observer
+from watchdog.events import (
+    FileSystemEventHandler,
+    FileCreatedEvent,
+    FileModifiedEvent,
+    FileDeletedEvent,
+    FileMovedEvent,
+    DirCreatedEvent,
+    DirModifiedEvent,
+    DirDeletedEvent,
+    DirMovedEvent,
+)
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
+
+
+# Supported image formats
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp"}
+
+
+class DebouncedEventHandler(FileSystemEventHandler):
+    """Event handler with debouncing for file system changes.
+
+    Debounces rapid file changes (e.g., multiple writes during save)
+    by waiting 500ms after the last event before processing.
+    """
+
+    def __init__(
+        self,
+        on_created_callback: Callable[[Path], None],
+        on_modified_callback: Callable[[Path], None],
+        on_deleted_callback: Callable[[Path], None],
+        on_moved_callback: Callable[[Path, Path], None],
+        debounce_delay: float = 0.5,
+    ):
+        """Initialize the event handler.
+
+        Args:
+            on_created_callback: Called when a new image file is created
+            on_modified_callback: Called when an image file is modified
+            on_deleted_callback: Called when an image file is deleted
+            on_moved_callback: Called when an image file is moved/renamed
+            debounce_delay: Delay in seconds before processing events (default 0.5s)
+        """
+        super().__init__()
+        self._on_created = on_created_callback
+        self._on_modified = on_modified_callback
+        self._on_deleted = on_deleted_callback
+        self._on_moved = on_moved_callback
+        self._debounce_delay = debounce_delay
+
+        # Debounce tracking: path -> (event_type, timer)
+        self._pending_events: dict[str, tuple[str, threading.Timer]] = {}
+        self._lock = threading.Lock()
+
+    def _is_image_file(self, path: str) -> bool:
+        """Check if path is an image file we should monitor."""
+        return Path(path).suffix.lower() in IMAGE_EXTENSIONS
+
+    def _debounce_event(self, path: str, event_type: str, callback: Callable[[], None]) -> None:
+        """Debounce an event by canceling previous timer and starting new one.
+
+        Args:
+            path: File path for event
+            event_type: Type of event ("created", "modified", "deleted", "moved")
+            callback: Function to call after debounce delay
+        """
+        with self._lock:
+            # Cancel existing timer for this path
+            if path in self._pending_events:
+                old_type, old_timer = self._pending_events[path]
+                old_timer.cancel()
+                logger.debug(
+                    "Canceled pending %s event for %s (superseded by %s)",
+                    old_type,
+                    path,
+                    event_type
+                )
+
+            # Create new timer
+            timer = threading.Timer(self._debounce_delay, callback)
+            self._pending_events[path] = (event_type, timer)
+            timer.start()
+
+            logger.debug(
+                "Debouncing %s event for %s (%.1fs delay)",
+                event_type,
+                path,
+                self._debounce_delay
+            )
+
+    def _process_created(self, path: str) -> None:
+        """Process a file creation event (after debounce)."""
+        try:
+            logger.info("Processing file creation: %s", path)
+            self._on_created(Path(path))
+        except Exception as e:
+            logger.error("Error processing file creation %s: %s", path, e, exc_info=True)
+        finally:
+            with self._lock:
+                self._pending_events.pop(path, None)
+
+    def _process_modified(self, path: str) -> None:
+        """Process a file modification event (after debounce)."""
+        try:
+            logger.info("Processing file modification: %s", path)
+            self._on_modified(Path(path))
+        except Exception as e:
+            logger.error("Error processing file modification %s: %s", path, e, exc_info=True)
+        finally:
+            with self._lock:
+                self._pending_events.pop(path, None)
+
+    def _process_deleted(self, path: str) -> None:
+        """Process a file deletion event (after debounce)."""
+        try:
+            logger.info("Processing file deletion: %s", path)
+            self._on_deleted(Path(path))
+        except Exception as e:
+            logger.error("Error processing file deletion %s: %s", path, e, exc_info=True)
+        finally:
+            with self._lock:
+                self._pending_events.pop(path, None)
+
+    def _process_moved(self, src_path: str, dest_path: str) -> None:
+        """Process a file move/rename event (after debounce)."""
+        try:
+            logger.info("Processing file move: %s -> %s", src_path, dest_path)
+            self._on_moved(Path(src_path), Path(dest_path))
+        except Exception as e:
+            logger.error("Error processing file move %s -> %s: %s", src_path, dest_path, e, exc_info=True)
+        finally:
+            with self._lock:
+                self._pending_events.pop(dest_path, None)
+
+    def on_created(self, event: FileCreatedEvent | DirCreatedEvent) -> None:
+        """Called when a file or directory is created."""
+        if isinstance(event, DirCreatedEvent) or not self._is_image_file(event.src_path):
+            return
+
+        self._debounce_event(
+            event.src_path,
+            "created",
+            lambda: self._process_created(event.src_path)
+        )
+
+    def on_modified(self, event: FileModifiedEvent | DirModifiedEvent) -> None:
+        """Called when a file or directory is modified."""
+        if isinstance(event, DirModifiedEvent) or not self._is_image_file(event.src_path):
+            return
+
+        self._debounce_event(
+            event.src_path,
+            "modified",
+            lambda: self._process_modified(event.src_path)
+        )
+
+    def on_deleted(self, event: FileDeletedEvent | DirDeletedEvent) -> None:
+        """Called when a file or directory is deleted."""
+        if isinstance(event, DirDeletedEvent) or not self._is_image_file(event.src_path):
+            return
+
+        self._debounce_event(
+            event.src_path,
+            "deleted",
+            lambda: self._process_deleted(event.src_path)
+        )
+
+    def on_moved(self, event: FileMovedEvent | DirMovedEvent) -> None:
+        """Called when a file or directory is moved or renamed."""
+        if isinstance(event, DirMovedEvent):
+            return
+
+        # Handle move of image files
+        src_is_image = self._is_image_file(event.src_path)
+        dest_is_image = self._is_image_file(event.dest_path)
+
+        if not src_is_image and not dest_is_image:
+            return
+
+        if src_is_image and dest_is_image:
+            # Image renamed/moved to another image
+            self._debounce_event(
+                event.dest_path,
+                "moved",
+                lambda: self._process_moved(event.src_path, event.dest_path)
+            )
+        elif src_is_image:
+            # Image renamed to non-image (treat as delete)
+            self._debounce_event(
+                event.src_path,
+                "deleted",
+                lambda: self._process_deleted(event.src_path)
+            )
+        else:
+            # Non-image renamed to image (treat as create)
+            self._debounce_event(
+                event.dest_path,
+                "created",
+                lambda: self._process_created(event.dest_path)
+            )
+
+
+class ImageLibraryWatcher:
+    """Watches an image library directory for changes and auto-imports to database.
+
+    Monitors a directory tree for SSTV images (jpg, png, bmp) and automatically:
+    - Imports new images with metadata extraction
+    - Updates metadata when files are modified
+    - Removes database records when files are deleted
+    - Handles rename/move operations
+
+    Thread-safe and uses debouncing to avoid processing rapid file changes.
+
+    Usage:
+        from sstv_core.filesystem import ImageLibraryWatcher
+        from sstv_core.database.models import init_database
+
+        engine, session_factory = init_database()
+
+        watcher = ImageLibraryWatcher(
+            watch_path="/home/user/.ssteve/images",
+            session_factory=session_factory
+        )
+
+        watcher.start()  # Begin monitoring
+
+        # Later...
+        watcher.stop()  # Stop monitoring
+    """
+
+    def __init__(
+        self,
+        watch_path: str | Path,
+        session_factory: Callable[[], Session],
+        websocket_manager: Optional[Any] = None,
+        debounce_delay: float = 0.5,
+    ):
+        """Initialize the image library watcher.
+
+        Args:
+            watch_path: Directory to watch for image changes
+            session_factory: SQLAlchemy session factory for database access
+            websocket_manager: Optional WebSocket manager for broadcasting events
+            debounce_delay: Delay in seconds before processing events (default 0.5s)
+        """
+        self.watch_path = Path(watch_path)
+        self._session_factory = session_factory
+        self._websocket_manager = websocket_manager
+        self._debounce_delay = debounce_delay
+
+        self._observer: Optional[Observer] = None
+        self._event_handler: Optional[DebouncedEventHandler] = None
+        self._running = False
+
+        logger.info("Initialized ImageLibraryWatcher for %s", self.watch_path)
+
+    def start(self) -> None:
+        """Start watching the directory for changes.
+
+        Raises:
+            RuntimeError: If watcher is already running
+            FileNotFoundError: If watch path doesn't exist
+        """
+        if self._running:
+            raise RuntimeError("Watcher is already running")
+
+        if not self.watch_path.exists():
+            raise FileNotFoundError(f"Watch path does not exist: {self.watch_path}")
+
+        if not self.watch_path.is_dir():
+            raise NotADirectoryError(f"Watch path is not a directory: {self.watch_path}")
+
+        # Create event handler with callbacks
+        self._event_handler = DebouncedEventHandler(
+            on_created_callback=self._handle_created,
+            on_modified_callback=self._handle_modified,
+            on_deleted_callback=self._handle_deleted,
+            on_moved_callback=self._handle_moved,
+            debounce_delay=self._debounce_delay,
+        )
+
+        # Create and start observer
+        self._observer = Observer()
+        self._observer.schedule(
+            self._event_handler,
+            str(self.watch_path),
+            recursive=True  # Watch subdirectories
+        )
+        self._observer.start()
+        self._running = True
+
+        logger.info("Started watching %s for image changes", self.watch_path)
+
+    def stop(self) -> None:
+        """Stop watching the directory.
+
+        Waits for observer thread to finish.
+        """
+        if not self._running:
+            return
+
+        if self._observer:
+            self._observer.stop()
+            self._observer.join(timeout=5.0)
+            self._observer = None
+
+        self._event_handler = None
+        self._running = False
+
+        logger.info("Stopped watching %s", self.watch_path)
+
+    def is_running(self) -> bool:
+        """Check if watcher is currently running."""
+        return self._running
+
+    def _handle_created(self, filepath: Path) -> None:
+        """Handle file creation event.
+
+        Imports the new image to the database with metadata extraction.
+        """
+        from sstv_core.filesystem.importer import ImageImporter
+
+        try:
+            with self._session_factory() as session:
+                importer = ImageImporter(session)
+                image = importer.import_image(filepath)
+
+                if image:
+                    logger.info("Imported new image: %s (id=%d)", filepath.name, image.id)
+
+                    # Broadcast event if WebSocket manager available
+                    if self._websocket_manager:
+                        asyncio.create_task(
+                            self._websocket_manager.broadcast(
+                                session_id=None,  # Library events have no session
+                                event={
+                                    "event": "library_updated",
+                                    "action": "created",
+                                    "filepath": str(filepath),
+                                    "image_id": image.id,
+                                    "metadata": image.to_dict(),
+                                    "timestamp": datetime.utcnow().isoformat(),
+                                }
+                            )
+                        )
+        except Exception as e:
+            logger.error("Failed to import image %s: %s", filepath, e, exc_info=True)
+
+    def _handle_modified(self, filepath: Path) -> None:
+        """Handle file modification event.
+
+        Updates the database record with new metadata.
+        """
+        from sstv_core.filesystem.importer import ImageImporter
+
+        try:
+            with self._session_factory() as session:
+                importer = ImageImporter(session)
+                image = importer.update_image_metadata(filepath)
+
+                if image:
+                    logger.info("Updated image metadata: %s (id=%d)", filepath.name, image.id)
+
+                    # Broadcast event if WebSocket manager available
+                    if self._websocket_manager:
+                        asyncio.create_task(
+                            self._websocket_manager.broadcast(
+                                session_id=None,
+                                event={
+                                    "event": "image_modified",
+                                    "filepath": str(filepath),
+                                    "image_id": image.id,
+                                    "metadata": image.to_dict(),
+                                    "timestamp": datetime.utcnow().isoformat(),
+                                }
+                            )
+                        )
+        except Exception as e:
+            logger.error("Failed to update image %s: %s", filepath, e, exc_info=True)
+
+    def _handle_deleted(self, filepath: Path) -> None:
+        """Handle file deletion event.
+
+        Removes the database record for the deleted file.
+        """
+        from sstv_core.filesystem.importer import ImageImporter
+
+        try:
+            with self._session_factory() as session:
+                importer = ImageImporter(session)
+                deleted = importer.remove_image(filepath)
+
+                if deleted:
+                    logger.info("Removed image from database: %s", filepath)
+
+                    # Broadcast event if WebSocket manager available
+                    if self._websocket_manager:
+                        asyncio.create_task(
+                            self._websocket_manager.broadcast(
+                                session_id=None,
+                                event={
+                                    "event": "image_deleted",
+                                    "filepath": str(filepath),
+                                    "timestamp": datetime.utcnow().isoformat(),
+                                }
+                            )
+                        )
+        except Exception as e:
+            logger.error("Failed to remove image %s: %s", filepath, e, exc_info=True)
+
+    def _handle_moved(self, src_path: Path, dest_path: Path) -> None:
+        """Handle file move/rename event.
+
+        Updates the database record with the new filepath.
+        """
+        from sstv_core.filesystem.importer import ImageImporter
+
+        try:
+            with self._session_factory() as session:
+                importer = ImageImporter(session)
+                image = importer.move_image(src_path, dest_path)
+
+                if image:
+                    logger.info("Moved image: %s -> %s (id=%d)", src_path.name, dest_path.name, image.id)
+
+                    # Broadcast event if WebSocket manager available
+                    if self._websocket_manager:
+                        asyncio.create_task(
+                            self._websocket_manager.broadcast(
+                                session_id=None,
+                                event={
+                                    "event": "image_moved",
+                                    "old_filepath": str(src_path),
+                                    "new_filepath": str(dest_path),
+                                    "image_id": image.id,
+                                    "metadata": image.to_dict(),
+                                    "timestamp": datetime.utcnow().isoformat(),
+                                }
+                            )
+                        )
+        except Exception as e:
+            logger.error("Failed to move image %s -> %s: %s", src_path, dest_path, e, exc_info=True)

@@ -258,6 +258,11 @@ class DecodeStartRequest(BaseModel):
         max_length=20,
         description="Operator callsign (for QSO logging)"
     )
+    device_id: Optional[str] = Field(
+        default=None,
+        max_length=256,
+        description="Audio input device ID (null for system default)"
+    )
 
     @field_validator("callsign")
     @classmethod
@@ -367,6 +372,16 @@ class TransmitRequest(BaseModel):
     vox_enabled: bool = Field(
         default=False,
         description="Use VOX (silence preamble) instead of PTT"
+    )
+    device_id: Optional[str] = Field(
+        default=None,
+        max_length=256,
+        description="Audio output device ID (null for system default)"
+    )
+    serial_port: Optional[str] = Field(
+        default=None,
+        max_length=256,
+        description="Serial port for PTT control (e.g., /dev/ttyUSB0, COM3)"
     )
 
     @field_validator("image_path")
@@ -605,3 +620,141 @@ class ErrorEvent(BaseModel):
     )
     suggested_action: Optional[str] = None
     timestamp: datetime = Field(default_factory=datetime.utcnow)
+
+
+# ============================================================================
+# Import Models (Phase 4: Filesystem Integration)
+# ============================================================================
+
+class MMSStvImportRequest(BaseModel):
+    """Request to import MMSSTV library."""
+    directory_path: str = Field(
+        ...,
+        min_length=1,
+        max_length=1024,
+        description="Path to MMSSTV image library directory"
+    )
+    recursive: bool = Field(
+        default=True,
+        description="Recursively scan subdirectories"
+    )
+
+    @field_validator("directory_path")
+    @classmethod
+    def validate_path(cls, v: str) -> str:
+        """Validate directory path is absolute and safe."""
+        import os
+        from pathlib import Path
+
+        # Must be absolute path
+        if not os.path.isabs(v):
+            raise ValueError("Path must be absolute")
+
+        # Check for path traversal
+        path = Path(v)
+        for part in path.parts:
+            if part == "..":
+                raise ValueError("Path cannot contain '..'")
+
+        return v
+
+
+class MMSStvImportResponse(BaseModel):
+    """Response from MMSSTV import operation."""
+    imported: int = Field(
+        ...,
+        ge=0,
+        description="Number of images successfully imported"
+    )
+    skipped: int = Field(
+        ...,
+        ge=0,
+        description="Number of images skipped (already exist)"
+    )
+    errors: List[str] = Field(
+        default_factory=list,
+        description="List of error messages"
+    )
+    total: int = Field(
+        ...,
+        ge=0,
+        description="Total files scanned"
+    )
+
+
+class DirectoryValidationRequest(BaseModel):
+    """Request to validate directory for import."""
+    directory_path: str = Field(
+        ...,
+        min_length=1,
+        max_length=1024,
+        description="Path to directory to validate"
+    )
+
+    @field_validator("directory_path")
+    @classmethod
+    def validate_path(cls, v: str) -> str:
+        """Validate directory path is absolute and safe."""
+        import os
+        from pathlib import Path
+
+        # Must be absolute path
+        if not os.path.isabs(v):
+            raise ValueError("Path must be absolute")
+
+        # Check for path traversal
+        path = Path(v)
+        for part in path.parts:
+            if part == "..":
+                raise ValueError("Path cannot contain '..'")
+
+        return v
+
+
+class DirectoryValidationResponse(BaseModel):
+    """Response from directory validation."""
+    valid: bool = Field(
+        ...,
+        description="True if directory can be imported"
+    )
+    exists: bool = Field(
+        ...,
+        description="True if directory exists"
+    )
+    is_directory: bool = Field(
+        ...,
+        description="True if path is a directory"
+    )
+    image_count: int = Field(
+        ...,
+        ge=0,
+        description="Number of importable images found"
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Error message if validation failed"
+    )
+
+
+class ImageMetadataSample(BaseModel):
+    """Sample image metadata from preview."""
+    filename: str = Field(..., description="Image filename")
+    path: str = Field(..., description="Full file path")
+    metadata: Dict[str, Any] = Field(..., description="Parsed metadata")
+
+
+class ImportPreviewResponse(BaseModel):
+    """Preview of what would be imported from a directory."""
+    total_files: int = Field(
+        ...,
+        ge=0,
+        description="Total importable image files"
+    )
+    samples: List[ImageMetadataSample] = Field(
+        default_factory=list,
+        description="Sample files with parsed metadata"
+    )
+    validation: DirectoryValidationResponse = Field(
+        ...,
+        description="Directory validation result"
+    )
