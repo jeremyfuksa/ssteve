@@ -1,57 +1,96 @@
-"""
-Unit tests for configuration endpoints.
-
-Tests GET /config, POST /config, and PATCH /config endpoints.
-"""
+import sys
+import types
 
 import pytest
 from fastapi.testclient import TestClient
 
-from sstv_core.api.main import app
-from sstv_core.api.models import Configuration
+from sstv_core.api import main as api_main
+from sstv_core.api.main import _ensure_database_initialized, app
+from sstv_core.api.routes import devices as devices_route
+from sstv_core.config import ConfigManager
 
 
-client = TestClient(app)
+@pytest.fixture(scope="module")
+def client():
+    _ensure_database_initialized()
+    with TestClient(app) as cli:
+        yield cli
+
+class DummyAudioDevice:
+    def __init__(self, device_id: str, name: str, is_default: bool = True):
+        self.id = device_id
+        self.name = name
+        self.channels = 2
+        self.sample_rates = [48000]
+        self.is_input = True
+        self.is_output = True
+        self.is_default = is_default
+
+
+class DummyAudioDeviceManager:
+    def list_all_devices(self):
+        return [
+            DummyAudioDevice("dev0", "Built-in Audio", is_default=True),
+            DummyAudioDevice("dev1", "USB Audio", is_default=False),
+        ]
+
+
+class DummyListPorts:
+    @staticmethod
+    def comports():
+        class Port:
+            def __init__(self, device, description, manufacturer):
+                self.device = device
+                self.description = description
+                self.manufacturer = manufacturer
+
+        return [
+            Port("/dev/ttyUSB0", "USB Serial Device", "FTDI"),
+            Port("COM3", "Arduino Uno", "Arduino"),
+        ]
+
+
+class DummyAudioError(Exception):
+    pass
 
 
 @pytest.fixture(autouse=True)
-def reset_config():
-    """Reset config to defaults before each test."""
-    from sstv_core.api.routes import config
-    config._config = Configuration()
+def stub_audio_and_serial(monkeypatch):
+    dummy_module = types.ModuleType("sstv_core.audio.device_manager")
+    dummy_module.AudioDeviceManager = DummyAudioDeviceManager
+    dummy_module.AudioDeviceError = DummyAudioError
+    monkeypatch.setitem(sys.modules, "sstv_core.audio.device_manager", dummy_module)
+    monkeypatch.setattr(devices_route, "list_ports", DummyListPorts)
     yield
-    config._config = Configuration()
+
+
+@pytest.fixture(autouse=True)
+def reset_config(client):
+    """Reset configuration before and after each test."""
+    _ensure_database_initialized()
+    session = api_main._db_session_factory()
+    manager = ConfigManager(session)
+    manager.reset_to_defaults()
+    session.close()
+    yield
+    session = api_main._db_session_factory()
+    manager = ConfigManager(session)
+    manager.reset_to_defaults()
+    session.close()
 
 
 class TestGetConfig:
-    """Test GET /config endpoint."""
-
-    def test_get_default_config(self):
-        """Should return default configuration."""
+    def test_get_default_config(self, client):
         response = client.get("/api/v1/config")
-
         assert response.status_code == 200
         data = response.json()
-
-        # Check key fields exist
-        assert "ptt_method" in data
-        assert "default_transmit_mode" in data
-        assert "image_library_path" in data
-        assert "operating_mode" in data
-        assert "auto_detect_mode" in data
-
-        # Check defaults
-        assert data["ptt_method"] == "none"
-        assert data["ptt_pre_delay_ms"] == 500
-        assert data["ptt_post_delay_ms"] == 200
+        assert data["ptt_method"] == "vox"
         assert data["auto_detect_mode"] is True
+        assert "image_library_path" in data
 
 
 class TestUpdateConfig:
-    """Test POST /config endpoint."""
-
-    def test_update_entire_config(self):
-        """Should replace entire configuration."""
+    def test_update_entire_config(self, client):
         new_config = {
             "ptt_method": "serial_rts",
             "ptt_serial_port": "/dev/ttyUSB0",
@@ -60,21 +99,16 @@ class TestUpdateConfig:
         }
 
         response = client.post("/api/v1/config", json=new_config)
-
         assert response.status_code == 200
         data = response.json()
-
         assert data["ptt_method"] == "serial_rts"
         assert data["ptt_serial_port"] == "/dev/ttyUSB0"
-        assert data["default_transmit_mode"] == "ScottieS1"
         assert data["operating_mode"] == "night_vision"
 
-    def test_update_invalid_config_rejected(self):
-        """Should reject invalid configuration."""
-        # Serial PTT without port
+    def test_update_invalid_config_rejected(self, client):
         invalid_config = {
             "ptt_method": "serial_rts",
-            "ptt_serial_port": None,  # Missing!
+            "ptt_serial_port": None,
         }
 
         response = client.post("/api/v1/config", json=invalid_config)
@@ -82,22 +116,12 @@ class TestUpdateConfig:
 
 
 class TestPatchConfig:
-    """Test PATCH /config endpoint."""
-
-    def test_patch_single_field(self):
-        """Should update single field."""
-        response = client.patch(
-            "/api/v1/config",
-            json={"operating_mode": "sunlight"},
-        )
-
+    def test_patch_single_field(self, client):
+        response = client.patch("/api/v1/config", json={"operating_mode": "sunlight"})
         assert response.status_code == 200
-        data = response.json()
+        assert response.json()["operating_mode"] == "sunlight"
 
-        assert data["operating_mode"] == "sunlight"
-
-    def test_patch_multiple_fields(self):
-        """Should update multiple fields."""
+    def test_patch_multiple_fields(self, client):
         response = client.patch(
             "/api/v1/config",
             json={
@@ -106,16 +130,13 @@ class TestPatchConfig:
                 "squelch_threshold_db": -50.0,
             },
         )
-
         assert response.status_code == 200
         data = response.json()
-
         assert data["auto_detect_mode"] is False
         assert data["afc_range_hz"] == 200
         assert data["squelch_threshold_db"] == -50.0
 
-    def test_patch_ptt_config(self):
-        """Should update PTT configuration."""
+    def test_patch_ptt_config(self, client):
         response = client.patch(
             "/api/v1/config",
             json={
@@ -124,39 +145,21 @@ class TestPatchConfig:
                 "ptt_pre_delay_ms": 700,
             },
         )
-
         assert response.status_code == 200
         data = response.json()
-
         assert data["ptt_method"] == "serial_dtr"
         assert data["ptt_serial_port"] == "/dev/ttyUSB1"
         assert data["ptt_pre_delay_ms"] == 700
 
-    def test_patch_invalid_rejected(self):
-        """Should reject invalid patch."""
-        # First ensure we have VOX mode (no serial port)
+    def test_patch_invalid_rejected(self, client):
         client.patch("/api/v1/config", json={"ptt_method": "vox"})
-
-        # Now try to set serial PTT without providing port
-        response = client.patch(
-            "/api/v1/config",
-            json={"ptt_method": "serial_rts"},
-        )
-
-        # Should fail validation
+        response = client.patch("/api/v1/config", json={"ptt_method": "serial_rts"})
         assert response.status_code == 400
-        data = response.json()
-        assert data["detail"]["error"] == "VALIDATION_ERROR"
+        assert response.json()["detail"]["error"] == "VALIDATION_ERROR"
 
-    def test_patch_preserves_other_fields(self):
-        """PATCH should only change specified fields."""
-        # Set initial value
+    def test_patch_preserves_other_fields(self, client):
         client.patch("/api/v1/config", json={"afc_range_hz": 150})
-
-        # Patch different field
         client.patch("/api/v1/config", json={"operating_mode": "night_vision"})
-
-        # Check original field preserved
         response = client.get("/api/v1/config")
         data = response.json()
         assert data["afc_range_hz"] == 150

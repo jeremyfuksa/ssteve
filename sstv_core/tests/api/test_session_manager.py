@@ -33,11 +33,12 @@ class TestSessionData:
         assert isinstance(session.created_at, datetime)
         assert isinstance(session.last_activity, datetime)
 
-    def test_update_activity(self):
+    @pytest.mark.asyncio
+    async def test_update_activity(self):
         """Activity timestamp should update."""
         session = SessionData(UUID("12345678-1234-1234-1234-123456789012"), "decode")
         old_activity = session.last_activity
-        asyncio.sleep(0.01)  # Small delay
+        await asyncio.sleep(0.01)  # Small delay
         session.update_activity()
         assert session.last_activity >= old_activity
 
