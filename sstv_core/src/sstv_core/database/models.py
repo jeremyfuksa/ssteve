@@ -140,6 +140,73 @@ class SSTVImage(Base):
 
     # AI-generated alt-text for accessibility
     ai_caption: Mapped[str | None] = mapped_column(Text, nullable=True)
+    
+    # Composition data for re-editing/retransmission (TRANSMIT_SPEC.md Phase 1)
+    # Stores JSON: {background: {...}, zones: [{zone, text, font, size, color, alignment}, ...]}
+    composition_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # FSKID (Automatic Callsign Detection) - FSKID_SPECIFICATION.md
+    fskid_detected: Mapped[bool | None] = mapped_column(
+        Boolean,
+        nullable=True,
+        comment="Whether FSKID callsign data was detected"
+    )
+    fskid_confidence: Mapped[float | None] = mapped_column(
+        Float,
+        nullable=True,
+        comment="FSKID decoder confidence (0.0-1.0)"
+    )
+    fskid_checksum_valid: Mapped[bool | None] = mapped_column(
+        Boolean,
+        nullable=True,
+        comment="FSKID checksum validation result"
+    )
+
+    # Signal Measurements (for RSV calculation) - AUTO_RSV_SPECIFICATION.md
+    rx_snr_db: Mapped[float | None] = mapped_column(
+        Float,
+        nullable=True,
+        comment="Signal-to-noise ratio in dB"
+    )
+    rx_peak_amplitude: Mapped[float | None] = mapped_column(
+        Float,
+        nullable=True,
+        comment="Peak signal level (0.0-1.0)"
+    )
+    rx_noise_floor: Mapped[float | None] = mapped_column(
+        Float,
+        nullable=True,
+        comment="Background noise level (0.0-1.0)"
+    )
+
+    # RSV Signal Report (Readability, Signal, Video) - AUTO_RSV_SPECIFICATION.md
+    rsv_readability: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        comment="RSV Readability (1-5)"
+    )
+    rsv_signal: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        comment="RSV Signal strength (1-9, S-meter)"
+    )
+    rsv_video: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        comment="RSV Video quality (1-5)"
+    )
+    rsv_report: Mapped[str | None] = mapped_column(
+        String(3),
+        nullable=True,
+        comment="Formatted RSV (e.g., '595')"
+    )
+
+    # Detailed Decode Metrics (JSON for analysis)
+    decode_metrics_json: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        comment="Full DecodeMetrics as JSON"
+    )
 
     # Relationships
     qsos: Mapped[list[QSO]] = relationship(
@@ -153,6 +220,9 @@ class SSTVImage(Base):
         Index("idx_images_timestamp", "timestamp"),
         Index("idx_images_mode", "mode"),
         Index("idx_images_callsign", "callsign"),
+        Index("idx_images_rsv_signal", "rsv_signal"),
+        Index("idx_images_snr", "rx_snr_db"),
+        Index("idx_images_fskid_detected", "fskid_detected"),
     )
 
     def __repr__(self) -> str:
@@ -176,6 +246,19 @@ class SSTVImage(Base):
             "is_received": self.is_received,
             "raw_audio_filepath": self.raw_audio_filepath,
             "ai_caption": self.ai_caption,
+            # FSKID data
+            "fskid_detected": self.fskid_detected,
+            "fskid_confidence": self.fskid_confidence,
+            "fskid_checksum_valid": self.fskid_checksum_valid,
+            # Signal measurements
+            "rx_snr_db": self.rx_snr_db,
+            "rx_peak_amplitude": self.rx_peak_amplitude,
+            "rx_noise_floor": self.rx_noise_floor,
+            # RSV signal report
+            "rsv_readability": self.rsv_readability,
+            "rsv_signal": self.rsv_signal,
+            "rsv_video": self.rsv_video,
+            "rsv_report": self.rsv_report,
         }
 
 
