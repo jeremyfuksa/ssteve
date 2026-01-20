@@ -346,18 +346,9 @@ class RXManager:
                     callsign_part = f"_{callsign}" if callsign else ""
                     filename = f"{timestamp}_{detected_mode}{callsign_part}.png"
 
-                    # Save
+                    # Save with minimal parameters
                     saved_path = self._image_saver.save_image(
-                        corrected_image,
-                        filename=filename,
-                        metadata={
-                            "mode": detected_mode,
-                            "callsign": callsign,
-                            "timestamp": datetime.utcnow().isoformat(),
-                            "vis_confidence": vis_confidence,
-                            "slant_angle_degrees": float(slant_result.slant_angle_degrees),
-                            "slant_confidence": slant_result.confidence,
-                        },
+                        image=corrected_image,
                     )
 
                     logger.info("Image saved: %s", saved_path)
