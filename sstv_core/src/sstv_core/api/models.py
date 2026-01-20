@@ -118,7 +118,8 @@ class ModeDetectionResponse(BaseModel):
         description="User-friendly suggestion message in SSTeVe voice",
     )
 
-    model_config = {"json_schema_extra": {"examples": []}}
+
+class OperatingConditionMode(str, Enum):
     """Operating conditions modes (accessibility, not aesthetic)."""
     STANDARD = "standard"
     NIGHT_VISION = "night_vision"
@@ -329,8 +330,8 @@ class Configuration(BaseModel):
         default="~/sstv_images",
         description="Path to image library directory"
     )
-    operating_mode: OperatingMode = Field(
-        default=OperatingMode.STANDARD,
+    operating_mode: OperatingConditionMode = Field(
+        default=OperatingConditionMode.STANDARD,
         description="Operating conditions mode"
     )
     auto_detect_mode: bool = Field(

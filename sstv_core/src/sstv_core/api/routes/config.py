@@ -18,7 +18,7 @@ from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from sstv_core.api.main import get_db_session
-from sstv_core.api.models import Configuration, OperatingMode, PTTMethod, SSTVMode
+from sstv_core.api.models import Configuration, OperatingConditionMode, PTTMethod, SSTVMode
 from sstv_core.config import ConfigManager
 
 router = APIRouter(prefix="/config", tags=["config"])
@@ -124,11 +124,12 @@ def _build_response(manager: ConfigManager) -> Configuration:
     except ValueError:
         mode = SSTVMode.MARTIN_M1
 
-    operating_mode_value = ui.operating_mode or OperatingMode.STANDARD.value
-    try:
-        operating_mode = OperatingMode(operating_mode_value)
-    except ValueError:
-        operating_mode = OperatingMode.STANDARD
+    operating_mode_value = ui.operating_mode or OperatingConditionMode.STANDARD.value
+    if operating_mode_value:
+        try:
+            operating_mode = OperatingConditionMode(operating_mode_value)
+        except ValueError:
+            operating_mode = OperatingConditionMode.STANDARD
 
     return Configuration(
         audio_input_device=manager.get("audio_input_device_id"),

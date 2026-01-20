@@ -88,6 +88,10 @@ class FSKIDDecoder:
         self._sample_rate = sample_rate
         self._bit_samples = int(sample_rate * self.BIT_DURATION_MS / 1000)
 
+        # Preamble state: track consecutive preamble detections
+        self._preamble_count = 0
+        self._preamble_chunks_remaining = 14  # ~300ms / 22ms
+
         # Create Goertzel filters for frequency detection
         self._filter_preamble = GoertzelFilter(
             self.PREAMBLE_FREQ, sample_rate, self._bit_samples
@@ -111,6 +115,7 @@ class FSKIDDecoder:
         """Reset decoder state."""
         self._state = "searching"
         self._preamble_count = 0
+        self._preamble_chunks_remaining = 14  # ~300ms / 22ms
         self._symbols = []
         self._current_bits = []
         self._confidence_sum = 0.0
@@ -174,21 +179,27 @@ class FSKIDDecoder:
             # Look for guard tone (2100 Hz)
             if freq == "guard" and confidence > self.DETECTION_THRESHOLD:
                 self._state = "guard_detected"
+                self._preamble_chunks_remaining = 0  # Preamble done
                 logger.debug("FSKID guard tone detected")
             elif freq not in ("preamble", "preamble_narrow"):
                 # Lost preamble without guard
                 self._state = "searching"
                 self._preamble_count = 0
+                self._preamble_chunks_remaining = 14
 
         elif self._state == "guard_detected":
-            # Look for start bit (1900 Hz = mark)
-            if freq == "mark" and confidence > self.DETECTION_THRESHOLD:
+            # Look for guard tone (2100 Hz) OR start bit (1900 Hz = mark)
+            if freq in ("guard", "mark") and confidence > self.DETECTION_THRESHOLD:
                 self._state = "start_bit_detected"
                 self._current_bits = []
                 self._symbols = []
-                logger.debug("FSKID start bit detected, reading data")
-            elif freq != "guard":
-                # Guard tone ended without start bit
+                logger.debug("FSKID guard tone or start bit detected, reading data")
+            elif freq == "mark" and confidence > self.DETECTION_THRESHOLD:
+                # Start bit detected, begin reading data
+                self._state = "reading_bits"
+                self._process_data_bit(freq, confidence)
+            elif freq not in ("preamble", "preamble_narrow"):
+                # Guard tone ended without start bit - back to search
                 self._state = "searching"
 
         elif self._state == "start_bit_detected":

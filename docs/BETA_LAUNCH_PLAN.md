@@ -1,7 +1,7 @@
 # SSTeVe Beta Launch Plan
 
 **Target Date:** 2026-01-31 (11 days remaining)
-**Current Status:** 70-75% complete
+**Current Status:** 89% complete
 **Required for Beta:** 90-95% complete (working decode/transmit flows)
 
 ---
@@ -78,7 +78,7 @@
 
 ### Priority 2: Phase 4 Filesystem Integration (7 tasks, ~15-19 hours)
 
-**Status:** 0/7 complete (0%)
+**Status:** 7/7 complete (100%)
 
 #### 2.1 File System Watcher (~4 hours)
 **File:** `sstv_core/src/sstv_core/filesystem/watcher.py` (already exists!)
@@ -288,7 +288,7 @@
 
 ### Priority 4: Bug Fixes (5 issues, ~5-10 hours)
 
-**Status:** 1/5 complete (20%)
+**Status:** 5/5 complete (100%)
 
 #### 4.1 LSP Errors in rx_manager.py (~0.5 hours) ✅ **COMPLETE**
 **File:** `sstv_core/src/sstv_core/decode/rx_manager.py`
@@ -436,6 +436,8 @@
 ---
 
 ### Priority 5: Documentation (3 tasks, ~5-8 hours)
+
+**Status:** 0/3 complete (0%)
 
 #### 5.1 Deployment Guide (~3 hours)
 **File:** `docs/DEPLOYMENT.md`

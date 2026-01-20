@@ -10,7 +10,8 @@ Handles:
 
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
 
 from sstv_core.api.models import (
     AudioDevice,
@@ -19,9 +20,21 @@ from sstv_core.api.models import (
     ApplySettingsRequest,
     ApplySettingsResponse,
 )
-from sstv_core.smart_features import device_detector
-from sstv_core.config.manager import config_manager
-from sstv_core.smart_features import device_detector
+from sstv_core.api.main import get_db_session
+from sstv_core.config import ConfigManager
+
+router = APIRouter(prefix="/devices", tags=["devices"])
+
+def _get_config_manager(session: Session = Depends(get_db_session)) -> ConfigManager:
+    """Get config manager with database session."""
+    return ConfigManager(session)
+
+# Import device detector if available
+try:
+    from sstv_core.smart_features import device_detector
+    _device_detector_available = True
+except ImportError:
+    _device_detector_available = False
 
 try:
     from serial.tools import list_ports
@@ -60,16 +73,19 @@ async def detect_devices() -> DeviceDetectionResponse:
     """
     try:
         # Detect hardware
-        detected_profile = device_detector.detect_hardware_device()
+        if device_detector:
+            detected_profile = device_detector.detect_hardware_device()
+            # Get recommended settings from detected profile
+            recommended_settings = device_detector.get_recommended_settings(detected_profile) if detected_profile else {}
+        else:
+            detected_profile = None
+            recommended_settings = {}
 
         # Get current configuration
         current_config = config_manager.get_all()
 
         # Generate detection message
         detection_message = generate_detection_message(detected_profile) if detected_profile else None
-
-        # Get recommended settings from detected profile
-        recommended_settings = device_detector.get_recommended_settings(detected_profile) if detected_profile else {}
 
         # Generate settings preview
         settings_preview = generate_settings_preview(current_config, recommended_settings)
@@ -94,7 +110,10 @@ async def detect_devices() -> DeviceDetectionResponse:
 
 
 @router.post("/apply_settings", response_model=ApplySettingsResponse)
-async def apply_device_settings(request: ApplySettingsRequest) -> ApplySettingsResponse:
+async def apply_device_settings(
+    request: ApplySettingsRequest,
+    config_manager: ConfigManager = Depends(_get_config_manager),
+) -> ApplySettingsResponse:
     """
     Apply recommended or custom device settings.
 
@@ -132,11 +151,11 @@ async def apply_device_settings(request: ApplySettingsRequest) -> ApplySettingsR
             updates["audio_output_device_id"] = request.audio_output_device_id
 
         # If profile_name provided, use device profile defaults
-        if request.profile_name is not None:
+        if request.profile_name is not None and _device_detector_available:
             # Apply profile-based settings
-            detected_profile = detect_hardware_device()
+            detected_profile = device_detector.detect_hardware_device()
             if detected_profile and detected_profile.name == request.profile_name:
-                profile_settings = get_recommended_settings(detected_profile)
+                profile_settings = device_detector.get_recommended_settings(detected_profile)
                 # Merge profile settings (profile doesn't override explicit settings)
                 for key, value in profile_settings.items():
                     if key not in updates:  # Don't override explicit settings
@@ -193,6 +212,43 @@ async def apply_device_settings(request: ApplySettingsRequest) -> ApplySettingsR
 
 @router.get("/audio", response_model=List[AudioDevice])
 async def list_audio_devices() -> List[AudioDevice]:
+    """
+    List available audio input/output devices.
+
+    Returns all audio devices detected by the system, including:
+    - Device ID (OS-specific identifier)
+    - Human-readable name
+    - Channel count and sample rate
+    - Default device indicator
+
+    Used for device selection in the UI.
+    """
+    try:
+        from sstv_core.audio.device_manager import AudioDeviceManager
+
+        device_manager = AudioDeviceManager()
+        devices = device_manager.get_all_devices()
+
+        return [AudioDevice(
+            id=str(d.id),
+            name=d.name,
+            hostapi=d.hostapi,
+            channels=d.channels,
+            sample_rates=d.sample_rates,
+            is_input=d.is_input,
+            is_output=d.is_output,
+            is_default=d.is_default,
+        ) for d in devices]
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "DEVICE_ENUMERATION_FAILED",
+                "message": f"Failed to enumerate audio devices: {str(e)}",
+                "suggested_action": "Check audio driver installation and permissions",
+            },
+        ) from e
     """
     List available audio input/output devices.
 

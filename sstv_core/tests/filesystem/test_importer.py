@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
-from PIL import Image as PILImage
+from PIL import Image
 
 from sstv_core.database.models import SSTVImage, init_database
 from sstv_core.filesystem.importer import (
@@ -42,11 +42,10 @@ def create_test_image():
     ):
         """Create a test image file with optional EXIF data."""
         # Create a simple test image
-        img = PILImage.new("RGB", (width, height), color=(73, 109, 137))
+        img = Image.new("RGB", (width, height), color=(73, 109, 137))
 
         # Add EXIF data if provided
         if exif_data:
-            from PIL import Image as PILImage
             from PIL.ExifTags import TAGS
 
             exif_dict = {}
@@ -61,7 +60,7 @@ def create_test_image():
                     exif_dict[tag_id] = value
 
             if exif_dict:
-                exif = PILImage.Exif()
+                exif = Image.Exif()
                 for tag_id, value in exif_dict.items():
                     exif[tag_id] = value
                 img.save(filepath, exif=exif)

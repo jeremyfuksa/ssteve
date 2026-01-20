@@ -16,10 +16,13 @@ from fastapi import APIRouter, HTTPException, status
 from sstv_core.api.models import (
     AudioDevice,
     SerialPort,
+    SSTVMode,
     TransmitRequest,
+    TransmitResponse,
     TransmitStatusResponse,
-    get_db_session,
+    TransmitState,
 )
+from sstv_core.api.main import get_db_session
 from sstv_core.api.dsp_manager import dsp_manager
 from sstv_core.api.session_manager import session_manager
 
@@ -124,13 +127,16 @@ async def get_transmit_status(tx_id: UUID) -> TransmitStatusResponse:
     mode_str = metadata.get("mode")
     mode = None
     if mode_str:
-        from sstv_core.api.models import SSTVMode
         try:
             mode = SSTVMode(mode_str)
         except ValueError:
             pass
 
-    estimated_duration = _estimate_duration(mode) if mode else 0.0
+    # If mode couldn't be determined, use a default
+    if mode is None:
+        mode = SSTVMode.MARTIN_M1
+
+    estimated_duration = _estimate_duration(mode)
 
     return TransmitStatusResponse(
         tx_id=session.session_id,

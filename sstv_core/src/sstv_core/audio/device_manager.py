@@ -43,7 +43,10 @@ class AudioDeviceManager:
     STANDARD_SAMPLE_RATES = [8000, 11025, 16000, 22050, 44100, 48000, 96000]
     SSTV_SAMPLE_RATE = 48000
 
-    def __init__(self, probe_sample_rates: bool = False) -> None:
+    def __init__(
+        self,
+        probe_sample_rates: bool = False,
+    ) -> None:
         self._lock = threading.RLock()
         self._probe_sample_rates = probe_sample_rates
         self._devices: list[AudioDevice] = []
@@ -52,7 +55,7 @@ class AudioDeviceManager:
         self._device_map: dict[str, AudioDevice] = {}
         self._default_input_id: str | None = None
         self._default_output_id: str | None = None
-        self._hostapis: list[dict] = []
+        self._hostapis: list = []
         self.refresh()
 
     def refresh(self) -> None:
@@ -61,7 +64,8 @@ class AudioDeviceManager:
 
     def _enumerate_devices(self) -> None:
         try:
-            self._hostapis = sd.query_hostapis()
+            hostapis_result = sd.query_hostapis()
+            self._hostapis = list(hostapis_result) if isinstance(hostapis_result, (list, tuple)) else hostapis_result
             devices_info = sd.query_devices()
             default_input, default_output = sd.default.device
             self._devices, self._input_devices, self._output_devices = [], [], []

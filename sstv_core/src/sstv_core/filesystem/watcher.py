@@ -358,8 +358,7 @@ class ImageLibraryWatcher:
                     # Broadcast event if WebSocket manager available
                     if self._websocket_manager:
                         asyncio.create_task(
-                            self._websocket_manager.broadcast(
-                                session_id=None,  # Library events have no session
+                            self._websocket_manager.broadcast_library_event(
                                 event={
                                     "event": "library_updated",
                                     "action": "created",
@@ -391,8 +390,7 @@ class ImageLibraryWatcher:
                     # Broadcast event if WebSocket manager available
                     if self._websocket_manager:
                         asyncio.create_task(
-                            self._websocket_manager.broadcast(
-                                session_id=None,
+                            self._websocket_manager.broadcast_library_event(
                                 event={
                                     "event": "image_modified",
                                     "filepath": str(filepath),
@@ -423,8 +421,7 @@ class ImageLibraryWatcher:
                     # Broadcast event if WebSocket manager available
                     if self._websocket_manager:
                         asyncio.create_task(
-                            self._websocket_manager.broadcast(
-                                session_id=None,
+                            self._websocket_manager.broadcast_library_event(
                                 event={
                                     "event": "image_deleted",
                                     "filepath": str(filepath),
@@ -453,8 +450,7 @@ class ImageLibraryWatcher:
                     # Broadcast event if WebSocket manager available
                     if self._websocket_manager:
                         asyncio.create_task(
-                            self._websocket_manager.broadcast(
-                                session_id=None,
+                            self._websocket_manager.broadcast_library_event(
                                 event={
                                     "event": "image_moved",
                                     "old_filepath": str(src_path),

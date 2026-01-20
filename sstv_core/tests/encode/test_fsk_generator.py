@@ -102,12 +102,11 @@ class TestFSKIDGenerator:
     def test_duration_calculation(self, generator):
         """Test FSKID duration calculation."""
         # For "K8JTK" (5 chars):
-        # Symbols: start(1) + chars(5) + end(1) + checksum(1) = 8 symbols
-        # Duration: preamble(300) + guard(100) + start_bit(22) + 8*6*22 = 1478ms
+        # Symbols: start(1) + chars(5) + end(1) + checksum(1) = 9 symbols
+        # Duration: preamble(300) + guard(100) + start_bit(22) + 9*6*22 = 1610ms
 
         duration_ms = generator.get_duration_ms("K8JTK")
-        expected_ms = 300 + 100 + 22 + (8 * 6 * 22)
-
+        expected_ms = 300 + 100 + 22 + (9 * 6 * 22)  # = 1610
         assert duration_ms == pytest.approx(expected_ms, abs=1)
 
     def test_duration_samples(self, generator):
@@ -127,7 +126,7 @@ class TestFSKIDGenerator:
 
     def test_generated_audio_length_matches_calculation(self, generator):
         """Test that actual audio length matches calculated length."""
-        callsign = "K8JTK"
+        callsign = "K8JTK"  # 5 chars = 9 symbols
         audio = generator.generate(callsign)
         expected_samples = generator.get_duration_samples(callsign)
 

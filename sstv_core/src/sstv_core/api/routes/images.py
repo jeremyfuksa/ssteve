@@ -43,28 +43,37 @@ def _uuid_to_db_id(image_uuid: UUID) -> int:
 def _db_image_to_api(db_image) -> ImageMetadata:
     """Convert database SSTVImage to API ImageMetadata model."""
     from sstv_core.database.models import SSTVImage
-    
+    from PIL import Image
+
     # Determine direction
     direction = "rx" if db_image.is_received else "tx"
-    
+
     # Parse mode enum
     try:
         mode = SSTVMode(db_image.mode)
     except ValueError:
         mode = SSTVMode.MARTIN_M1  # Default fallback
-    
+
+    # Get image dimensions from file
+    width = 320
+    height = 256
+    try:
+        with Image.open(db_image.filepath) as img:
+            width, height = img.size
+    except Exception:
+        pass  # Use defaults if can't read file
+
     return ImageMetadata(
         id=_db_id_to_uuid(db_image.id),
-        filename=db_image.filename,
         filepath=db_image.filepath,
-        timestamp=db_image.timestamp,
         mode=mode,
         direction=direction,
         callsign=db_image.callsign,
-        operator_name=db_image.operator_name,
-        frequency_hz=db_image.frequency_hz,
-        rx_quality_score=db_image.rx_quality_score,
-        comments=db_image.comments,
+        timestamp=db_image.timestamp,
+        snr_db=db_image.rx_quality_score,
+        frequency_offset_hz=db_image.frequency_hz,
+        width=width,
+        height=height,
     )
 
 

@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sstv_core.api.operation_manager import operation_manager
 from sstv_core.api.session_manager import session_manager
 from sstv_core.api.dsp_manager import dsp_manager
+from sstv_core.api.websocket_manager import websocket_manager
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +27,7 @@ __version__ = "0.1.0"
 
 _db_engine: Engine | None = None
 _db_session_factory: sessionmaker[Session] | None = None
+_file_library_watcher = None
 
 
 # =============================================================================
@@ -85,10 +87,39 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Start background tasks
     await session_manager.start_cleanup_task()
 
+    # Start file library watcher if database and watch path configured
+    global _file_library_watcher
+    if _db_session_factory is not None:
+        watch_path = os.environ.get("SSTVE_IMAGE_LIBRARY_PATH")
+        if watch_path:
+            try:
+                from sstv_core.filesystem.watcher import ImageLibraryWatcher
+
+                # Create watch path if it doesn't exist
+                from pathlib import Path
+                watch_dir = Path(watch_path).expanduser()
+                watch_dir.mkdir(parents=True, exist_ok=True)
+
+                _file_library_watcher = ImageLibraryWatcher(
+                    watch_path=watch_dir,
+                    session_factory=_db_session_factory,
+                    websocket_manager=websocket_manager,
+                    debounce_delay=0.5,
+                )
+                _file_library_watcher.start()
+                logger.info("Started file library watcher: %s", watch_dir)
+            except Exception as e:
+                logger.error("Failed to start file library watcher: %s", e, exc_info=True)
+        else:
+            logger.info("File library watcher not started (SSTVE_IMAGE_LIBRARY_PATH not set)")
+
     yield
 
     # Cleanup
     logger.info("SSTeVe API shutting down")
+    if _file_library_watcher:
+        _file_library_watcher.stop()
+        logger.info("Stopped file library watcher")
     await session_manager.stop_cleanup_task()
     await operation_manager.stop_all()
     if _db_engine is not None:

@@ -184,6 +184,41 @@ class WebSocketManager:
             active.update(self._event_buffers.keys())
             return active
 
+    async def broadcast_library_event(self, event: Dict[str, Any]) -> int:
+        """
+        Broadcast library event to all connected clients.
+
+        Library events (image created/modified/deleted) are broadcast to all
+        WebSocket connections regardless of session ID.
+
+        Args:
+            event: Event data to broadcast
+
+        Returns:
+            Number of connections successfully notified
+        """
+        async with self._lock:
+            # Broadcast to all connections across all sessions
+            sent_count = 0
+
+            # Track failed connections for removal
+            failed_connections = set()
+
+            for session_id, connections in self._connections.items():
+                for conn in connections:
+                    success = await conn.send_event(event)
+                    if success:
+                        sent_count += 1
+                    else:
+                        failed_connections.add((session_id, conn))
+
+            # Remove failed connections
+            for session_id, failed_conn in failed_connections:
+                if session_id in self._connections:
+                    self._connections[session_id].discard(failed_conn)
+
+            return sent_count
+
 
 # Global singleton instance
 websocket_manager = WebSocketManager()

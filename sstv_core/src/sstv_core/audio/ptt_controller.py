@@ -111,6 +111,8 @@ class PTTController:
     def _set_serial_signal(self, state: bool) -> None:
         if self._serial_connection is None:
             self._open_serial()
+            if self._serial_connection is None:
+                raise PTTError("Serial connection not available")
         try:
             if self._serial_signal == "RTS":
                 self._serial_connection.rts = state

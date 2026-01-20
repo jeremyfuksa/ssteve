@@ -10,11 +10,11 @@ from uuid import UUID, uuid4
 from pydantic import ValidationError
 
 from sstv_core.api.models import (
+    OperatingConditionMode,
+    PTTMethod,
     SSTVMode,
     DecodeState,
     TransmitState,
-    PTTMethod,
-    OperatingMode,
     AudioDevice,
     SerialPort,
     Configuration,
@@ -520,7 +520,7 @@ class TestEnums:
 
     def test_operating_modes(self):
         """Operating modes should match spec."""
-        modes = [mode.value for mode in OperatingMode]
+        modes = [mode.value for mode in OperatingConditionMode]
         assert "standard" in modes
         assert "night_vision" in modes
         assert "sunlight" in modes

@@ -46,27 +46,48 @@ from unittest.mock import MagicMock as MM
 # Create mock classes for missing DSP components
 class MockSyncDetector:
     def __init__(self, **kwargs):
-        pass
+        self.sample_rate = kwargs.get("sample_rate", 48000)
 
     def detect_sync_pulses(self, samples):
         return []
 
+    def estimate_mode_from_timing(self):
+        return None
+
+class MockConfig:
+    """Mock config object for decoder tests."""
+    def __init__(self):
+        self.width = 320
+        self.height = 256
+        self.samples_per_sync = 1000
+
+class MockScanlineData:
+    """Mock scanline data result."""
+    def __init__(self):
+        self.decode_quality = 0.8
+        self.lines_decoded = 0
+
+    def to_rgb_row(self):
+        return np.zeros((320, 3), dtype=np.uint8)
+
 class MockDecoder:
     def __init__(self):
-        self.config = MM()
-        self.config.samples_per_sync = 1000
+        self.config = MockConfig()
         self.height = 256
+        self.width = 320
+        self.lines_decoded = 0
+        self._freq_to_luma = lambda f: int(f * 255 / 3000)
+        self._yuv_to_rgb = lambda y, u, v: (y, u, v)
 
     def reset(self):
-        pass
+        self.lines_decoded = 0
 
     def decode_scanline(self, samples, line_number):
-        result = MM()
-        result.decode_quality = 0.8
+        result = MockScanlineData()
         return result
 
     def get_progress(self):
-        result = MM()
+        result = MockScanlineData()
         result.percent_complete = 50.0
         return result
 
@@ -75,17 +96,24 @@ class MockDecoder:
         return np.zeros((256, 320, 3), dtype=np.uint8)
 
 # Mock decode module classes
-sys.modules["sstv_core.decode.sync_detector"] = MM()
-sys.modules["sstv_core.decode.sync_detector"].SyncDetector = MockSyncDetector
+sync_module = MM()
+sync_module.SyncDetector = MockSyncDetector
+sys.modules["sstv_core.decode.sync_detector"] = sync_module
 
-sys.modules["sstv_core.decode.scottie_decoder"] = MM()
-sys.modules["sstv_core.decode.scottie_decoder"].ScottieS1Decoder = MockDecoder
+scottie_module = MM()
+scottie_module.ScottieS1Config = MockConfig
+scottie_module.ScottieS1Decoder = MockDecoder
+sys.modules["sstv_core.decode.scottie_decoder"] = scottie_module
 
-sys.modules["sstv_core.decode.martin_decoder"] = MM()
-sys.modules["sstv_core.decode.martin_decoder"].MartinM1Decoder = MockDecoder
+martin_module = MM()
+martin_module.MartinM1Config = MockConfig
+martin_module.MartinM1Decoder = MockDecoder
+sys.modules["sstv_core.decode.martin_decoder"] = martin_module
 
-sys.modules["sstv_core.decode.robot_decoder"] = MM()
-sys.modules["sstv_core.decode.robot_decoder"].Robot36Decoder = MockDecoder
+robot_module = MM()
+robot_module.Robot36Config = MockConfig
+robot_module.Robot36Decoder = MockDecoder
+sys.modules["sstv_core.decode.robot_decoder"] = robot_module
 
 
 @pytest.fixture(autouse=True)
