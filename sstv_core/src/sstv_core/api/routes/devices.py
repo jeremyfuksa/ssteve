@@ -19,6 +19,7 @@ from sstv_core.api.models import (
     ApplySettingsRequest,
     ApplySettingsResponse,
 )
+from sstv_core.smart_features import device_detector
 
 try:
     from serial.tools import list_ports
