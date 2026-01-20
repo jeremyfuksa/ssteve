@@ -9,24 +9,22 @@ Handles:
 """
 
 from typing import List, Optional
+from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends
+from pydantic import BaseModel
 
 from sstv_core.api.models import (
     AudioDevice,
     SerialPort,
-    DeviceDetectionResponse,
-    ApplySettingsRequest,
-    ApplySettingsResponse,
 )
-
-try:
-    from serial.tools import list_ports
-except Exception:  # pragma: no cover - depends on optional pyserial
-    list_ports = None
-
-
-router = APIRouter(prefix="/devices", tags=["devices"])
+from sstv_core.smart_features.device_detector import (
+    detect_hardware_device,
+    get_recommended_settings,
+    generate_detection_message,
+    generate_settings_preview,
+)
+from sstv_core.config.manager import config_manager
 
 _SSTV_SAMPLE_RATE = 48000
 
