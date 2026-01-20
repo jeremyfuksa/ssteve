@@ -286,11 +286,69 @@
 
 ---
 
-### Priority 4: Bug Fixes (3 issues, ~5-10 hours)
+### Priority 4: Bug Fixes (5 issues, ~5-10 hours)
 
-**Status:** 0/3 complete (0%)
+**Status:** 1/5 complete (20%)
 
-#### 4.1 LSP Errors in rx_manager.py (~2-3 hours)
+#### 4.1 LSP Errors in rx_manager.py (~0.5 hours) ✅ **COMPLETE**
+**File:** `sstv_core/src/sstv_core/decode/rx_manager.py`
+
+**Issues:**
+- Wrong import: `SyncDetector` doesn't exist (class is `SyncPulseDetector`)
+
+**Work Completed:**
+- [x] Fixed import to `SyncPulseDetector`
+- [x] Tested imports successfully
+
+**Reference:** BACKEND_TASKS.md Priority 4.1.1
+
+#### 4.2 LSP Errors in dsp_manager.py (~0.5 hours) ✅ **COMPLETE**
+**File:** `sstv_core/src/sstv_core/api/dsp_manager.py`
+
+**Issues:**
+- Lines 301,302: "np" is not defined (missing numpy import)
+
+**Work Completed:**
+- [x] Added `import numpy as np`
+- [x] Tested imports successfully
+
+**Reference:** BACKEND_TASKS.md Priority 4.1.2
+
+#### 4.3 LSP Errors in images/transmit routes (~1-2 hours)
+**File:** `sstv_core/src/sstv_core/api/routes/images.py`, `transmit.py`
+
+**Issues:**
+- images.py: ImageSaver parameter mismatches (filename, metadata, etc.)
+- transmit.py: SSTVMode | None cannot be assigned to SSTVMode
+
+**Work:**
+- Fix ImageSaver parameter names/signatures
+- Fix SSTVMode None handling
+
+**Reference:** BACKEND_TASKS.md Priority 4.3
+
+#### 4.4 LSP Errors in device_manager.py (~1 hour)
+**File:** `sstv_core/src/sstv_core/audio/device_manager.py`
+
+**Issue:**
+- Line 64: _hostapis type mismatch
+
+**Work:**
+- Fix type annotation or cast appropriately
+
+**Reference:** BACKEND_TASKS.md Priority 4.4
+
+#### 4.5 LSP Errors in ptt_controller.py (~1 hour)
+**File:** `sstv_core/src/sstv_core/audio/ptt_controller.py`
+
+**Issues:**
+- Lines 116,118: "rts"/"dtr" not a known attribute of "None"
+
+**Work:**
+- Add None checks before accessing attributes
+- Fix serial port handling
+
+**Reference:** BACKEND_TASKS.md Priority 4.5
 
 #### 4.1 LSP Errors in rx_manager.py (~2-3 hours)
 **File:** `sstv_core/src/sstv_core/decode/rx_manager.py`
