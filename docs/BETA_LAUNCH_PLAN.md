@@ -288,6 +288,10 @@
 
 ### Priority 4: Bug Fixes (3 issues, ~5-10 hours)
 
+**Status:** 0/3 complete (0%)
+
+#### 4.1 LSP Errors in rx_manager.py (~2-3 hours)
+
 #### 4.1 LSP Errors in rx_manager.py (~2-3 hours)
 **File:** `sstv_core/src/sstv_core/decode/rx_manager.py`
 

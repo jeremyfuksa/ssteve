@@ -10,6 +10,7 @@ import logging
 from pathlib import Path
 from typing import Dict, Optional
 from uuid import UUID
+import numpy as np
 
 from sqlalchemy.orm import Session, sessionmaker
 

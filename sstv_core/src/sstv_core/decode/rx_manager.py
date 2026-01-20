@@ -26,7 +26,7 @@ import numpy as np
 from sstv_core.audio.stream_manager import AudioStreamManager
 from sstv_core.audio.bandpass_filter import SSTVBandpassFilter, BandpassPresets
 from sstv_core.decode.correlation_vis_detector import CorrelationVISDetector
-from sstv_core.decode.sync_detector import SyncDetector
+from sstv_core.decode.sync_detector import SyncPulseDetector
 from sstv_core.decode.scottie_decoder import ScottieS1Decoder
 from sstv_core.decode.martin_decoder import MartinM1Decoder
 from sstv_core.decode.robot_decoder import Robot36Decoder
