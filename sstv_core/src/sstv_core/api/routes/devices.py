@@ -9,12 +9,26 @@ Handles:
 """
 
 from typing import List, Optional
-from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, status, Depends
-from pydantic import BaseModel
+from fastapi import APIRouter, HTTPException, status
 
-from sstv_core.api.models import AudioDevice, SerialPort
+from sstv_core.api.models import (
+    AudioDevice,
+    SerialPort,
+    DeviceDetectionResponse,
+    ApplySettingsRequest,
+    ApplySettingsResponse,
+)
+
+try:
+    from serial.tools import list_ports
+except Exception:  # pragma: no cover - depends on optional pyserial
+    list_ports = None
+
+
+router = APIRouter(prefix="/devices", tags=["devices"])
+
+_SSTV_SAMPLE_RATE = 48000
 
 
 def _pick_sample_rate(sample_rates: list[int]) -> int:
@@ -187,7 +201,13 @@ async def list_audio_devices() -> List[AudioDevice]:
 
     Used for device selection in the UI.
     """
-from sstv_core.smart_features import device_detector
+    try:
+        from sstv_core.smart_features.device_detector import (
+    detect_hardware_device,
+    get_recommended_settings,
+    generate_detection_message,
+    generate_settings_preview,
+)
 
         manager = AudioDeviceManager()
         devices = manager.list_all_devices()
