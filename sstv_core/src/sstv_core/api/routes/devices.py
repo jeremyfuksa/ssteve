@@ -14,19 +14,7 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, status, Depends
 from pydantic import BaseModel
 
-from sstv_core.api.models import (
-    AudioDevice,
-    SerialPort,
-)
-from sstv_core.smart_features.device_detector import (
-    detect_hardware_device,
-    get_recommended_settings,
-    generate_detection_message,
-    generate_settings_preview,
-)
-from sstv_core.config.manager import config_manager
-
-_SSTV_SAMPLE_RATE = 48000
+from sstv_core.api.models import AudioDevice, SerialPort
 
 
 def _pick_sample_rate(sample_rates: list[int]) -> int:
@@ -199,13 +187,7 @@ async def list_audio_devices() -> List[AudioDevice]:
 
     Used for device selection in the UI.
     """
-    try:
-        from sstv_core.smart_features.device_detector import (
-    detect_hardware_device,
-    get_recommended_settings,
-    generate_detection_message,
-    generate_settings_preview,
-)
+from sstv_core.smart_features import device_detector
 
         manager = AudioDeviceManager()
         devices = manager.list_all_devices()
