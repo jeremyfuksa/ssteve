@@ -441,15 +441,9 @@
 |------|----------|-------|-------|
 | Jan 20 | ✅ Complete | Documentation reorganization | 2h |
 | Jan 20 | ✅ Complete | Phase 5: Mode Detection API | 3h |
-| Jan 21 | ⏳ Priority 1 | Phase 5: Device Config endpoint | 2h |
-| Jan 21 | Priority 4 | LSP errors (rx_manager, dsp_manager) | 4h |
-| Jan 22 | Priority 2 | Phase 4: File watcher (wire) | 3h |
-| Jan 23 | Priority 2 | Phase 4: Image importer (wire) | 2h |
-| Jan 24 | Priority 2 | Phase 4: WebSocket events | 2h |
-| Jan 25 | Priority 2 | Phase 4: MMSSTV scanner (wire) | 3h |
-| Jan 26 | Priority 2 | Phase 4: MMSSTV API endpoint | 2h |
+| Jan 20 | ✅ Complete | Phase 5: Device Config endpoint | 3h |
 
-**Week 1 Total:** ~23 hours
+**Week 1 Total:** ~8 hours
 
 ### Week 2 (Jan 27-31): Testing & Documentation
 
@@ -522,5 +516,5 @@
 
 ---
 
-**Last Updated:** 2026-01-20 (Task 1.1 complete!)
+**Last Updated:** 2026-01-20 (Priority 1 tasks complete!)
 **Next Review:** Daily during week 1, every 2 days during week 2
