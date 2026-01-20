@@ -129,6 +129,100 @@ class ModeDetectionResponse(BaseModel):
 # Configuration Models
 # ============================================================================
 
+class ApplySettingsRequest(BaseModel):
+    """Request to apply recommended device settings."""
+
+    profile_name: Optional[str] = Field(
+        default=None,
+        description="Name of device profile to apply (e.g., 'Digirig Mobile')",
+    )
+
+    ptt_method: Optional[str] = Field(
+        default=None,
+        description="PTT method: 'serial_rts', 'serial_dtr', 'vox', 'none'",
+    )
+
+    ptt_serial_signal: Optional[str] = Field(
+        default=None,
+        description="Serial PTT signal: 'RTS' or 'DTR'",
+    )
+
+    ptt_pre_delay_ms: Optional[int] = Field(
+        default=None,
+        ge=0,
+        le=5000,
+        description="PTT pre-delay in milliseconds",
+    )
+
+    ptt_post_delay_ms: Optional[int] = Field(
+        default=None,
+        ge=0,
+        le=5000,
+        description="PTT post-delay in milliseconds",
+    )
+
+    vox_preamble_ms: Optional[int] = Field(
+        default=None,
+        ge=0,
+        le=5000,
+        description="VOX preamble duration in milliseconds",
+    )
+
+    audio_input_device_id: Optional[str] = Field(
+        default=None,
+        min_length=1,
+        max_length=256,
+        description="Audio input device ID",
+    )
+
+    audio_output_device_id: Optional[str] = Field(
+        default=None,
+        min_length=1,
+        max_length=256,
+        description="Audio output device ID",
+    )
+
+
+class DeviceDetectionResponse(BaseModel):
+    """Response from hardware device detection."""
+
+    detected_profile: Optional[str] = Field(
+        default=None,
+        description="Name of detected device profile (if any)",
+    )
+
+    detection_message: Optional[str] = Field(
+        default=None,
+        description="User-friendly detection message in SSTeVe voice",
+    )
+
+    recommended_settings: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Recommended configuration settings for detected device",
+    )
+
+    settings_preview: Dict[str, Dict[str, Any]] = Field(
+        default_factory=dict,
+        description="Preview of what will change if settings are applied",
+    )
+
+    model_config = {"json_schema_extra": {"examples": []}}
+
+
+class ApplySettingsResponse(BaseModel):
+    """Response after applying settings."""
+
+    updated_configuration: Dict[str, Any] = Field(
+        description="Updated configuration after applying settings",
+    )
+
+    applied_fields: List[str] = Field(
+        description="List of configuration fields that were updated",
+    )
+
+    model_config = {"json_schema_extra": {"examples": []}}
+
+
 class AudioDevice(BaseModel):
     """Audio device information."""
     device_id: str = Field(
