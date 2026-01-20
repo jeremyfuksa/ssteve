@@ -8,9 +8,13 @@
 
 **New to the project?** Read these in order:
 
-1. **`status/PROJECT_STATUS.md`** - Current implementation status, what works/doesn't work
-2. **`core/backend-spec.md`** - Complete backend architecture and API contracts
-3. **`core/frontend-spec.md`** - UI components, interactions, and design system
+1. **`docs/README.md`** (this file) - Documentation index
+2. **`status/PROJECT_STATUS.md`** - Current implementation status, what works/doesn't work
+3. **`core/backend-spec.md`** - Complete backend architecture and API contracts
+4. **`core/frontend-spec.md`** - UI components, interactions, and design system
+
+**Planning a beta launch?** Read this first:
+- **`BETA_LAUNCH_PLAN.md`** - ⭐ Roadmap to beta release (2026-01-31 target)
 
 ---
 
@@ -18,13 +22,15 @@
 
 ```
 docs/
-├── core/              # Core specifications and API contracts
-├── status/            # Project status and phase summaries
-├── features/          # Feature specifications and tracking
-├── design/            # Design rationale and decisions
-├── reference/         # Reference documentation
-├── archive/           # Historical/archived docs
-└── postman/           # API testing collections
+├── README.md                        # THIS FILE - Documentation index
+├── BETA_LAUNCH_PLAN.md            # ⭐ Beta launch roadmap (Jan 31 target)
+├── core/                            # Core specifications and API contracts
+├── status/                          # Project status and phase summaries
+├── features/                        # Feature specifications and tracking
+├── design/                          # Design rationale and decisions
+├── reference/                       # Reference documentation
+├── archive/                         # Historical/archived docs
+└── postman/                         # API testing collections
 ```
 
 ---
