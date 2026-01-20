@@ -3,6 +3,7 @@ Decode endpoints for SSTV reception.
 
 Handles:
 - POST /decode/start - Start listening for SSTV signal
+- POST /decode/detect_mode - Detect mode from sync timing (when VIS fails)
 - GET /decode/status/{session_id} - Get decode progress
 - POST /decode/stop/{session_id} - Stop active decode session
 """
@@ -18,12 +19,183 @@ from sstv_core.api.models import (
     DecodeStartResponse,
     DecodeStatusResponse,
     DecodeState,
+    ModeDetectionRequest,
+    ModeDetectionResponse,
 )
 from sstv_core.api.dsp_manager import dsp_manager
 from sstv_core.api.session_manager import session_manager
+from sstv_core.smart_features.mode_detector import (
+    detect_mode_from_sync_timing,
+    get_top_mode_candidates,
+    get_suggestion_message,
+)
 
 
 router = APIRouter(prefix="/decode", tags=["decode"])
+
+
+@router.post("/detect_mode", response_model=ModeDetectionResponse, status_code=status.HTTP_200_OK)
+async def detect_mode(request: ModeDetectionRequest) -> ModeDetectionResponse:
+    """
+    Detect SSTV mode from sync pulse timing.
+
+    Used when VIS code detection fails or returns low confidence.
+    Analyzes audio for sync timing patterns and suggests most likely SSTV mode.
+
+    Returns:
+        - Detected mode (if confidence >= 0.70)
+        - Confidence score
+        - Measured inter-pulse intervals
+        - Expected interval for detected mode
+        - Top 3 alternative mode suggestions
+        - User-friendly suggestion message
+
+    Raises:
+        400 Bad Request: If neither session_id nor audio_file provided
+        404 Not Found: If session_id not found
+        500 Internal Server Error: If analysis fails
+    """
+    try:
+        # Get audio samples
+        audio_samples = None
+
+        if request.session_id is not None:
+            # Analyze audio from active decode session
+            session = await session_manager.get_decode_session(request.session_id)
+
+            if session is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail={
+                        "error": "SESSION_NOT_FOUND",
+                        "message": f"Can't find decode session {request.session_id}",
+                    },
+                )
+
+            # Get audio buffer from ring buffer
+            from sstv_core.decode.rx_manager import RXManager
+
+            # Get samples from ring buffer
+            # Note: This requires access to the stream manager's buffer
+            # For now, return error asking user to provide audio file
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": "SESSION_ANALYSIS_NOT_SUPPORTED",
+                    "message": "Session-based mode detection not yet implemented. Please upload an audio file.",
+                },
+            )
+
+        elif request.audio_file is not None:
+            # Analyze audio from file
+            from pathlib import Path
+
+            audio_path = Path(request.audio_file)
+
+            if not audio_path.exists():
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail={
+                        "error": "AUDIO_FILE_NOT_FOUND",
+                        "message": f"Audio file not found: {request.audio_file}",
+                    },
+                )
+
+            # Load audio file
+            import soundfile as sf
+
+            try:
+                audio_data, sample_rate = sf.read(audio_path)
+
+                if len(audio_data.shape) == 1:
+                    audio_samples = audio_data
+                else:
+                    # Convert to mono by averaging channels
+                    audio_samples = audio_data.mean(axis=1)
+
+            except Exception as e:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail={
+                        "error": "AUDIO_LOAD_ERROR",
+                        "message": f"Failed to load audio file: {str(e)}",
+                    },
+                )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": "INVALID_REQUEST",
+                    "message": "Either session_id or audio_file must be provided",
+                },
+            )
+
+        # Perform mode detection
+        detection_result = detect_mode_from_sync_timing(
+            audio_stream=audio_samples,
+            sample_rate=sample_rate if request.audio_file else 48000,
+            duration_sec=request.duration_sec,
+            min_samples=10,
+        )
+
+        # Build response
+        if detection_result is None:
+            # Detection failed (not enough sync pulses or too much noise)
+            return ModeDetectionResponse(
+                mode=None,
+                confidence=0.0,
+                measured_intervals=[],
+                expected_interval=None,
+                fallback_modes=[],
+                suggestion_message="I'm having trouble reading this signal. You'll need to choose the mode manually.",
+            )
+
+        # Get top 3 fallback modes for low confidence
+        top_candidates = get_top_mode_candidates(
+            audio_stream=audio_samples,
+            sample_rate=sample_rate if request.audio_file else 48000,
+            duration_sec=request.duration_sec,
+            top_n=3,
+        )
+
+        fallback_modes = [
+            {
+                "mode": mode_name,
+                "confidence": float(confidence),
+            }
+            for mode_name, confidence in top_candidates
+        ]
+
+        # Generate suggestion message
+        suggestion = get_suggestion_message(
+            mode=detection_result.mode,
+            confidence=detection_result.confidence,
+        )
+
+        # Return detection result
+        return ModeDetectionResponse(
+            mode=detection_result.mode,
+            confidence=detection_result.confidence,
+            measured_intervals=detection_result.measured_intervals,
+            expected_interval=detection_result.expected_interval,
+            fallback_modes=fallback_modes,
+            suggestion_message=suggestion,
+        )
+
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        # Log error and return 500
+        logger.error("Mode detection error: %s", e, exc_info=True)
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error": "MODE_DETECTION_ERROR",
+                "message": f"Mode detection failed: {str(e)}",
+            },
+        )
 
 
 @router.post("/start", response_model=DecodeStartResponse, status_code=status.HTTP_201_CREATED)

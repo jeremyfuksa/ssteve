@@ -62,7 +62,63 @@ class PTTMethod(str, Enum):
     NONE = "none"
 
 
-class OperatingMode(str, Enum):
+class ModeDetectionRequest(BaseModel):
+    """Request for mode detection from sync timing."""
+
+    session_id: Optional[UUID] = Field(
+        default=None,
+        description="Optional session ID to analyze audio from active decode session",
+    )
+    audio_file: Optional[str] = Field(
+        default=None,
+        description="Path to audio file for analysis",
+    )
+    duration_sec: float = Field(
+        default=10.0,
+        gt=0.0,
+        le=60.0,
+        description="Duration to analyze in seconds (default 10.0)",
+    )
+
+    @field_validator("session_id", "audio_file")
+    @classmethod
+    def validate_audio_source(cls, v, info):
+        if v["session_id"] is None and v["audio_file"] is None:
+            raise ValueError("Either session_id or audio_file must be provided")
+        return v
+
+
+class ModeDetectionResponse(BaseModel):
+    """Response from mode detection analysis."""
+
+    mode: Optional[str] = Field(
+        default=None,
+        description="Detected SSTV mode (null if confidence < 0.70)",
+    )
+    confidence: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="Confidence score 0.0-1.0 (null if no detection)",
+    )
+    measured_intervals: List[float] = Field(
+        default_factory=list,
+        description="Measured inter-pulse intervals (first 10 for debugging)",
+    )
+    expected_interval: Optional[float] = Field(
+        default=None,
+        description="Expected interval for detected mode",
+    )
+    fallback_modes: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Top 3 alternative mode suggestions",
+    )
+    suggestion_message: Optional[str] = Field(
+        default=None,
+        description="User-friendly suggestion message in SSTeVe voice",
+    )
+
+    model_config = {"json_schema_extra": {"examples": []}}
     """Operating conditions modes (accessibility, not aesthetic)."""
     STANDARD = "standard"
     NIGHT_VISION = "night_vision"
