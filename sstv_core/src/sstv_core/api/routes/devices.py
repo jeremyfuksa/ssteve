@@ -58,7 +58,7 @@ async def detect_devices() -> DeviceDetectionResponse:
     """
     try:
         # Detect hardware
-        detected_profile = detect_hardware_device()
+        detected_profile = device_detector.detect_hardware_device()
 
         # Get current configuration
         current_config = config_manager.get_all()
@@ -66,8 +66,8 @@ async def detect_devices() -> DeviceDetectionResponse:
         # Generate detection message
         detection_message = generate_detection_message(detected_profile) if detected_profile else None
 
-        # Get recommended settings
-        recommended_settings = get_recommended_settings(detected_profile) if detected_profile else {}
+        # Get recommended settings from detected profile
+        recommended_settings = device_detector.get_recommended_settings(detected_profile) if detected_profile else {}
 
         # Generate settings preview
         settings_preview = generate_settings_preview(current_config, recommended_settings)
