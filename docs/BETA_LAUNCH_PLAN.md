@@ -31,24 +31,27 @@
 
 ### Priority 1: Complete Phase 5 Smart Features (2 tasks, ~5 hours)
 
-**Status:** 17/19 complete (90%)
+**Status:** 18/19 complete (95%)
 
-#### 1.1 Mode Detection API Endpoint (~3 hours)
+#### 1.1 Mode Detection API Endpoint (~3 hours) ✅ **COMPLETE**
 **File:** `sstv_core/src/sstv_core/api/routes/decode.py`
 
 **Acceptance Criteria:**
-- [ ] POST `/decode/detect_mode` endpoint implemented
-- [ ] Accepts session_id, audio_file, or duration_sec
-- [ ] Analyzes audio for sync timing
-- [ ] Returns detection result (mode, confidence, intervals, fallback_modes)
-- [ ] Returns null if confidence < 0.70
-- [ ] Integration test with reference audio
+- [x] POST `/decode/detect_mode` endpoint implemented
+- [x] Accepts session_id, audio_file, or duration_sec
+- [x] Analyzes audio for sync timing
+- [x] Returns detection result (mode, confidence, intervals, fallback_modes)
+- [x] Returns null if confidence < 0.70
+- [x] Integration test with reference audio
 
-**Work:**
-- Create `detect_mode()` route
-- Call `ModeDetector` from smart_features
-- Return proper Pydantic response
-- Add error handling
+**Work Completed:**
+- [x] Created ModeDetectionRequest/Response models in api/models.py
+- [x] Added soundfile library to requirements.txt
+- [x] Implemented detect_mode() endpoint in routes/decode.py
+- [x] Wired to existing ModeDetector from smart_features
+- [x] Added proper error handling (400/404/500)
+- [x] User-friendly SSTeVe suggestion messages
+- [x] Returns top 3 fallback mode alternatives
 
 **Reference:** `BACKEND_TASKS.md` Task 5.2.2, `features/FSKID_SPECIFICATION.md`
 
@@ -437,8 +440,8 @@
 | Day | Priority | Tasks | Hours |
 |------|----------|-------|-------|
 | Jan 20 | ✅ Complete | Documentation reorganization | 2h |
-| Jan 20 | Priority 1 | Phase 5: Mode Detection API | 3h |
-| Jan 21 | Priority 1 | Phase 5: Device Config endpoint | 2h |
+| Jan 20 | ✅ Complete | Phase 5: Mode Detection API | 3h |
+| Jan 21 | ⏳ Priority 1 | Phase 5: Device Config endpoint | 2h |
 | Jan 21 | Priority 4 | LSP errors (rx_manager, dsp_manager) | 4h |
 | Jan 22 | Priority 2 | Phase 4: File watcher (wire) | 3h |
 | Jan 23 | Priority 2 | Phase 4: Image importer (wire) | 2h |
@@ -519,5 +522,5 @@
 
 ---
 
-**Last Updated:** 2026-01-20
+**Last Updated:** 2026-01-20 (Task 1.1 complete!)
 **Next Review:** Daily during week 1, every 2 days during week 2
