@@ -14,10 +14,11 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, status
 
 from sstv_core.api.models import (
+    AudioDevice,
+    SerialPort,
     TransmitRequest,
-    TransmitResponse,
     TransmitStatusResponse,
-    TransmitState,
+    get_db_session,
 )
 from sstv_core.api.dsp_manager import dsp_manager
 from sstv_core.api.session_manager import session_manager
