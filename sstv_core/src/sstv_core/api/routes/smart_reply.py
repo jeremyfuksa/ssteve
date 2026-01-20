@@ -22,12 +22,19 @@ from ...smart_features.field_populator import (
     FieldPopulationError,
     populate_smart_reply_fields,
     validate_smart_reply_fields,
-)
+    )
 from ...smart_features.template_engine import TemplateEngine, TemplateMetadata
-from ..models import get_db
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/smart_reply", tags=["smart_reply"])
+
+def get_db() -> Session:
+    """Dependency to get database session.
+
+    This will be overridden by the main app with the actual session factory.
+    """
+    # Placeholder - will be injected by main app
+    raise NotImplementedError("Database session dependency not configured")
 
 # Global template engine instance
 _template_engine: Optional[TemplateEngine] = None

@@ -292,6 +292,27 @@ class DSPManager:
             "signal_quality": progress.signal_quality,
         }
 
+        # Emit audio levels event (mono monitoring - single channel)
+        # Audio levels are calculated by AudioStreamManager and passed via progress
+        # Emit at 10Hz rate (throttled in rx_manager to avoid spam)
+        audio_levels = getattr(progress, "audio_levels", None)
+        if audio_levels:
+            # Convert linear RMS/peak to dB for display
+            rms_db = 20.0 * np.log10(audio_levels.rms + 1e-10) if audio_levels.rms > 0 else -120.0
+            peak_db = 20.0 * np.log10(audio_levels.peak + 1e-10) if audio_levels.peak > 0 else -120.0
+
+            await websocket_manager.broadcast(
+                session_id,
+                {
+                    "event": "audio_levels",
+                    "left_db": rms_db,
+                    "right_db": rms_db,  # Mono = same left/right
+                    "peak_db": peak_db,
+                    "is_clipping": audio_levels.is_clipping,
+                    "timestamp": progress.elapsed_sec,
+                },
+            )
+
         # Map RX state to API state
         state_map = {
             RXState.LISTENING: DecodeState.LISTENING,

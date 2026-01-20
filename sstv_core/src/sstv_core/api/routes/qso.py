@@ -24,11 +24,18 @@ from ...smart_features.qso_logger import (
     populate_qso_from_image,
     suggest_qso_improvements,
     validate_callsign,
-)
-from ..models import get_db
+    )
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/qso", tags=["qso"])
+
+def get_db() -> Session:
+    """Dependency to get database session.
+
+    This will be overridden by the main app with the actual session factory.
+    """
+    # Placeholder - will be injected by main app
+    raise NotImplementedError("Database session dependency not configured")
 
 
 # =============================================================================

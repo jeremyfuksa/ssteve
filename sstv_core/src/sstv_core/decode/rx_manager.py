@@ -24,12 +24,15 @@ from typing import Callable, Optional
 import numpy as np
 
 from sstv_core.audio.stream_manager import AudioStreamManager
-from sstv_core.decode.vis_detector import VISDetector, VISDetectionResult
+from sstv_core.audio.bandpass_filter import SSTVBandpassFilter, BandpassPresets
+from sstv_core.decode.correlation_vis_detector import CorrelationVISDetector
 from sstv_core.decode.sync_detector import SyncDetector
 from sstv_core.decode.scottie_decoder import ScottieS1Decoder
 from sstv_core.decode.martin_decoder import MartinM1Decoder
 from sstv_core.decode.robot_decoder import Robot36Decoder
 from sstv_core.decode.image_saver import ImageSaver
+from sstv_core.decode.hough_slant_corrector import HoughSlantCorrector
+from typing import Any, Callable, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +61,7 @@ class RXProgress:
     elapsed_sec: float
     signal_quality: float
     message: str
+    audio_levels: Optional[Any] = None
 
     def to_dict(self) -> dict:
         return {
@@ -90,6 +94,15 @@ class RXManager:
         self._cancel_requested = False
         self._image_saver = ImageSaver(self._save_directory)
 
+        # New: Bandpass filter for noise reduction
+        self._bandpass_filter = SSTVBandpassFilter(BandpassPresets.standard())
+
+        # New: Correlation VIS detector (replaces Goertzel)
+        self._correlation_vis = CorrelationVISDetector()
+
+        # New: Hough slant corrector for post-decode
+        self._hough_corrector = HoughSlantCorrector()
+
     @property
     def state(self) -> RXState:
         return self._state
@@ -116,6 +129,7 @@ class RXManager:
         elapsed: float,
         quality: float,
         msg: str,
+        audio_levels: Optional[Any] = None,
     ) -> None:
         """Emit progress update via callback."""
         if self._progress_callback:
@@ -129,6 +143,7 @@ class RXManager:
                 elapsed_sec=elapsed,
                 signal_quality=quality,
                 message=msg,
+                audio_levels=audio_levels,
             )
             self._progress_callback(progress)
 
@@ -156,10 +171,15 @@ class RXManager:
         start_time = time.time()
         self._cancel_requested = False
 
+        # Reset filters and detectors
+        self._bandpass_filter.reset_state()
+        self._correlation_vis.reset()
+
         try:
             # Phase 1: Start listening
             self._state = RXState.LISTENING
-            self._emit_progress(None, 0.0, 0, 0, 0, 0, 0, "Listening for signal...")
+            audio_levels = self._stream_manager.get_input_levels()
+            self._emit_progress(None, 0.0, 0, 0, 0, 0, "Listening for signal...", audio_levels=audio_levels)
 
             # Start input stream
             self._stream_manager.start_input(device_index=input_device_index)
@@ -174,18 +194,24 @@ class RXManager:
 
             if not mode:
                 logger.info("Detecting VIS code (timeout: %.1fs)", timeout_sec)
-                vis_detector = VISDetector(sample_rate=self._sample_rate)
 
-                # Wait for VIS detection
+                # Wait for VIS detection using correlation detector
                 vis_start = time.time()
                 vis_result: Optional[VISDetectionResult] = None
 
                 while time.time() - vis_start < timeout_sec and not self._cancel_requested:
                     await asyncio.sleep(0.1)
-                    samples = ring_buffer.get_samples()
+                    samples = ring_buffer.get()
 
                     if len(samples) > 0:
-                        vis_result = vis_detector.detect(samples)
+                        # NEW: Apply bandpass filter before VIS detection
+                        filtered_samples = self._bandpass_filter.filter(samples)
+
+                        # NEW: Use correlation VIS detector (more robust)
+                        vis_result = self._correlation_vis.process_samples(filtered_samples)
+
+                        # Update audio levels
+                        audio_levels = self._stream_manager.get_input_levels()
 
                         if vis_result and vis_result.confidence > 0.7:
                             detected_mode = vis_result.mode
@@ -200,9 +226,10 @@ class RXManager:
                 if not detected_mode:
                     logger.warning("No VIS code detected within timeout")
                     self._state = RXState.ERROR
+                    audio_levels = self._stream_manager.get_input_levels()
                     self._emit_progress(
                         None, 0, 0, 0, 0, time.time() - start_time, 0,
-                        "No SSTV signal detected"
+                        "No SSTV signal detected", audio_levels=audio_levels
                     )
                     return None
 
@@ -235,7 +262,7 @@ class RXManager:
                 await asyncio.sleep(0.05)  # Allow cancellation
 
                 # Get audio samples
-                samples = ring_buffer.get_samples()
+                samples = ring_buffer.get()
                 if len(samples) == 0:
                     continue
 
@@ -289,13 +316,30 @@ class RXManager:
             # Phase 5: Save image
             if save_image:
                 self._state = RXState.SAVING
+                audio_levels = self._stream_manager.get_input_levels()
                 self._emit_progress(
                     detected_mode, vis_confidence, 95, total_lines, total_lines,
-                    time.time() - start_time, 0, "Saving image..."
+                    time.time() - start_time, 0, "Saving image...", audio_levels=audio_levels
                 )
 
                 image = decoder.get_image()
                 if image is not None:
+                    # NEW: Apply Hough slant correction
+                    logger.info("Applying Hough slant correction...")
+                    slant_result = self._hough_corrector.correct_slant(image)
+
+                    # Log correction results
+                    if slant_result.slant_angle_degrees != 0:
+                        logger.info(
+                            "Slant corrected: %.2f° (confidence: %.2f, lines: %d)",
+                            slant_result.slant_angle_degrees,
+                            slant_result.confidence,
+                            slant_result.num_lines_detected,
+                        )
+
+                    # Use corrected image if slant was detected
+                    corrected_image = slant_result.corrected_image
+
                     # Generate filename
                     from datetime import datetime
                     timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
@@ -304,13 +348,15 @@ class RXManager:
 
                     # Save
                     saved_path = self._image_saver.save_image(
-                        image,
+                        corrected_image,
                         filename=filename,
                         metadata={
                             "mode": detected_mode,
                             "callsign": callsign,
                             "timestamp": datetime.utcnow().isoformat(),
                             "vis_confidence": vis_confidence,
+                            "slant_angle_degrees": float(slant_result.slant_angle_degrees),
+                            "slant_confidence": slant_result.confidence,
                         },
                     )
 

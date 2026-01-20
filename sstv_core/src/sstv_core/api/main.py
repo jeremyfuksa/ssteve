@@ -252,8 +252,10 @@ def register_routes(app: FastAPI) -> None:
     app.include_router(smart_reply.router, prefix="/api/v1", tags=["Smart Reply"])
     app.include_router(qso.router, prefix="/api/v1", tags=["QSO Logging"])
 
-    # Override the import_routes get_db dependency with the actual session factory
+    # Override route get_db dependencies with the actual session factory
     import_routes.get_db = get_db_session
+    smart_reply.get_db = get_db_session
+    qso.get_db = get_db_session
 
 
 # =============================================================================

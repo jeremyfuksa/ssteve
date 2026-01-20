@@ -18,7 +18,6 @@ from sstv_core.api.models import (
     DirectoryValidationResponse,
     ImportPreviewResponse,
 )
-from sstv_core.database.models import get_database_session
 from sstv_core.filesystem import MMSStvImporter
 
 logger = logging.getLogger(__name__)

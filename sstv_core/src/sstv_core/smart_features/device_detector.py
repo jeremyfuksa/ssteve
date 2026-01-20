@@ -7,7 +7,10 @@ provides recommended settings for PTT control, audio routing, and timing paramet
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
-import serial.tools.list_ports
+try:
+    from serial.tools import list_ports
+except Exception:
+    list_ports = None
 
 
 @dataclass
