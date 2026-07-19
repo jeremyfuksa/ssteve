@@ -111,7 +111,7 @@ class SSTVDecoder:
 You MUST include tests when implementing features:
 
 **Unit Tests (pytest):**
-- Test decoders/encoders against reference audio in `to_reuse/testing_assets/reference/audio/`
+- Test decoders/encoders against reference audio in `sstv_core/tests/reference/audio/`
 - Allow 5% pixel difference for codec variations
 - Mock audio devices to avoid hardware dependencies
 - Test confidence thresholds for mode detection
@@ -169,25 +169,23 @@ Before finalizing any implementation, ask yourself:
 ## Key Files You'll Work With
 
 **Core Engine:**
-- `to_reuse/python_core/sstv_engine/decoder.py` - SSTV decoding
-- `to_reuse/python_core/sstv_engine/encoder.py` - SSTV encoding
-- `to_reuse/python_core/sstv_engine/streaming.py` - Audio I/O
-- `to_reuse/python_core/sstv_engine/enhancer.py` - Signal processing
+- `sstv_core/src/sstv_core/decode/` - SSTV decoding (rx_manager, per-mode decoders, VIS/sync detectors)
+- `sstv_core/src/sstv_core/encode/` - SSTV encoding (tx_manager, per-mode encoders, VIS/FSK generators)
+- `sstv_core/src/sstv_core/audio/` - Audio I/O (stream_manager, ring_buffer, ptt_controller)
 
-**API Layer (to be created):**
-- `sstv_core/api/main.py` - FastAPI app
-- `sstv_core/api/routes/decode.py` - Decode endpoints
-- `sstv_core/api/routes/transmit.py` - Transmit endpoints
-- `sstv_core/api/websocket.py` - WebSocket manager
+**API Layer (implemented):**
+- `sstv_core/src/sstv_core/api/main.py` - FastAPI app
+- `sstv_core/src/sstv_core/api/routes/decode.py` - Decode endpoints
+- `sstv_core/src/sstv_core/api/routes/transmit.py` - Transmit endpoints
+- `sstv_core/src/sstv_core/api/websocket_manager.py` - WebSocket manager
 
 **Database:**
-- `sstv_core/database/models.py` - SQLAlchemy models
-- `sstv_core/database/migrations/` - Alembic migrations
+- `sstv_core/src/sstv_core/database/models.py` - SQLAlchemy models
+- `sstv_core/src/sstv_core/database/migrations/` - Alembic migrations
 
 **Testing:**
-- `tests/unit/test_decoder.py`
-- `tests/integration/test_api.py`
-- `to_reuse/testing_assets/reference/audio/` - Reference signals
+- `sstv_core/tests/` - pytest suite (api/, decode/, encode/, integration/, ...)
+- `sstv_core/tests/reference/audio/` - Reference signals
 
 ## Your Responsibilities
 
