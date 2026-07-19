@@ -4,320 +4,111 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**SSTeVe** is a modern SSTV (Slow-Scan Television) application for amateur radio operators. The project uses a modular architecture with a headless Python core engine and a React/Tauri desktop UI.
+**SSTeVe** is a modern SSTV (Slow-Scan Television) application for amateur radio operators. The repo contains a headless Python core engine (DSP, encode/decode, audio I/O, PTT, FastAPI server) and a placeholder for a future desktop shell.
 
-**Architecture:**
-- **Python Core Engine** (`to_reuse/python_core/sstv_engine/`) - Handles DSP, SSTV encoding/decoding, audio I/O, PTT control
-- **Desktop UI** (`ssteve-ui--figma/`) - React/TypeScript UI components with friendly, approachable interface
-- **Legacy Shell** (`to_reuse/desktop_app_shell/`) - Previous Tauri integration (may contain reusable code)
-- **Testing Assets** (`to_reuse/testing_assets/`) - Reference audio/images for validation
+**Layout:**
 
-**Key Principle:** Strict separation between DSP/business logic (Python) and UI (React). Communication happens via REST API and WebSocket.
+- `sstv_core/` — the Python core engine (the only buildable component today)
+  - `src/sstv_core/` — package source (src layout)
+  - `tests/` — pytest suite; reference audio/images in `tests/reference/{audio,images}/`
+  - `scripts/` — utilities (`export_api_docs.py`, `test_websocket.py`)
+  - `templates/` — smart-reply templates
+  - `alembic.ini` — Alembic config (migrations live in `src/sstv_core/database/migrations/`)
+- `sstv_desktop/` — placeholder only (README, no code yet); future Tauri/React shell
+- `docs/` — specifications and status (see "Docs to Reference" below)
+- `.claude/agents/ssteve-backend-dev.md` — the one repo-defined agent (Python backend work)
+- `AGENTS.md` — build commands and code style conventions (canonical for style detail)
 
-## Building & Running
+**Key principle:** the core is 100% headless and UI-agnostic. All frontend communication happens via REST API and WebSocket. Never couple engine code to UI assumptions.
 
-### Python Core Engine
+## Environment & Commands
 
-```bash
-cd to_reuse/python_core
-
-# Create/activate virtual environment
-python3 -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Run tests
-pytest
-
-# Run CLI tools (after installing: pip install -e .)
-sstv-decode --help
-sstv-encode --help
-```
-
-### Desktop Application (Tauri + React)
+**uv is the canonical environment tool** (`sstv_core/uv.lock` is checked in). pip + venv works as a fallback (`requirements.txt` / `pip install -e ".[dev]"`).
 
 ```bash
-cd to_reuse/desktop_app_shell
+cd sstv_core
 
-# Install dependencies
-npm install
+# Install (including dev deps: pytest, httpx, ruff, mypy)
+uv sync --extra dev
 
-# Development mode (starts Vite + Tauri)
-npm run dev
+# Run all tests
+uv run pytest
 
-# Production build
-npm run build
+# Single file / single test
+uv run pytest tests/api/test_routes_decode.py
+uv run pytest -k "test_list_audio_devices"
 
-# Run bundled application
-npm run tauri
+# Lint / type check
+uv run ruff check src/
+uv run mypy src/
+
+# Run the API server (FastAPI + uvicorn on http://127.0.0.1:8000)
+uv run sstv-server
+
+# CLI (decode / encode / list-devices)
+uv run python -m sstv_core.cli.main --help
 ```
 
-### Running Tests
+Notes:
 
-```bash
-# Python unit tests
-cd to_reuse/python_core
-pytest
+- Always `cd sstv_core` first — pytest, uv, and alembic are all rooted there.
+- The `sstv-decode` / `sstv-encode` console scripts declared in `pyproject.toml` are currently broken (they point at `sstv_core.cli:decode`/`:encode`, which don't exist). Use `python -m sstv_core.cli.main` instead. `sstv-server` works.
+- `sounddevice` needs PortAudio (`brew install portaudio` on macOS, `libportaudio2` on Debian). Tests mock audio hardware via `tests/conftest.py`.
 
-# Integration/E2E tests
-cd to_reuse/desktop_app_shell
-npm run test:e2e
-```
+## Module Map (`sstv_core/src/sstv_core/`)
 
-## Architecture & Code Organization
+- `decode/` — RX pipeline: `rx_manager.py` (session orchestration), per-mode decoders (`scottie_decoder.py`, `martin_decoder.py`, `robot_decoder.py`), `vis_detector.py` + `correlation_vis_detector.py` (VIS detection), `sync_detector.py`, `hough_slant_corrector.py` (Hough-transform slant correction), `fsk_decoder.py` (FSKID), `image_saver.py`
+- `encode/` — TX pipeline: `tx_manager.py`, per-mode encoders (Scottie/Martin/Robot), `vis_generator.py`, `fsk_generator.py` (FSKID), `image_preprocessor.py`, `audio_transmitter.py`
+- `audio/` — `stream_manager.py`, `device_manager.py`, `ring_buffer.py`, `bandpass_filter.py`, `ptt_controller.py` (Serial RTS/DTR + VOX)
+- `api/` — **implemented** FastAPI layer: `main.py` (app + `run_server`), `routes/` (decode, transmit, devices, images, config, qso, smart_reply, import_routes, websocket), `websocket_manager.py`, `session_manager.py` (half-duplex enforcement), `operation_manager.py`, `dsp_manager.py`, `models.py` (Pydantic)
+- `database/` — SQLAlchemy 2.0 models (`models.py`) + Alembic migrations (`migrations/`); SQLite, metadata only — images live on disk as files
+- `smart_features/` — `mode_detector.py` (sync-timing mode detection), `device_detector.py`, `qso_logger.py`, `field_populator.py`, `template_engine.py` (smart replies)
+- `accessibility/` — `audio_guidance.py` (stereo sonification), `slant_detector.py`
+- `filesystem/` — `watcher.py` (watchdog), `importer.py`, `mmsstv_importer.py`
+- `config/` — `manager.py` (thread-safe ConfigManager backed by DB)
+- `cli/` — `main.py` (argparse CLI: decode, encode, list-devices; `--json` mode for screen readers)
+- `engine/` — currently an empty namespace (docstring only)
 
-### Python Core (`to_reuse/python_core/sstv_engine/`)
+The API layer is fully implemented — do not treat it as planned. The REST/WebSocket contract lives in `docs/core/backend-spec.md` and `docs/core/openapi.json`.
 
-**Key Modules:**
-- `decoder.py` - SSTV signal decoding (VIS detection, sync tracking, scanline extraction)
-- `encoder.py` - SSTV image encoding (mode conversion, audio generation)
-- `streaming.py` - Real-time audio I/O with sounddevice
-- `enhancer.py` - Signal processing (AFC, slant correction, noise reduction)
-- `cli.py` - Command-line interface for standalone operation
-- `types.py` - Data models and enums (SSTV modes, image formats)
-- `wrapper.py` - High-level API for common operations
+## Architecture Constraints
 
-**Dependencies:**
-- `sounddevice` - Cross-platform audio I/O
-- `numpy`/`scipy` - Signal processing, FFT, filters
-- `Pillow` - Image manipulation
-- `fastapi`/`uvicorn` - REST API server (future)
-- `pyserial` - PTT control via serial port
+- **Half-duplex:** one active operation at a time (decode OR transmit). `SessionManager` enforces it; violations return 409.
+- **Filesystem-native storage:** images are regular files; the database stores metadata only (filepath, callsign, SNR, timestamp). Never store image blobs.
+- **Graceful degradation:** SSTV signals are noisy; auto-detection fails 20–40% of the time. Every smart feature needs a manual fallback. Confidence thresholds: ≥0.85 high, 0.70–0.84 medium, <0.70 require manual.
+- **Manual overrides stay accessible:** input-gain auto-detect fails on QSB/fading signals, auto-only AFC is dangerous for satellite (Doppler) work, and auto squelch fails in contest QRM. Gain/squelch/AFC overrides must remain in the primary interface, not buried in settings.
+- **PTT:** Serial (RTS/DTR via pyserial) or VOX (silence preamble); pre-delay 500 ms, post-delay 200 ms, configurable.
+- **Error voice:** SSTeVe brand voice in user-facing errors — contractions, first person ("I couldn't detect the mode"), structured detail objects with `suggested_action`.
 
-**Testing Strategy:**
-- Unit tests validate individual decoders/encoders
-- Reference audio files in `to_reuse/testing_assets/` provide ground truth
-- Pytest fixtures handle audio device mocking
+## UX Position (settled conclusions)
 
-### Desktop UI (`ssteve-ui--figma/`)
+A December 2025 multi-perspective review of the UI settled these points (the reviews themselves are not recoverable; these conclusions are the record):
 
-**Key Components:**
-- `App.tsx` - Root component with view routing
-- `components/CaptureView.tsx` - RX interface (listening, decoding, canvas)
-- `components/TransmitView.tsx` - TX interface (image upload, mode selection, PTT)
-- `components/DevicesView.tsx` - Audio device selection, PTT configuration
-- `components/LogView.tsx` - Gallery of received/transmitted images
-- `components/ui/` - Reusable UI primitives (shadcn/ui based)
+- Canvas visibility while listening is non-negotiable; a waterfall display is essential.
+- Auto-detection may set defaults, but manual overrides (gain, squelch, AFC) must stay accessible — this is an operational constraint, not a style choice.
+- "Operating Conditions" modes (Standard / Night Vision / Sunlight) are operational features, not aesthetics.
+- The 8-control vs 15-control density debate is unresolved pending user testing; the tension between simplicity and operational flexibility is intentional.
 
-**State Management:**
-- Uses Zustand for lightweight global state
-- WebSocket subscriptions for real-time decode progress
-- REST API calls for device enumeration, image retrieval
+Design targets four archetypes: Makers (scriptable/headless), Activators (POTA/SOTA field ops), Preppers ("just works"), Old Guard (MMSSTV migrants).
 
-**Design System:**
-- Based on Tailwind CSS v4.0
-- Friendly & approachable aesthetic (dark UI, helpful guidance)
-- Color palette: Deep blue-charcoal backgrounds (#0D1016, #151924), lime accents (#7CFF8A for locked state), amber (#F2B451 for progress)
-- See `ssteve-ui--figma/DESIGN_RATIONALE.md` for detailed design principles
+## Definition of Done
 
-### API Contract (Planned)
+Work is done when, from `sstv_core/`:
 
-**Reference:** `docs/app-spec.md` defines the REST/WebSocket interface between Python core and UI.
+1. `uv run pytest` passes for every suite you touched, and you introduced no new failures elsewhere.
+2. Known pre-existing failures (as of 2026-07-18) are in: `tests/test_decode.py`, `tests/decode/test_fsk_decoder.py`, `tests/encode/test_fsk_generator.py`, `tests/filesystem/test_mmsstv_importer.py`, `tests/integration/test_decode_e2e.py`, `tests/api/test_routes_devices.py`, `tests/cli/test_main.py`. CI runs the suite excluding these files — that CI subset must stay green. If you fix one of these files, remove its exclusion from `.github/workflows/ci.yml`.
+3. `uv run ruff check src/` and `uv run mypy src/` are clean for files you changed.
+4. API changes keep `docs/core/backend-spec.md` / `docs/core/openapi.json` in sync (regenerate via `scripts/export_api_docs.py`).
 
-**Key Endpoints:**
-- `POST /decode/start` - Begin listening for SSTV signal
-- `GET /decode/status/{session_id}` - Check decode progress
-- `POST /transmit` - Transmit image with PTT control
-- `GET /devices/audio` - Enumerate audio devices
-- `GET /devices/serial` - List serial ports for PTT
-- `ws://localhost:8000/api/v1/ws/decode/{session_id}` - Real-time scanline updates
+## Docs to Reference
 
-## Critical Design Decisions
+- `docs/core/backend-spec.md` — backend architecture and REST/WebSocket API contract
+- `docs/core/frontend-spec.md` — UI components and design system spec
+- `docs/core/openapi.json` — exported OpenAPI schema
+- `docs/design/DESIGN_RATIONALE.md` — UI design philosophy and voice
+- `docs/BETA_LAUNCH_PLAN.md` — beta roadmap and priorities
+- `docs/status/` — phase summaries and `PROJECT_STATUS.md` (what works / what doesn't)
+- `docs/features/` — FSKID, auto-RSV, and DSP feature specifications
+- `AGENTS.md` — canonical code style guide (imports, typing, logging, error handling, test patterns)
 
-### UX Philosophy (from recent expert reviews)
-
-**Current State:** The UI has 27+ visible controls in Capture view, optimized for experienced SSTV operators who need simultaneous visibility of signal processing parameters.
-
-**Active Debate:** Four expert reviews (UX Design, UX Research, Brand Strategy, SSTV Domain) recently evaluated the interface:
-
-1. **UX experts recommend:** Progressive disclosure (8 essential controls, advanced hidden by default)
-2. **SSTV expert recommends:** Keep manual controls visible (AFC range, gain, squelch) due to signal variability
-3. **Brand strategy recommends:** "Design defaults so good users forget configuration"
-
-**Resolution Pending:** The codebase reflects the "instrument panel" philosophy (dense, expert-friendly). Any simplification work should reference the expert reviews in this conversation thread.
-
-### Key Technical Constraints
-
-**Auto-Detection Limitations (per SSTV Expert):**
-- Input gain auto-detect from 2 seconds: Fails on QSB (fading) signals (~30-40% failure rate)
-- AFC auto-only: Dangerous for satellites (Doppler shift), causes wrong-mode decodes
-- Squelch auto-threshold: Fails in contest QRM environments
-
-**Implication:** Manual overrides for gain/squelch/AFC must remain accessible in primary interface, not buried in Settings.
-
-### PTT Control
-
-**Serial PTT:** RTS/DTR signal via pyserial (Digirig, RigBlaster)
-**VOX PTT:** Preamble silence injection (SignaLink)
-**Timing:** Pre-delay (500ms), post-delay (200ms) configurable
-
-### Accessibility Features
-
-- **Stereo sonification:** Slant error → stereo pan for blind operators
-- **Verbose CLI mode:** JSON logging for screen readers
-- **WCAG 2.1 AA compliance:** 4.5:1 contrast ratios, keyboard navigation
-- **Operating Conditions modes:** Standard, Night Vision (red-shifted), Sunlight (high contrast)
-
-## Development Workflow
-
-### When Working on UI
-
-1. Reference `ssteve-ui--figma/DESIGN_RATIONALE.md` for design principles (friendly & nerdy voice, helpful guidance, approachable interface)
-2. Check `docs/app-spec.md` for API contracts before adding backend calls
-3. Use shadcn/ui components from `ssteve-ui--figma/components/ui/`
-4. Test with realistic signal conditions (use test assets in `to_reuse/testing_assets/`)
-
-### When Working on Python Core
-
-1. All audio I/O goes through `streaming.py` (abstraction layer for device management)
-2. Signal processing functions should be stateless where possible
-3. Test with reference audio files (`to_reuse/testing_assets/reference/audio/`)
-4. Expected decode results in `to_reuse/testing_assets/reference/images/`
-5. Use pytest fixtures for audio device mocking (avoid real audio hardware in CI)
-
-### When Bridging UI and Core
-
-1. **Do NOT** implement API endpoints yet - the Python core is currently CLI-only
-2. When adding API layer, follow FastAPI + WebSocket pattern in `docs/app-spec.md`
-3. WebSocket events must include: `vis_detected`, `scanline_update`, `decode_complete`, `error`
-4. Respect the modular boundary: UI never calls audio I/O directly
-
-## Testing Strategy
-
-**Unit Tests (Python):**
-- `pytest to_reuse/python_core/tests/`
-- Tests validate decoder/encoder accuracy against reference images
-- Use `pytest -k test_name` to run single test
-
-**Integration Tests:**
-- Cross-validate Python CLI output with UI expectations
-- Test PTT timing with mock serial ports
-
-**E2E Tests (Playwright):**
-- `npm run test:e2e` in `to_reuse/desktop_app_shell/`
-- Cover critical flows: first capture, first transmit, device selection
-
-## User Archetypes (Design Targets)
-
-**Makers:** Technical users wanting scriptable/headless CLI
-**Activators:** Field operators (POTA/SOTA) needing fast, offline workflows
-**Preppers:** Pragmatists wanting "just works" reliability
-**Old Guard:** MMSSTV migrants expecting familiar patterns
-
-Design decisions should serve all four, with progressive disclosure enabling both novice and expert workflows.
-
-## Voice and Messaging
-
-Per `/home/admin/CLAUDE.md` guidance:
-- Minimize "I'm building/making" declarations (sounds authoritative without validation)
-- This is a project in progress, not a vetted/finished product
-- Language should invite collaboration, not claim expertise
-
-## Available Specialized Agents
-
-Claude Code has access to specialized agents via the Task tool. Use these agents for complex, multi-step tasks that require domain expertise.
-
-### Codebase Exploration & Planning
-
-**`Explore` Agent**
-- **Purpose:** Fast codebase exploration and search
-- **Use when:** You need to find files by patterns, search for keywords, or understand code structure
-- **Thoroughness levels:** "quick", "medium", "very thorough"
-- **Example:** Finding all SSTV mode implementations, locating API endpoint definitions, understanding decoder architecture
-- **When NOT to use:** For specific file paths you already know (use Read instead)
-
-**`Plan` Agent**
-- **Purpose:** Software architecture and implementation planning
-- **Use when:** Designing implementation strategy for complex features
-- **Returns:** Step-by-step plans, critical file identification, architectural trade-offs
-- **Example:** Planning the FastAPI/WebSocket layer, designing progressive disclosure for UI controls, architecting auto-detection system
-- **When NOT to use:** For simple, straightforward tasks with obvious implementation
-
-**`general-purpose` Agent**
-- **Purpose:** Complex research, multi-step tasks, open-ended searches
-- **Use when:** Searching for code/files without confidence in finding the right match quickly
-- **Example:** Researching how MMSSTV handles AFC, investigating performance patterns across the codebase
-- **When NOT to use:** For targeted file reading or specific keyword searches
-
-### Design & User Experience
-
-**`ux-design-strategist` Agent**
-- **Purpose:** Expert UX design, visual systems, accessibility, design critique
-- **Use when:**
-  - Designing new UI components (CaptureView layout, Settings modal)
-  - Evaluating existing designs for usability/accessibility
-  - Making decisions about visual hierarchy, interaction patterns
-  - Ensuring WCAG 2.1 AA compliance
-  - Solving interaction design problems (progressive disclosure, status indicators)
-- **Example:** "Evaluate the CaptureView control density for novice users" or "Design accessible audio level indicators for blind operators"
-- **Context:** This agent reviewed the current SSTeVe UI and provided the "instrument vs debug panel" critique
-
-**`brand-messaging-strategist` Agent**
-- **Purpose:** Branding, messaging frameworks, visual identity, marketing positioning
-- **Use when:**
-  - Developing brand positioning (SSTeVe's "friendly & nerdy" voice)
-  - Creating messaging for different user archetypes (Makers, Activators, Preppers, Old Guard)
-  - Translating project goals into brand assets
-  - Voice and tone guidelines
-  - User-facing content strategy
-- **Example:** "Develop messaging that balances technical precision with accessibility" or "Frame 'Operating Conditions' modes as operational features, not aesthetic preferences"
-- **Context:** This agent reconciled the Palette Mode debate by reframing it from aesthetic to operational
-
-### Documentation & Communication
-
-**`claude-code-guide` Agent**
-- **Purpose:** Claude Code features, Agent SDK architecture, development workflows
-- **Use when:** User asks about Claude Code capabilities, hooks, slash commands, MCP servers
-- **Example:** "How do I write a custom slash command?" or "What Agent SDK patterns should I follow?"
-- **Important:** Check if there's already a running claude-code-guide agent to resume (more efficient than spawning new)
-
-**`jeremy-voice-writer` Agent**
-- **Purpose:** Written content in Jeremy Fuksa's authentic voice
-- **Use when:** Creating blog posts, social teasers, technical observations, comment responses
-- **Example:** Developing an SSTV signal processing discovery into a blog post, crafting README copy
-- **Note:** This is project-owner specific; use only when Jeremy requests content in his voice
-
-### Agent Usage Guidelines
-
-**Launch Multiple Agents in Parallel:**
-When tasks are independent, maximize performance by making multiple Task tool calls in a single message.
-
-**Provide Detailed Context:**
-Each agent invocation is stateless. Your prompt should contain a complete task description including:
-- What the agent needs to analyze
-- What decisions they should make
-- What information they should return
-- Any relevant project context
-
-**Resume When Possible:**
-For claude-code-guide agent, check if there's already a running instance you can resume using the `resume` parameter (maintains context, more efficient).
-
-**Trust Agent Outputs:**
-Agents with specialized expertise should generally be trusted. Review their recommendations critically but recognize their domain knowledge.
-
-### Historical Context: The Four-Expert UX Review
-
-In December 2025, a comprehensive UX debate involving four specialized agents evaluated the SSTeVe interface design:
-
-1. **UX Design Strategist** - Identified "nervous system not instrument" problem, recommended canvas dominance (60% viewport), progressive disclosure
-2. **UX Researcher** - Quantified issues (33 controls → 45-60min time-to-proficiency), demanded evidence-based validation
-3. **Brand Messaging Strategist** - Reconciled aesthetic vs operational needs, coined "design defaults so good users forget configuration"
-4. **SSTV Domain Expert** - Validated technical constraints (auto-detect fails 30-40%, AFC auto-only dangerous), defended operational complexity
-
-**Key Outcomes:**
-- Canvas visibility during listening is non-negotiable
-- Waterfall display is essential
-- Auto-detection can set defaults but manual overrides must be accessible
-- "Operating Conditions" modes serve real needs (night vision preservation, field contrast)
-- 8-control interface vs 15-control interface debate remains unresolved (requires user testing)
-
-**When making UI changes:** Reference this debate. The tension between simplicity and operational flexibility is intentional and reflects real constraints of SSTV signal variability.
-
-## Files to Reference
-
-- `docs/app-spec.md` - Complete API specification and feature requirements
-- `ssteve-ui--figma/DESIGN_RATIONALE.md` - UI design philosophy and component decisions
-- `/home/admin/CLAUDE.md` - General Claude workflow and tool collaboration patterns
-- `GEMINI.md` - Gemini-specific codebase analysis (build commands, conventions)
+GEMINI.md is retired; do not use it.

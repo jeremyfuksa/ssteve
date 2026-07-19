@@ -1,53 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-branch="$(git rev-parse --abbrev-ref HEAD)"
-staged_files="$(git diff --cached --name-only)"
-
-if [[ -z "${staged_files}" ]]; then
-  exit 0
-fi
-
-# Define forbidden path prefixes per branch family
-forbidden_patterns=()
-case "${branch}" in
-  gemini/*)
-    # Gemini focuses on docs, Python engine, tests, workflows (release). Avoid app code.
-    forbidden_patterns+=("^sstv-station/src-tauri/src/main.rs$")
-    forbidden_patterns+=("^sstv-station/src/")
-    forbidden_patterns+=("^sstv-station/.*\\.js$")
-    forbidden_patterns+=("^sstv-station/.*\\.rs$")
-    ;;
-  assistant/*)
-    # Assistant focuses on app code (Tauri/JS). Avoid Python engine and docs.
-    forbidden_patterns+=("^core/python/")
-    forbidden_patterns+=("^core/shared/testing/")
-    forbidden_patterns+=("^ROADMAP.md$")
-    forbidden_patterns+=("^AGENTS.md$")
-    forbidden_patterns+=("^Architecture.md$")
-    ;;
-  *)
-    # On main or other branches, no checks
-    exit 0
-    ;;
-esac
-
-violations=()
-while IFS= read -r file; do
-  for pat in "${forbidden_patterns[@]}"; do
-    if [[ "${file}" =~ ${pat} ]]; then
-      violations+=("${file}")
-      break
-    fi
-  done
-done <<< "${staged_files}"
-
-if (( ${#violations[@]} > 0 )); then
-  echo "\n❌ Pre-commit blocked on branch '${branch}'." >&2
-  echo "These files are not allowed on this branch:" >&2
-  printf ' - %s\n' "${violations[@]}" >&2
-  echo "\nTip: commit these changes on the other branch family (assistant/* or gemini/*)." >&2
-  exit 1
-fi
+# The old branch-family checks (gemini/*, assistant/*) guarded directories from
+# a previous repo layout (sstv-station/, core/python/) that no longer exists.
+# They were removed in the 2026-07 CLAUDE.md audit cleanup (issue #11).
+# This hook is currently a no-op.
 
 exit 0
