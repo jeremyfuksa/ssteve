@@ -57,8 +57,8 @@ sstv-encode = "sstv_core.cli:encode"
 sstv-server = "sstv_core.api.main:run_server"
 
 [project.urls]
-"Homepage" = "https://github.com/placeholder/ssteve"
-"Bug Tracker" = "https://github.com/placeholder/ssteve/issues"
+"Homepage" = "https://github.com/jeremyfuksa/sstv"
+"Bug Tracker" = "https://github.com/jeremyfuksa/sstv/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -9,8 +9,8 @@ Describe the problem and why this change is needed.
 
 ## Steps to Test
 
-1. `cd sstv-station && npm ci && npm run dev` (or `npm run tauri dev`)
-2. Describe UI flows or commands to verify
+1. `cd sstv_core && uv sync --extra dev && uv run pytest`
+2. Describe API/CLI flows or commands to verify (e.g. `uv run sstv-server`)
 3. Expected result
 
 ## Screenshots (if UI)
