@@ -1,5 +1,4 @@
-"""
-Device enumeration endpoints.
+"""Device enumeration endpoints.
 
 Handles:
 - GET /devices/audio - List available audio devices
@@ -8,19 +7,20 @@ Handles:
 - POST /devices/apply_settings - Apply recommended device settings
 """
 
-from typing import List
+
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from sstv_core.api.main import get_db_session
 from sstv_core.api.models import (
-    AudioDevice,
-    SerialPort,
-    DeviceDetectionResponse,
     ApplySettingsRequest,
     ApplySettingsResponse,
+    AudioDevice,
+    DeviceDetectionResponse,
+    SerialPort,
 )
-from sstv_core.api.main import get_db_session
 from sstv_core.config import ConfigManager
 
 router = APIRouter(prefix="/devices", tags=["devices"])
@@ -56,8 +56,7 @@ def _pick_sample_rate(sample_rates: list[int]) -> int:
 async def detect_devices(
     config_manager: ConfigManager = Depends(_get_config_manager),
 ) -> DeviceDetectionResponse:
-    """
-    Auto-detect connected SSTV hardware and provide recommended settings.
+    """Auto-detect connected SSTV hardware and provide recommended settings.
 
     Analyzes serial ports and audio devices to identify known hardware
     like Digirig, SignaLink, RigBlaster. Returns recommended configuration
@@ -71,13 +70,18 @@ async def detect_devices(
 
     Raises:
         503 Service Unavailable: If device enumeration fails
+
     """
     try:
         # Detect hardware
         if _device_detector_available:
             detected_profile = device_detector.detect_hardware_device()
             # Get recommended settings from detected profile
-            recommended_settings = device_detector.get_recommended_settings(detected_profile) if detected_profile else {}
+            recommended_settings = (
+                device_detector.get_recommended_settings(detected_profile)
+                if detected_profile
+                else {}
+            )
         else:
             detected_profile = None
             recommended_settings = {}
@@ -112,7 +116,7 @@ async def detect_devices(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={
                 "error": "DEVICE_DETECTION_ERROR",
-                "message": f"Failed to detect devices: {str(e)}",
+                "message": f"Failed to detect devices: {e!s}",
             },
         ) from e
 
@@ -122,8 +126,7 @@ async def apply_device_settings(
     request: ApplySettingsRequest,
     config_manager: ConfigManager = Depends(_get_config_manager),
 ) -> ApplySettingsResponse:
-    """
-    Apply recommended or custom device settings.
+    """Apply recommended or custom device settings.
 
     Accepts a partial configuration update with PTT, audio, and timing
     parameters. Validates settings and updates the global configuration.
@@ -135,10 +138,11 @@ async def apply_device_settings(
     Raises:
         400 Bad Request: If settings are invalid
         404 Not Found: If referenced devices don't exist
+
     """
     try:
         # Build settings to apply
-        updates = {}
+        updates: dict[str, Any] = {}
 
         # PTT settings
         if request.ptt_method is not None:
@@ -174,8 +178,10 @@ async def apply_device_settings(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail={
                     "error": "NO_SETTINGS_TO_APPLY",
-                    "message": "No settings provided to update. Please provide at least one setting.",
-                    "suggested_action": "Include PTT method, audio device IDs, or device profile name",
+                    "message": "No settings provided to update. "
+                    "Please provide at least one setting.",
+                    "suggested_action": "Include PTT method, audio device IDs, "
+                    "or device profile name",
                 },
             )
 
@@ -209,16 +215,15 @@ async def apply_device_settings(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={
                 "error": "SETTINGS_UPDATE_ERROR",
-                "message": f"Failed to apply settings: {str(e)}",
+                "message": f"Failed to apply settings: {e!s}",
                 "recoverable": False,
             },
         ) from e
 
 
-@router.get("/audio", response_model=List[AudioDevice])
-async def list_audio_devices() -> List[AudioDevice]:
-    """
-    List available audio input/output devices.
+@router.get("/audio", response_model=list[AudioDevice])
+async def list_audio_devices() -> list[AudioDevice]:
+    """List available audio input/output devices.
 
     Returns all audio devices detected by the system, including:
     - Device ID (OS-specific identifier)
@@ -250,14 +255,13 @@ async def list_audio_devices() -> List[AudioDevice]:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={
                 "error": "DEVICE_ENUMERATION_FAILED",
-                "message": f"Failed to enumerate audio devices: {str(e)}",
+                "message": f"Failed to enumerate audio devices: {e!s}",
                 "suggested_action": "Check audio driver installation and permissions",
             },
         ) from e
-@router.get("/serial", response_model=List[SerialPort])
-async def list_serial_ports() -> List[SerialPort]:
-    """
-    List available serial ports for PTT control.
+@router.get("/serial", response_model=list[SerialPort])
+async def list_serial_ports() -> list[SerialPort]:
+    """List available serial ports for PTT control.
 
     Returns all serial ports detected by the system, including:
     - Port identifier (e.g., COM3, /dev/ttyUSB0)
@@ -281,7 +285,7 @@ async def list_serial_ports() -> List[SerialPort]:
             },
         ) from e
 
-    response: List[SerialPort] = []
+    response: list[SerialPort] = []
     for port in ports:
         response.append(
             SerialPort(

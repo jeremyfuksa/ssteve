@@ -1,22 +1,20 @@
-"""
-Import endpoints for SSTeVe API.
+"""Import endpoints for SSTeVe API.
 
 Handles MMSSTV library import, directory validation, and import previews.
 """
 
 import logging
 from pathlib import Path
-from typing import Dict, Any
 
-from fastapi import APIRouter, HTTPException, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from sstv_core.api.models import (
-    MMSStvImportRequest,
-    MMSStvImportResponse,
     DirectoryValidationRequest,
     DirectoryValidationResponse,
     ImportPreviewResponse,
+    MMSStvImportRequest,
+    MMSStvImportResponse,
 )
 from sstv_core.filesystem import MMSStvImporter
 
@@ -70,6 +68,7 @@ async def import_mmsstv_library(
         HTTPException 400: Invalid directory path
         HTTPException 404: Directory not found
         HTTPException 500: Import operation failed
+
     """
     directory = Path(request.directory_path)
 
@@ -123,8 +122,8 @@ async def import_mmsstv_library(
         logger.error("MMSSTV import failed: %s", e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Import operation failed: {str(e)}",
-        )
+            detail=f"Import operation failed: {e!s}",
+        ) from e
 
 
 @router.post(
@@ -156,6 +155,7 @@ async def validate_directory(
 
     Raises:
         HTTPException 500: Validation operation failed
+
     """
     directory = Path(request.directory_path)
 
@@ -183,8 +183,8 @@ async def validate_directory(
         logger.error("Directory validation failed: %s", e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Validation operation failed: {str(e)}",
-        )
+            detail=f"Validation operation failed: {e!s}",
+        ) from e
 
 
 @router.post(
@@ -217,6 +217,7 @@ async def preview_import(
 
     Raises:
         HTTPException 500: Preview operation failed
+
     """
     directory = Path(request.directory_path)
 
@@ -242,5 +243,5 @@ async def preview_import(
         logger.error("Import preview failed: %s", e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Preview operation failed: {str(e)}",
-        )
+            detail=f"Preview operation failed: {e!s}",
+        ) from e

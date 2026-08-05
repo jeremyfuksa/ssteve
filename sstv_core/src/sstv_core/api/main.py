@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
-from typing import AsyncIterator, Iterator
 
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,9 +16,9 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from sstv_core.api.dsp_manager import dsp_manager
 from sstv_core.api.operation_manager import operation_manager
 from sstv_core.api.session_manager import session_manager
-from sstv_core.api.dsp_manager import dsp_manager
 from sstv_core.api.websocket_manager import websocket_manager
 
 logger = logging.getLogger(__name__)
@@ -93,10 +93,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         watch_path = os.environ.get("SSTVE_IMAGE_LIBRARY_PATH")
         if watch_path:
             try:
-                from sstv_core.filesystem.watcher import ImageLibraryWatcher
-
                 # Create watch path if it doesn't exist
                 from pathlib import Path
+
+                from sstv_core.filesystem.watcher import ImageLibraryWatcher
                 watch_dir = Path(watch_path).expanduser()
                 watch_dir.mkdir(parents=True, exist_ok=True)
 
@@ -150,6 +150,7 @@ def create_app() -> FastAPI:
 
     Returns:
         Configured FastAPI application instance.
+
     """
     app = FastAPI(
         title="SSTeVe API",
@@ -254,6 +255,7 @@ def register_routes(app: FastAPI) -> None:
 
         Returns:
             Status and version information.
+
         """
         return {
             "status": "ok",
@@ -266,11 +268,11 @@ def register_routes(app: FastAPI) -> None:
         decode,
         devices,
         images,
+        import_routes,
+        qso,
+        smart_reply,
         transmit,
         websocket,
-        import_routes,
-        smart_reply,
-        qso,
     )
 
     # Depends() captures its callable when each route is defined. Override the

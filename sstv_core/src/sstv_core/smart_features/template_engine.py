@@ -6,9 +6,10 @@ Templates consist of a PNG base image + JSON metadata describing text fields.
 
 import json
 import os
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 from uuid import uuid4
 
 from PIL import Image, ImageColor, ImageDraw, ImageFont
@@ -26,7 +27,7 @@ class TemplateField:
     color: str
     font_family: str = "Arial"
     alignment: str = "left"
-    format: Optional[str] = None
+    format: str | None = None
 
 
 @dataclass
@@ -36,7 +37,7 @@ class TemplateMetadata:
     name: str
     base_image: str
     default_mode: str
-    fields: List[TemplateField]
+    fields: list[TemplateField]
     template_id: str = ""
 
     def __post_init__(self):
@@ -48,12 +49,13 @@ class TemplateMetadata:
 class TemplateEngine:
     """Manages Smart Reply templates and rendering."""
 
-    def __init__(self, bundled_dir: Optional[Path] = None, user_dir: Optional[Path] = None):
+    def __init__(self, bundled_dir: Path | None = None, user_dir: Path | None = None):
         """Initialize the template engine.
 
         Args:
             bundled_dir: Path to bundled templates (defaults to sstv_core/templates/smart_reply/)
             user_dir: Path to user templates (defaults to ~/.ssteve/templates/)
+
         """
         if bundled_dir is None:
             # Default to package templates directory
@@ -69,7 +71,7 @@ class TemplateEngine:
         # Create user directory if it doesn't exist
         self.user_dir.mkdir(parents=True, exist_ok=True)
 
-        self.templates: Dict[str, TemplateMetadata] = {}
+        self.templates: dict[str, TemplateMetadata] = {}
         self._load_templates()
 
     def _load_templates(self):
@@ -89,10 +91,11 @@ class TemplateEngine:
 
         Args:
             directory: Path to directory containing template JSON files
+
         """
         for json_file in directory.glob("*.json"):
             try:
-                with open(json_file, "r") as f:
+                with open(json_file) as f:
                     data = json.load(f)
 
                 template = TemplateMetadata(**data)
@@ -107,7 +110,10 @@ class TemplateEngine:
 
                 # Verify base image exists
                 if not os.path.exists(template.base_image):
-                    print(f"Warning: Base image not found for template {template.name}: {template.base_image}")
+                    print(
+                        f"Warning: Base image not found for template "
+                        f"{template.name}: {template.base_image}"
+                    )
                     continue
 
                 self.templates[template.template_id] = template
@@ -119,7 +125,7 @@ class TemplateEngine:
         """Hot-reload all templates (useful for runtime updates)."""
         self._load_templates()
 
-    def get_template(self, template_id: str) -> Optional[TemplateMetadata]:
+    def get_template(self, template_id: str) -> TemplateMetadata | None:
         """Get template by ID.
 
         Args:
@@ -127,22 +133,24 @@ class TemplateEngine:
 
         Returns:
             TemplateMetadata or None if not found
+
         """
         return self.templates.get(template_id)
 
-    def list_templates(self) -> List[TemplateMetadata]:
+    def list_templates(self) -> list[TemplateMetadata]:
         """Get list of all available templates.
 
         Returns:
             List of TemplateMetadata objects
+
         """
         return list(self.templates.values())
 
     def render_template(
         self,
         template_id: str,
-        field_values: Dict[str, Any],
-        output_path: Optional[str] = None
+        field_values: dict[str, Any],
+        output_path: str | None = None
     ) -> str:
         """Render a template with populated field values.
 
@@ -156,6 +164,7 @@ class TemplateEngine:
 
         Raises:
             ValueError: If template not found or base image missing
+
         """
         template = self.get_template(template_id)
         if not template:
@@ -165,7 +174,7 @@ class TemplateEngine:
         try:
             base = Image.open(template.base_image).convert("RGBA")
         except Exception as e:
-            raise ValueError(f"Failed to load base image: {e}")
+            raise ValueError(f"Failed to load base image: {e}") from e
 
         # Create drawing context
         draw = ImageDraw.Draw(base)
@@ -187,6 +196,7 @@ class TemplateEngine:
                 text = str(value)
 
             # Load font
+            font: ImageFont.FreeTypeFont | ImageFont.ImageFont
             try:
                 # Try to load TrueType font
                 font = ImageFont.truetype(field.font_family, field.font_size)
@@ -223,7 +233,7 @@ class TemplateEngine:
 
         # Generate output path if not provided
         if output_path is None:
-            temp_dir = Path("/tmp/ssteve_previews")
+            temp_dir = Path(tempfile.gettempdir()) / "ssteve_previews"
             temp_dir.mkdir(exist_ok=True)
             output_path = str(temp_dir / f"smart_reply_{uuid4()}.png")
 
@@ -239,10 +249,10 @@ class TemplateEngine:
 
 def render_smart_reply_template(
     template_id: str,
-    field_values: Dict[str, Any],
-    template_engine: Optional[TemplateEngine] = None
+    field_values: dict[str, Any],
+    template_engine: TemplateEngine | None = None
 ) -> str:
-    """Convenience function to render a Smart Reply template.
+    """Render a Smart Reply template.
 
     Args:
         template_id: Template to render
@@ -251,6 +261,7 @@ def render_smart_reply_template(
 
     Returns:
         Path to rendered preview image
+
     """
     if template_engine is None:
         template_engine = TemplateEngine()

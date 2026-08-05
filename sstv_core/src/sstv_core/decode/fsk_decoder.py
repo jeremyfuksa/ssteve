@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Optional
 
 import numpy as np
 
@@ -82,6 +81,7 @@ class FSKIDDecoder:
 
         Args:
             sample_rate: Audio sample rate (typically 48000 Hz)
+
         """
         self._sample_rate = sample_rate
         self._bit_samples = int(sample_rate * self.BIT_DURATION_MS / 1000)
@@ -108,12 +108,12 @@ class FSKIDDecoder:
         self._state = "searching"
         self._preamble_count = 0
         self._preamble_chunks_remaining = 14  # ~300ms / 22ms
-        self._symbols = []
-        self._current_bits = []
+        self._symbols: list[int] = []
+        self._current_bits: list[int] = []
         self._confidence_sum = 0.0
         self._confidence_count = 0
 
-    def decode(self, audio_buffer: np.ndarray) -> Optional[FSKIDResult]:
+    def decode(self, audio_buffer: np.ndarray) -> FSKIDResult | None:
         """Decode FSKID from audio buffer.
 
         Args:
@@ -121,6 +121,7 @@ class FSKIDDecoder:
 
         Returns:
             FSKIDResult if valid FSKID detected, None otherwise
+
         """
         self.reset()
         offset = 0
@@ -263,6 +264,7 @@ class FSKIDDecoder:
 
         Returns:
             (frequency_name, confidence) tuple
+
         """
         # Return physical tones only. Their protocol meaning depends on state:
         # 1900 Hz is both narrow preamble and mark; 2100 Hz is guard and space.
@@ -272,7 +274,7 @@ class FSKIDDecoder:
             "tone_2100": self._filter_space.magnitude(samples),
         }
 
-        max_freq = max(magnitudes, key=magnitudes.get)
+        max_freq = max(magnitudes, key=magnitudes.__getitem__)
         max_mag = magnitudes[max_freq]
         total_mag = sum(magnitudes.values())
 
@@ -287,13 +289,14 @@ class FSKIDDecoder:
 
         Returns:
             Integer value 0-63
+
         """
         value = 0
         for i, bit in enumerate(bits):
             value |= bit << (5 - i)
         return value
 
-    def _extract_callsign(self) -> Optional[FSKIDResult]:
+    def _extract_callsign(self) -> FSKIDResult | None:
         """Extract callsign from decoded symbol stream.
 
         Expected format: [$0A, C1, C2, ..., CN, $01, XSUM]

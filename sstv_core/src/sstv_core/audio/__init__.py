@@ -20,9 +20,9 @@ Modules:
 __all__ = [
     "AudioDevice",
     "AudioDeviceManager",
-    "AudioStreamManager",
     "AudioLevels",
     "AudioRingBuffer",
+    "AudioStreamManager",
     "PTTController",
     "PTTMethod",
 ]
@@ -34,7 +34,7 @@ def __getattr__(name: str):
         from sstv_core.audio.device_manager import AudioDevice, AudioDeviceManager
         return AudioDevice if name == "AudioDevice" else AudioDeviceManager
     elif name in ("AudioStreamManager", "AudioLevels"):
-        from sstv_core.audio.stream_manager import AudioStreamManager, AudioLevels
+        from sstv_core.audio.stream_manager import AudioLevels, AudioStreamManager
         return AudioStreamManager if name == "AudioStreamManager" else AudioLevels
     elif name == "AudioRingBuffer":
         from sstv_core.audio.ring_buffer import AudioRingBuffer

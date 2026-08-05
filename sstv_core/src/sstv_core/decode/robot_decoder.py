@@ -14,8 +14,8 @@ Robot 36 specifications:
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import Iterator, Optional
 
 import numpy as np
 
@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class Robot36Config:
     """Robot 36 mode configuration."""
+
     width: int = 320
     height: int = 240
     sync_duration_ms: float = 9.0
@@ -61,6 +62,7 @@ class Robot36Config:
 @dataclass
 class ScanlineData:
     """Decoded scanline data for Robot 36."""
+
     line_number: int
     y_channel: np.ndarray  # Luminance
     chroma: np.ndarray     # U for even lines, V for odd lines
@@ -78,6 +80,7 @@ class ScanlineData:
 @dataclass
 class DecodeProgress:
     """Decode progress information."""
+
     lines_decoded: int
     total_lines: int
     current_line: int
@@ -106,12 +109,12 @@ class Robot36Decoder:
     Line structure: Sync (9ms) → Porch (3ms) → Y (88ms) → Chroma (88ms) → Porch (3ms)
     """
 
-    def __init__(self, config: Optional[Robot36Config] = None) -> None:
+    def __init__(self, config: Robot36Config | None = None) -> None:
         self._config = config or Robot36Config()
-        self._y_buffer: Optional[np.ndarray] = None
-        self._u_buffer: Optional[np.ndarray] = None
-        self._v_buffer: Optional[np.ndarray] = None
-        self._image_buffer: Optional[np.ndarray] = None
+        self._y_buffer: np.ndarray | None = None
+        self._u_buffer: np.ndarray | None = None
+        self._v_buffer: np.ndarray | None = None
+        self._image_buffer: np.ndarray | None = None
         self._current_line = 0
         self._lines_decoded = 0
         self._quality_sum = 0.0
@@ -141,7 +144,9 @@ class Robot36Decoder:
 
     def _freq_to_luma(self, freq: float) -> int:
         """Convert frequency to luminance value (0-255)."""
-        normalized = (freq - self._config.black_freq) / (self._config.white_freq - self._config.black_freq)
+        normalized = (freq - self._config.black_freq) / (
+            self._config.white_freq - self._config.black_freq
+        )
         return int(max(0, min(255, normalized * 255)))
 
     def _samples_to_freq(self, samples: np.ndarray) -> np.ndarray:
@@ -174,6 +179,7 @@ class Robot36Decoder:
 
         Returns:
             Array of pixel values (0-255)
+
         """
         indices = np.linspace(0, len(samples) - 1, target_len).astype(int)
         freqs = self._samples_to_freq(samples)
@@ -191,6 +197,7 @@ class Robot36Decoder:
 
         Returns:
             RGB array (height, width, 3)
+
         """
         # Convert to float and normalize to -0.5 to 0.5 range for U/V
         y_norm = y.astype(np.float32)
@@ -220,6 +227,7 @@ class Robot36Decoder:
 
         Returns:
             ScanlineData with decoded Y and chroma values
+
         """
         cfg = self._config
 
@@ -233,8 +241,16 @@ class Robot36Decoder:
         chroma_end = chroma_start + cfg.samples_per_chroma_scan
 
         # Extract and decode channels
-        y_samples = line_samples[y_start:y_end] if y_end <= len(line_samples) else np.zeros(cfg.samples_per_y_scan)
-        chroma_samples = line_samples[chroma_start:chroma_end] if chroma_end <= len(line_samples) else np.zeros(cfg.samples_per_chroma_scan)
+        y_samples = (
+            line_samples[y_start:y_end]
+            if y_end <= len(line_samples)
+            else np.zeros(cfg.samples_per_y_scan)
+        )
+        chroma_samples = (
+            line_samples[chroma_start:chroma_end]
+            if chroma_end <= len(line_samples)
+            else np.zeros(cfg.samples_per_chroma_scan)
+        )
 
         y_channel = self._decode_channel(y_samples, cfg.width)
         chroma = self._decode_channel(chroma_samples, cfg.width)
@@ -274,7 +290,9 @@ class Robot36Decoder:
 
         return scanline
 
-    def decode_stream(self, audio_iterator: Iterator[np.ndarray], sync_positions: list[int]) -> Iterator[ScanlineData]:
+    def decode_stream(
+        self, audio_iterator: Iterator[np.ndarray], sync_positions: list[int]
+    ) -> Iterator[ScanlineData]:
         """Decode SSTV image from audio stream with known sync positions.
 
         Args:
@@ -283,6 +301,7 @@ class Robot36Decoder:
 
         Yields:
             ScanlineData for each decoded line
+
         """
         self.reset()
 
@@ -297,7 +316,11 @@ class Robot36Decoder:
                 break
 
             line_start = sync_pos
-            line_end = sync_positions[i + 1] if i + 1 < len(sync_positions) else line_start + self._config.total_line_samples
+            line_end = (
+                sync_positions[i + 1]
+                if i + 1 < len(sync_positions)
+                else line_start + self._config.total_line_samples
+            )
 
             if line_end <= len(audio_buffer):
                 line_samples = audio_buffer[line_start:line_end]
@@ -308,17 +331,20 @@ class Robot36Decoder:
         if self._y_buffer is not None and self._u_buffer is not None and self._v_buffer is not None:
             self._image_buffer = self._yuv_to_rgb(self._y_buffer, self._u_buffer, self._v_buffer)
 
-    def get_image(self) -> Optional[np.ndarray]:
+    def get_image(self) -> np.ndarray | None:
         """Get the decoded image array.
 
         Returns:
             RGB image as numpy array (height, width, 3) or None if not decoded
+
         """
         return self._image_buffer.copy() if self._image_buffer is not None else None
 
     def get_progress(self) -> DecodeProgress:
         """Get current decode progress."""
-        percent = (self._lines_decoded / self._config.height) * 100 if self._config.height > 0 else 0
+        percent = (
+            (self._lines_decoded / self._config.height) * 100 if self._config.height > 0 else 0
+        )
         avg_quality = self._quality_sum / self._lines_decoded if self._lines_decoded > 0 else 0
 
         remaining_lines = self._config.height - self._lines_decoded

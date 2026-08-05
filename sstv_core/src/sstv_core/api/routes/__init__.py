@@ -1,10 +1,7 @@
-"""
-API route modules.
+"""API route modules.
 
 Each module exports a router that can be included in the main FastAPI app.
 """
-
-from fastapi import APIRouter
 
 # Will be populated as route modules are created
 __all__ = []

@@ -41,7 +41,7 @@ class VISConfig:
 class VISGenerator:
     """Generates VIS code audio for SSTV transmission."""
 
-    def __init__(self, config: VISConfig = None, sample_rate: int = 48000):
+    def __init__(self, config: VISConfig | None = None, sample_rate: int = 48000):
         self._config = config or VISConfig(sample_rate=sample_rate)
         self._sample_rate = sample_rate
 
@@ -85,7 +85,9 @@ class VISGenerator:
         audio_parts.append(self._generate_tone(cfg.sync_freq, cfg.bit_duration_ms))
 
         result = np.concatenate(audio_parts)
-        logger.info("Generated VIS code for %s (code=%d), %d samples", mode.name, mode.value, len(result))
+        logger.info(
+            "Generated VIS code for %s (code=%d), %d samples", mode.name, mode.value, len(result)
+        )
         return result
 
     def get_duration_ms(self) -> float:

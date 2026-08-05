@@ -1,4 +1,4 @@
-"""add transmit phase1 fields
+"""Add transmit phase1 fields.
 
 Revision ID: 2026011501
 Revises: 5ef24000d433
@@ -9,9 +9,8 @@ Adds fields and tables for TRANSMIT_SPEC.md Phase 1:
 - recent_contacts table (powers Smart Reply callsign dropdown)
 - user_preferences table (stores working state, default template)
 """
-from alembic import op
 import sqlalchemy as sa
-
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = '2026011501'
@@ -22,14 +21,13 @@ depends_on = None
 
 def upgrade() -> None:
     """Add Phase 1 fields and tables."""
-    
     # Add composition_json field to sstv_images
     # Stores full composition (zones, background) for re-editing/retransmission
     op.add_column(
         'sstv_images',
         sa.Column('composition_json', sa.Text(), nullable=True)
     )
-    
+
     # Create recent_contacts table for Smart Reply
     op.create_table(
         'recent_contacts',
@@ -41,7 +39,7 @@ def upgrade() -> None:
         sa.Column('rst_sent', sa.String(10), nullable=True),
         sa.Column('rst_received', sa.String(10), nullable=True),
     )
-    
+
     # Index for recent contacts query (DESC ordering for most recent first)
     op.create_index(
         'idx_recent_contacts_last_contact',
@@ -49,7 +47,7 @@ def upgrade() -> None:
         ['last_contact_utc'],
         unique=False
     )
-    
+
     # Create user_preferences table for working state
     op.create_table(
         'user_preferences',
@@ -64,11 +62,10 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Remove Phase 1 fields and tables."""
-    
     # Drop tables
     op.drop_table('user_preferences')
     op.drop_index('idx_recent_contacts_last_contact', table_name='recent_contacts')
     op.drop_table('recent_contacts')
-    
+
     # Remove composition_json column
     op.drop_column('sstv_images', 'composition_json')

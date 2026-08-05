@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
-from typing import Callable, Iterator, Optional
 
 import numpy as np
 
@@ -42,7 +42,7 @@ class AudioTransmitter:
         self._samples_sent = 0
         self._total_samples = 0
         self._is_transmitting = False
-        self._progress_callback: Optional[Callable] = None
+        self._progress_callback: Callable | None = None
 
     @property
     def sample_rate(self) -> int:
@@ -79,6 +79,7 @@ class AudioTransmitter:
 
         Yields:
             Number of samples written per block
+
         """
         self._total_samples = len(audio)
         self._samples_sent = 0

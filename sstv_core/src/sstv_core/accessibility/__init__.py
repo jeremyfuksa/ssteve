@@ -10,8 +10,8 @@ from .audio_guidance import AudioGuidance, GuidanceConfig
 from .slant_detector import SlantDetector, SlantErrorData
 
 __all__ = [
-    "SlantDetector",
-    "SlantErrorData",
     "AudioGuidance",
     "GuidanceConfig",
+    "SlantDetector",
+    "SlantErrorData",
 ]

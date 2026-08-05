@@ -5,15 +5,19 @@ from __future__ import annotations
 import asyncio
 import logging
 from enum import Enum
-from typing import Optional
+from typing import TYPE_CHECKING
 
 import numpy as np
+
+if TYPE_CHECKING:
+    import serial
 
 logger = logging.getLogger(__name__)
 
 
 class PTTMethod(Enum):
     """PTT control method."""
+
     NONE = "none"
     SERIAL = "serial"
     VOX = "vox"
@@ -21,6 +25,7 @@ class PTTMethod(Enum):
 
 class PTTError(Exception):
     """Raised when PTT operations fail."""
+
     pass
 
 
@@ -35,7 +40,7 @@ class PTTController:
     def __init__(
         self,
         method: PTTMethod = PTTMethod.NONE,
-        serial_port: Optional[str] = None,
+        serial_port: str | None = None,
         serial_baud: int = DEFAULT_BAUD_RATE,
         serial_signal: str = "RTS",
         pre_delay_ms: int = DEFAULT_PRE_DELAY_MS,
@@ -51,7 +56,7 @@ class PTTController:
         self._post_delay_ms = post_delay_ms
         self._vox_preamble_ms = vox_preamble_ms
         self._sample_rate = sample_rate
-        self._serial_connection = None
+        self._serial_connection: serial.Serial | None = None
         self._is_keyed = False
         if self._serial_signal not in ("RTS", "DTR"):
             raise ValueError(f"Invalid serial signal: {serial_signal}. Must be RTS or DTR.")
@@ -92,7 +97,8 @@ class PTTController:
             self._serial_connection.dtr = False
             logger.info("Opened serial port %s for PTT", self._serial_port)
         except ImportError:
-            raise PTTError("Can't use serial PTT - pyserial not installed")
+            # The ImportError adds nothing beyond "pyserial not installed".
+            raise PTTError("Can't use serial PTT - pyserial not installed") from None
         except Exception as e:
             raise PTTError(f"Can't open serial port {self._serial_port}: {e}") from e
 

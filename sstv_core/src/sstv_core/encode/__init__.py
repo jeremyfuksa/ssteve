@@ -13,33 +13,39 @@ Modules:
 """
 
 __all__ = [
-    "ImagePreprocessor",
-    "ModeResolution",
-    "ResizeMode",
+    "AudioTransmitter",
     "ColorSpace",
+    "EncoderProgress",
+    "ImagePreprocessor",
+    "MartinM1Encoder",
+    "MartinM1EncoderConfig",
+    "ModeResolution",
     "PreprocessResult",
-    "VISGenerator",
-    "VISConfig",
+    "ResizeMode",
+    "Robot36Encoder",
+    "Robot36EncoderConfig",
     "SSTVMode",
     "ScottieS1Encoder",
     "ScottieS1EncoderConfig",
-    "MartinM1Encoder",
-    "MartinM1EncoderConfig",
-    "Robot36Encoder",
-    "Robot36EncoderConfig",
-    "EncoderProgress",
-    "AudioTransmitter",
-    "TransmitProgress",
     "TXManager",
-    "TXState",
     "TXProgress",
+    "TXState",
+    "TransmitProgress",
+    "VISConfig",
+    "VISGenerator",
 ]
 
 
 def __getattr__(name: str):
-    if name in ("ImagePreprocessor", "ModeResolution", "ResizeMode", "ColorSpace", "PreprocessResult"):
+    if name in (
+        "ImagePreprocessor", "ModeResolution", "ResizeMode", "ColorSpace", "PreprocessResult"
+    ):
         from sstv_core.encode.image_preprocessor import (
-            ImagePreprocessor, ModeResolution, ResizeMode, ColorSpace, PreprocessResult
+            ColorSpace,
+            ImagePreprocessor,
+            ModeResolution,
+            PreprocessResult,
+            ResizeMode,
         )
         mapping = {
             "ImagePreprocessor": ImagePreprocessor,
@@ -50,11 +56,15 @@ def __getattr__(name: str):
         }
         return mapping[name]
     elif name in ("VISGenerator", "VISConfig", "SSTVMode"):
-        from sstv_core.encode.vis_generator import VISGenerator, VISConfig, SSTVMode
+        from sstv_core.encode.vis_generator import SSTVMode, VISConfig, VISGenerator
         mapping = {"VISGenerator": VISGenerator, "VISConfig": VISConfig, "SSTVMode": SSTVMode}
         return mapping[name]
     elif name in ("ScottieS1Encoder", "ScottieS1EncoderConfig", "EncoderProgress"):
-        from sstv_core.encode.scottie_encoder import ScottieS1Encoder, ScottieS1EncoderConfig, EncoderProgress
+        from sstv_core.encode.scottie_encoder import (
+            EncoderProgress,
+            ScottieS1Encoder,
+            ScottieS1EncoderConfig,
+        )
         mapping = {
             "ScottieS1Encoder": ScottieS1Encoder,
             "ScottieS1EncoderConfig": ScottieS1EncoderConfig,
@@ -71,7 +81,7 @@ def __getattr__(name: str):
         from sstv_core.encode.audio_transmitter import AudioTransmitter, TransmitProgress
         return AudioTransmitter if name == "AudioTransmitter" else TransmitProgress
     elif name in ("TXManager", "TXState", "TXProgress"):
-        from sstv_core.encode.tx_manager import TXManager, TXState, TXProgress
+        from sstv_core.encode.tx_manager import TXManager, TXProgress, TXState
         mapping = {"TXManager": TXManager, "TXState": TXState, "TXProgress": TXProgress}
         return mapping[name]
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

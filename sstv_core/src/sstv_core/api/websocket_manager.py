@@ -1,5 +1,4 @@
-"""
-WebSocket manager for real-time SSTV event broadcasting.
+"""WebSocket manager for real-time SSTV event broadcasting.
 
 Manages WebSocket connections for decode and transmit sessions, buffering
 events during disconnects and providing catch-up on reconnection.
@@ -8,7 +7,7 @@ events during disconnects and providing catch-up on reconnection.
 import asyncio
 from collections import defaultdict, deque
 from datetime import datetime
-from typing import Dict, Deque, Set, Optional, Any
+from typing import Any
 from uuid import UUID
 
 from fastapi import WebSocket
@@ -23,12 +22,12 @@ class WebSocketConnection:
         self.connected_at = datetime.utcnow()
         self.last_activity = datetime.utcnow()
 
-    async def send_event(self, event: Dict[str, Any]) -> bool:
-        """
-        Send event to client.
+    async def send_event(self, event: dict[str, Any]) -> bool:
+        """Send event to client.
 
         Returns:
             True if sent successfully, False if connection is broken
+
         """
         try:
             await self.websocket.send_json(event)
@@ -39,8 +38,7 @@ class WebSocketConnection:
 
 
 class WebSocketManager:
-    """
-    Manages WebSocket connections and event broadcasting.
+    """Manages WebSocket connections and event broadcasting.
 
     Features:
     - Multiple connections per session (e.g., desktop + mobile)
@@ -51,11 +49,11 @@ class WebSocketManager:
 
     def __init__(self):
         # Active connections: session_id -> set of WebSocketConnection
-        self._connections: Dict[UUID, Set[WebSocketConnection]] = defaultdict(set)
+        self._connections: dict[UUID, set[WebSocketConnection]] = defaultdict(set)
 
         # Event buffers: session_id -> deque of events
         # Persists events during disconnect for catch-up
-        self._event_buffers: Dict[UUID, Deque[Dict[str, Any]]] = defaultdict(
+        self._event_buffers: dict[UUID, deque[dict[str, Any]]] = defaultdict(
             lambda: deque(maxlen=100)  # Max 100 buffered events
         )
 
@@ -65,8 +63,7 @@ class WebSocketManager:
     async def connect(
         self, websocket: WebSocket, session_id: UUID
     ) -> WebSocketConnection:
-        """
-        Register a new WebSocket connection.
+        """Register a new WebSocket connection.
 
         Args:
             websocket: FastAPI WebSocket instance
@@ -74,6 +71,7 @@ class WebSocketManager:
 
         Returns:
             WebSocketConnection instance
+
         """
         async with self._lock:
             connection = WebSocketConnection(websocket, session_id)
@@ -81,8 +79,7 @@ class WebSocketManager:
             return connection
 
     async def disconnect(self, connection: WebSocketConnection) -> None:
-        """
-        Unregister a WebSocket connection.
+        """Unregister a WebSocket connection.
 
         Events continue to be buffered for this session for 5 minutes
         to allow reconnection.
@@ -96,9 +93,8 @@ class WebSocketManager:
                 if not self._connections[session_id]:
                     del self._connections[session_id]
 
-    async def broadcast(self, session_id: UUID, event: Dict[str, Any]) -> int:
-        """
-        Broadcast event to all connections for a session.
+    async def broadcast(self, session_id: UUID, event: dict[str, Any]) -> int:
+        """Broadcast event to all connections for a session.
 
         Event is also buffered for catch-up if client reconnects.
 
@@ -108,6 +104,7 @@ class WebSocketManager:
 
         Returns:
             Number of connections successfully notified
+
         """
         async with self._lock:
             # Add to event buffer for catch-up
@@ -136,11 +133,11 @@ class WebSocketManager:
     async def send_buffered_events(
         self, connection: WebSocketConnection
     ) -> int:
-        """
-        Send buffered events to a reconnected client (catch-up).
+        """Send buffered events to a reconnected client (catch-up).
 
         Returns:
             Number of buffered events sent
+
         """
         async with self._lock:
             session_id = connection.session_id
@@ -163,8 +160,7 @@ class WebSocketManager:
             return len(self._connections.get(session_id, set()))
 
     async def clear_session(self, session_id: UUID) -> None:
-        """
-        Clear all connections and buffered events for a session.
+        """Clear all connections and buffered events for a session.
 
         Called when a session completes or expires.
         """
@@ -177,16 +173,15 @@ class WebSocketManager:
             if session_id in self._event_buffers:
                 del self._event_buffers[session_id]
 
-    async def get_active_sessions(self) -> Set[UUID]:
+    async def get_active_sessions(self) -> set[UUID]:
         """Get all session IDs with active connections or buffered events."""
         async with self._lock:
             active = set(self._connections.keys())
             active.update(self._event_buffers.keys())
             return active
 
-    async def broadcast_library_event(self, event: Dict[str, Any]) -> int:
-        """
-        Broadcast library event to all connected clients.
+    async def broadcast_library_event(self, event: dict[str, Any]) -> int:
+        """Broadcast library event to all connected clients.
 
         Library events (image created/modified/deleted) are broadcast to all
         WebSocket connections regardless of session ID.
@@ -196,6 +191,7 @@ class WebSocketManager:
 
         Returns:
             Number of connections successfully notified
+
         """
         async with self._lock:
             # Broadcast to all connections across all sessions

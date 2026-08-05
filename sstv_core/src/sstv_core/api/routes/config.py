@@ -1,5 +1,4 @@
-"""
-Configuration endpoints wired to the database and ConfigManager.
+"""Configuration endpoints wired to the database and ConfigManager.
 
 Endpoints:
 - GET /config
@@ -11,7 +10,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import ValidationError
@@ -44,8 +43,8 @@ def _normalize_ptt_method(value: str | PTTMethod) -> tuple[str, str | None]:
     return value_enum.value, None
 
 
-def _build_manager_updates(values: Dict[str, Any]) -> Dict[str, Any]:
-    updates: Dict[str, Any] = {}
+def _build_manager_updates(values: dict[str, Any]) -> dict[str, Any]:
+    updates: dict[str, Any] = {}
 
     if "audio_input_device" in values:
         updates["audio_input_device_id"] = values["audio_input_device"]
@@ -139,7 +138,9 @@ def _build_response(manager: ConfigManager) -> Configuration:
         ptt_pre_delay_ms=manager.get("ptt_pre_delay_ms") or 500,
         ptt_post_delay_ms=manager.get("ptt_post_delay_ms") or 200,
         default_transmit_mode=mode,
-        image_library_path=manager.get("image_save_directory") or os.path.expanduser("~/sstv_images"),
+        image_library_path=(
+            manager.get("image_save_directory") or os.path.expanduser("~/sstv_images")
+        ),
         operating_mode=operating_mode,
         auto_detect_mode=decoder.auto_mode_detection_enabled,
         auto_afc=decoder.afc_enabled,
@@ -149,7 +150,7 @@ def _build_response(manager: ConfigManager) -> Configuration:
     )
 
 
-def _validate_patch(manager: ConfigManager, patch_values: Dict[str, Any]) -> None:
+def _validate_patch(manager: ConfigManager, patch_values: dict[str, Any]) -> None:
     current = _build_response(manager).model_dump()
     merged = {**current, **patch_values}
     Configuration(**merged)
@@ -190,7 +191,7 @@ async def update_config(
 
 @router.patch("", response_model=Configuration)
 async def patch_config(
-    updates: Dict[str, Any],
+    updates: dict[str, Any],
     session: Session = Depends(get_db_session),
 ) -> Configuration:
     """Update specific configuration fields."""

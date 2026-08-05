@@ -1,18 +1,16 @@
-"""
-Pydantic models for API request/response validation.
+"""Pydantic models for API request/response validation.
 
 These models define the API contract between the frontend and backend,
 with comprehensive validation to ensure data integrity and security.
 """
 
+import re
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator, model_validator
-import re
-
 
 # ============================================================================
 # Enums
@@ -20,6 +18,7 @@ import re
 
 class SSTVMode(str, Enum):
     """Supported SSTV modes."""
+
     MARTIN_M1 = "MartinM1"
     MARTIN_M2 = "MartinM2"
     SCOTTIE_S1 = "ScottieS1"
@@ -36,6 +35,7 @@ class SSTVMode(str, Enum):
 
 class DecodeState(str, Enum):
     """Decode session states."""
+
     LISTENING = "listening"
     VIS_DETECTED = "vis_detected"
     DECODING = "decoding"
@@ -46,6 +46,7 @@ class DecodeState(str, Enum):
 
 class TransmitState(str, Enum):
     """Transmit session states."""
+
     PENDING = "pending"
     PTT_ENGAGED = "ptt_engaged"
     TRANSMITTING = "transmitting"
@@ -56,6 +57,7 @@ class TransmitState(str, Enum):
 
 class PTTMethod(str, Enum):
     """PTT control methods."""
+
     SERIAL_RTS = "serial_rts"
     SERIAL_DTR = "serial_dtr"
     VOX = "vox"
@@ -65,11 +67,11 @@ class PTTMethod(str, Enum):
 class ModeDetectionRequest(BaseModel):
     """Request for mode detection from sync timing."""
 
-    session_id: Optional[UUID] = Field(
+    session_id: UUID | None = Field(
         default=None,
         description="Optional session ID to analyze audio from active decode session",
     )
-    audio_file: Optional[str] = Field(
+    audio_file: str | None = Field(
         default=None,
         description="Path to audio file for analysis",
     )
@@ -91,7 +93,7 @@ class ModeDetectionRequest(BaseModel):
 class ModeDetectionResponse(BaseModel):
     """Response from mode detection analysis."""
 
-    mode: Optional[str] = Field(
+    mode: str | None = Field(
         default=None,
         description="Detected SSTV mode (null if confidence < 0.70)",
     )
@@ -101,19 +103,19 @@ class ModeDetectionResponse(BaseModel):
         le=1.0,
         description="Confidence score 0.0-1.0 (null if no detection)",
     )
-    measured_intervals: List[float] = Field(
+    measured_intervals: list[float] = Field(
         default_factory=list,
         description="Measured inter-pulse intervals (first 10 for debugging)",
     )
-    expected_interval: Optional[float] = Field(
+    expected_interval: float | None = Field(
         default=None,
         description="Expected interval for detected mode",
     )
-    fallback_modes: List[Dict[str, Any]] = Field(
+    fallback_modes: list[dict[str, Any]] = Field(
         default_factory=list,
         description="Top 3 alternative mode suggestions",
     )
-    suggestion_message: Optional[str] = Field(
+    suggestion_message: str | None = Field(
         default=None,
         description="User-friendly suggestion message in SSTeVe voice",
     )
@@ -121,6 +123,7 @@ class ModeDetectionResponse(BaseModel):
 
 class OperatingConditionMode(str, Enum):
     """Operating conditions modes (accessibility, not aesthetic)."""
+
     STANDARD = "standard"
     NIGHT_VISION = "night_vision"
     SUNLIGHT = "sunlight"
@@ -133,50 +136,50 @@ class OperatingConditionMode(str, Enum):
 class ApplySettingsRequest(BaseModel):
     """Request to apply recommended device settings."""
 
-    profile_name: Optional[str] = Field(
+    profile_name: str | None = Field(
         default=None,
         description="Name of device profile to apply (e.g., 'Digirig Mobile')",
     )
 
-    ptt_method: Optional[str] = Field(
+    ptt_method: str | None = Field(
         default=None,
         description="PTT method: 'serial_rts', 'serial_dtr', 'vox', 'none'",
     )
 
-    ptt_serial_signal: Optional[str] = Field(
+    ptt_serial_signal: str | None = Field(
         default=None,
         description="Serial PTT signal: 'RTS' or 'DTR'",
     )
 
-    ptt_pre_delay_ms: Optional[int] = Field(
+    ptt_pre_delay_ms: int | None = Field(
         default=None,
         ge=0,
         le=5000,
         description="PTT pre-delay in milliseconds",
     )
 
-    ptt_post_delay_ms: Optional[int] = Field(
+    ptt_post_delay_ms: int | None = Field(
         default=None,
         ge=0,
         le=5000,
         description="PTT post-delay in milliseconds",
     )
 
-    vox_preamble_ms: Optional[int] = Field(
+    vox_preamble_ms: int | None = Field(
         default=None,
         ge=0,
         le=5000,
         description="VOX preamble duration in milliseconds",
     )
 
-    audio_input_device_id: Optional[str] = Field(
+    audio_input_device_id: str | None = Field(
         default=None,
         min_length=1,
         max_length=256,
         description="Audio input device ID",
     )
 
-    audio_output_device_id: Optional[str] = Field(
+    audio_output_device_id: str | None = Field(
         default=None,
         min_length=1,
         max_length=256,
@@ -187,22 +190,22 @@ class ApplySettingsRequest(BaseModel):
 class DeviceDetectionResponse(BaseModel):
     """Response from hardware device detection."""
 
-    detected_profile: Optional[str] = Field(
+    detected_profile: str | None = Field(
         default=None,
         description="Name of detected device profile (if any)",
     )
 
-    detection_message: Optional[str] = Field(
+    detection_message: str | None = Field(
         default=None,
         description="User-friendly detection message in SSTeVe voice",
     )
 
-    recommended_settings: Dict[str, Any] = Field(
+    recommended_settings: dict[str, Any] = Field(
         default_factory=dict,
         description="Recommended configuration settings for detected device",
     )
 
-    settings_preview: Dict[str, Dict[str, Any]] = Field(
+    settings_preview: dict[str, dict[str, Any]] = Field(
         default_factory=dict,
         description="Preview of what will change if settings are applied",
     )
@@ -213,11 +216,11 @@ class DeviceDetectionResponse(BaseModel):
 class ApplySettingsResponse(BaseModel):
     """Response after applying settings."""
 
-    updated_configuration: Dict[str, Any] = Field(
+    updated_configuration: dict[str, Any] = Field(
         description="Updated configuration after applying settings",
     )
 
-    applied_fields: List[str] = Field(
+    applied_fields: list[str] = Field(
         description="List of configuration fields that were updated",
     )
 
@@ -226,6 +229,7 @@ class ApplySettingsResponse(BaseModel):
 
 class AudioDevice(BaseModel):
     """Audio device information."""
+
     device_id: str = Field(
         ...,
         min_length=1,
@@ -266,6 +270,7 @@ class AudioDevice(BaseModel):
 
 class SerialPort(BaseModel):
     """Serial port information for PTT control."""
+
     port: str = Field(
         ...,
         min_length=1,
@@ -277,7 +282,7 @@ class SerialPort(BaseModel):
         max_length=512,
         description="Human-readable port description"
     )
-    manufacturer: Optional[str] = Field(
+    manufacturer: str | None = Field(
         default=None,
         max_length=256,
         description="Device manufacturer"
@@ -294,11 +299,12 @@ class SerialPort(BaseModel):
 
 class Configuration(BaseModel):
     """System configuration."""
-    audio_input_device: Optional[str] = Field(
+
+    audio_input_device: str | None = Field(
         default=None,
         description="Selected audio input device ID"
     )
-    audio_output_device: Optional[str] = Field(
+    audio_output_device: str | None = Field(
         default=None,
         description="Selected audio output device ID"
     )
@@ -306,7 +312,7 @@ class Configuration(BaseModel):
         default=PTTMethod.NONE,
         description="PTT control method"
     )
-    ptt_serial_port: Optional[str] = Field(
+    ptt_serial_port: str | None = Field(
         default=None,
         description="Serial port for PTT (if using serial PTT)"
     )
@@ -385,7 +391,8 @@ class Configuration(BaseModel):
 
 class DecodeStartRequest(BaseModel):
     """Request to start a decode session."""
-    mode: Optional[SSTVMode] = Field(
+
+    mode: SSTVMode | None = Field(
         default=None,
         description="SSTV mode (null for auto-detect)"
     )
@@ -393,7 +400,7 @@ class DecodeStartRequest(BaseModel):
         default=True,
         description="Enable VIS-based mode auto-detection"
     )
-    timeout_seconds: Optional[int] = Field(
+    timeout_seconds: int | None = Field(
         default=300,
         ge=10,
         le=3600,
@@ -403,13 +410,13 @@ class DecodeStartRequest(BaseModel):
         default=True,
         description="Save decoded image to library"
     )
-    callsign: Optional[str] = Field(
+    callsign: str | None = Field(
         default=None,
         min_length=3,
         max_length=20,
         description="Operator callsign (for QSO logging)"
     )
-    device_id: Optional[str] = Field(
+    device_id: str | None = Field(
         default=None,
         max_length=256,
         description="Audio input device ID (null for system default)"
@@ -417,7 +424,7 @@ class DecodeStartRequest(BaseModel):
 
     @field_validator("callsign")
     @classmethod
-    def validate_callsign(cls, v: Optional[str]) -> Optional[str]:
+    def validate_callsign(cls, v: str | None) -> str | None:
         """Validate amateur radio callsign format."""
         if v is None:
             return v
@@ -431,6 +438,7 @@ class DecodeStartRequest(BaseModel):
 
 class DecodeStartResponse(BaseModel):
     """Response from starting a decode session."""
+
     session_id: UUID = Field(
         ...,
         description="Unique session identifier for tracking"
@@ -451,13 +459,14 @@ class DecodeStartResponse(BaseModel):
 
 class DecodeStatusResponse(BaseModel):
     """Decode session status."""
+
     session_id: UUID
     state: DecodeState
-    mode: Optional[SSTVMode] = Field(
+    mode: SSTVMode | None = Field(
         default=None,
         description="Detected/selected SSTV mode"
     )
-    mode_confidence: Optional[float] = Field(
+    mode_confidence: float | None = Field(
         default=None,
         ge=0.0,
         le=1.0,
@@ -474,24 +483,24 @@ class DecodeStatusResponse(BaseModel):
         ge=0,
         description="Number of scanlines decoded"
     )
-    snr_db: Optional[float] = Field(
+    snr_db: float | None = Field(
         default=None,
         description="Signal-to-noise ratio in dB"
     )
-    frequency_offset_hz: Optional[float] = Field(
+    frequency_offset_hz: float | None = Field(
         default=None,
         description="Frequency offset from nominal (AFC)"
     )
-    image_id: Optional[UUID] = Field(
+    image_id: UUID | None = Field(
         default=None,
         description="Image ID if decode completed and saved"
     )
-    error: Optional[str] = Field(
+    error: str | None = Field(
         default=None,
         description="Error message if state is 'failed'"
     )
     started_at: datetime
-    completed_at: Optional[datetime] = None
+    completed_at: datetime | None = None
 
 
 # ============================================================================
@@ -500,6 +509,7 @@ class DecodeStatusResponse(BaseModel):
 
 class TransmitRequest(BaseModel):
     """Request to transmit an SSTV image."""
+
     image_path: str = Field(
         ...,
         min_length=1,
@@ -510,7 +520,7 @@ class TransmitRequest(BaseModel):
         ...,
         description="SSTV mode for transmission"
     )
-    callsign: Optional[str] = Field(
+    callsign: str | None = Field(
         default=None,
         min_length=3,
         max_length=20,
@@ -524,12 +534,12 @@ class TransmitRequest(BaseModel):
         default=False,
         description="Use VOX (silence preamble) instead of PTT"
     )
-    device_id: Optional[str] = Field(
+    device_id: str | None = Field(
         default=None,
         max_length=256,
         description="Audio output device ID (null for system default)"
     )
-    serial_port: Optional[str] = Field(
+    serial_port: str | None = Field(
         default=None,
         max_length=256,
         description="Serial port for PTT control (e.g., /dev/ttyUSB0, COM3)"
@@ -548,7 +558,7 @@ class TransmitRequest(BaseModel):
 
     @field_validator("callsign")
     @classmethod
-    def validate_callsign(cls, v: Optional[str]) -> Optional[str]:
+    def validate_callsign(cls, v: str | None) -> str | None:
         """Validate amateur radio callsign format."""
         if v is None:
             return v
@@ -561,6 +571,7 @@ class TransmitRequest(BaseModel):
 
 class TransmitResponse(BaseModel):
     """Response from starting a transmission."""
+
     tx_id: UUID = Field(
         ...,
         description="Unique transmission identifier"
@@ -586,6 +597,7 @@ class TransmitResponse(BaseModel):
 
 class TransmitStatusResponse(BaseModel):
     """Transmission status."""
+
     tx_id: UUID
     state: TransmitState
     mode: SSTVMode
@@ -610,16 +622,16 @@ class TransmitStatusResponse(BaseModel):
         ge=0.0,
         description="Total estimated duration"
     )
-    image_id: Optional[UUID] = Field(
+    image_id: UUID | None = Field(
         default=None,
         description="Image ID if saved to library"
     )
-    error: Optional[str] = Field(
+    error: str | None = Field(
         default=None,
         description="Error message if state is 'failed'"
     )
     started_at: datetime
-    completed_at: Optional[datetime] = None
+    completed_at: datetime | None = None
 
 
 # ============================================================================
@@ -628,6 +640,7 @@ class TransmitStatusResponse(BaseModel):
 
 class ImageMetadata(BaseModel):
     """Metadata for a stored SSTV image."""
+
     id: UUID = Field(
         ...,
         description="Unique image identifier"
@@ -645,7 +658,7 @@ class ImageMetadata(BaseModel):
         pattern="^(rx|tx)$",
         description="Receive or transmit"
     )
-    callsign: Optional[str] = Field(
+    callsign: str | None = Field(
         default=None,
         description="Operator callsign"
     )
@@ -653,15 +666,15 @@ class ImageMetadata(BaseModel):
         ...,
         description="Capture/transmit timestamp (UTC)"
     )
-    snr_db: Optional[float] = Field(
+    snr_db: float | None = Field(
         default=None,
         description="Signal quality (RX only)"
     )
-    frequency_offset_hz: Optional[float] = Field(
+    frequency_offset_hz: float | None = Field(
         default=None,
         description="Frequency offset (RX only)"
     )
-    thumbnail_path: Optional[str] = Field(
+    thumbnail_path: str | None = Field(
         default=None,
         description="Path to thumbnail image"
     )
@@ -679,7 +692,8 @@ class ImageMetadata(BaseModel):
 
 class ImageListResponse(BaseModel):
     """Paginated image list."""
-    images: List[ImageMetadata] = Field(
+
+    images: list[ImageMetadata] = Field(
         ...,
         description="List of image metadata"
     )
@@ -707,6 +721,7 @@ class ImageListResponse(BaseModel):
 
 class WSEvent(BaseModel):
     """Base WebSocket event."""
+
     event_type: str = Field(
         ...,
         description="Event type identifier"
@@ -715,7 +730,7 @@ class WSEvent(BaseModel):
         default_factory=datetime.utcnow,
         description="Event timestamp (UTC)"
     )
-    data: Dict[str, Any] = Field(
+    data: dict[str, Any] = Field(
         default_factory=dict,
         description="Event payload"
     )
@@ -723,6 +738,7 @@ class WSEvent(BaseModel):
 
 class VISDetectedEvent(BaseModel):
     """VIS code detected event."""
+
     event_type: str = "vis_detected"
     mode: SSTVMode
     confidence: float = Field(ge=0.0, le=1.0)
@@ -732,17 +748,19 @@ class VISDetectedEvent(BaseModel):
 
 class ScanlineUpdateEvent(BaseModel):
     """Scanline decode/transmit progress event."""
+
     event_type: str = "scanline_update"
     scanline_number: int = Field(ge=0)
     total_scanlines: int = Field(ge=1)
     progress_percent: float = Field(ge=0.0, le=100.0)
-    snr_db: Optional[float] = None
-    frequency_offset_hz: Optional[float] = None
+    snr_db: float | None = None
+    frequency_offset_hz: float | None = None
     timestamp: datetime = Field(default_factory=datetime.utcnow)
 
 
 class DecodeCompleteEvent(BaseModel):
     """Decode complete event."""
+
     event_type: str = "decode_complete"
     image_id: UUID
     mode: SSTVMode
@@ -753,6 +771,7 @@ class DecodeCompleteEvent(BaseModel):
 
 class TransmitCompleteEvent(BaseModel):
     """Transmit complete event."""
+
     event_type: str = "transmit_complete"
     tx_id: UUID
     mode: SSTVMode
@@ -762,6 +781,7 @@ class TransmitCompleteEvent(BaseModel):
 
 class ErrorEvent(BaseModel):
     """Error event."""
+
     event_type: str = "error"
     error_code: str
     message: str
@@ -769,7 +789,7 @@ class ErrorEvent(BaseModel):
         default=False,
         description="Whether operation can be retried"
     )
-    suggested_action: Optional[str] = None
+    suggested_action: str | None = None
     timestamp: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -779,6 +799,7 @@ class ErrorEvent(BaseModel):
 
 class MMSStvImportRequest(BaseModel):
     """Request to import MMSSTV library."""
+
     directory_path: str = Field(
         ...,
         min_length=1,
@@ -812,6 +833,7 @@ class MMSStvImportRequest(BaseModel):
 
 class MMSStvImportResponse(BaseModel):
     """Response from MMSSTV import operation."""
+
     imported: int = Field(
         ...,
         ge=0,
@@ -822,7 +844,7 @@ class MMSStvImportResponse(BaseModel):
         ge=0,
         description="Number of images skipped (already exist)"
     )
-    errors: List[str] = Field(
+    errors: list[str] = Field(
         default_factory=list,
         description="List of error messages"
     )
@@ -835,6 +857,7 @@ class MMSStvImportResponse(BaseModel):
 
 class DirectoryValidationRequest(BaseModel):
     """Request to validate directory for import."""
+
     directory_path: str = Field(
         ...,
         min_length=1,
@@ -864,6 +887,7 @@ class DirectoryValidationRequest(BaseModel):
 
 class DirectoryValidationResponse(BaseModel):
     """Response from directory validation."""
+
     valid: bool = Field(
         ...,
         description="True if directory can be imported"
@@ -881,7 +905,7 @@ class DirectoryValidationResponse(BaseModel):
         ge=0,
         description="Number of importable images found"
     )
-    error: Optional[str] = Field(
+    error: str | None = Field(
         default=None,
         description="Error message if validation failed"
     )
@@ -889,19 +913,21 @@ class DirectoryValidationResponse(BaseModel):
 
 class ImageMetadataSample(BaseModel):
     """Sample image metadata from preview."""
+
     filename: str = Field(..., description="Image filename")
     path: str = Field(..., description="Full file path")
-    metadata: Dict[str, Any] = Field(..., description="Parsed metadata")
+    metadata: dict[str, Any] = Field(..., description="Parsed metadata")
 
 
 class ImportPreviewResponse(BaseModel):
     """Preview of what would be imported from a directory."""
+
     total_files: int = Field(
         ...,
         ge=0,
         description="Total importable image files"
     )
-    samples: List[ImageMetadataSample] = Field(
+    samples: list[ImageMetadataSample] = Field(
         default_factory=list,
         description="Sample files with parsed metadata"
     )

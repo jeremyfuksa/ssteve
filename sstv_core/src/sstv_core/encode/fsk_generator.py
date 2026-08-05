@@ -49,6 +49,7 @@ class FSKIDGenerator:
 
         Args:
             sample_rate: Audio sample rate (typically 48000 Hz)
+
         """
         self._sample_rate = sample_rate
 
@@ -63,6 +64,7 @@ class FSKIDGenerator:
 
         Raises:
             ValueError: If callsign format is invalid
+
         """
         # Validate and normalize callsign
         callsign = callsign.upper().strip()
@@ -108,6 +110,7 @@ class FSKIDGenerator:
 
         Raises:
             ValueError: If callsign is invalid
+
         """
         if not callsign:
             raise ValueError("Callsign cannot be empty")
@@ -142,6 +145,7 @@ class FSKIDGenerator:
 
         Example:
             "K8JTK" → [$0A, $2B, $18, $2A, $34, $2B, $01, XSUM]
+
         """
         symbols = [self.START_MARKER]  # Start marker
 
@@ -184,6 +188,7 @@ class FSKIDGenerator:
 
         Example:
             0x2B (43) → [1, 0, 1, 0, 1, 1]
+
         """
         if not (0x00 <= symbol <= 0x3F):
             raise ValueError(f"Symbol value must be 0-63, got {symbol}")
@@ -200,6 +205,7 @@ class FSKIDGenerator:
 
         Returns:
             Audio samples (float32, normalized to ±0.8)
+
         """
         num_samples = int(self._sample_rate * duration_ms / 1000)
         t = np.arange(num_samples) / self._sample_rate
@@ -214,6 +220,7 @@ class FSKIDGenerator:
 
         Returns:
             Duration in milliseconds
+
         """
         # Validate first
         callsign = callsign.upper().strip()
@@ -240,6 +247,7 @@ class FSKIDGenerator:
 
         Returns:
             Duration in samples
+
         """
         duration_ms = self.get_duration_ms(callsign)
         return int(self._sample_rate * duration_ms / 1000)

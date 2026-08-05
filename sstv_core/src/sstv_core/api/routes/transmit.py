@@ -1,5 +1,4 @@
-"""
-Transmit endpoints for SSTV transmission.
+"""Transmit endpoints for SSTV transmission.
 
 Handles:
 - POST /transmit - Start SSTV transmission
@@ -11,24 +10,22 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
 
+from sstv_core.api.dsp_manager import dsp_manager
 from sstv_core.api.models import (
     SSTVMode,
     TransmitRequest,
     TransmitResponse,
-    TransmitStatusResponse,
     TransmitState,
+    TransmitStatusResponse,
 )
-from sstv_core.api.dsp_manager import dsp_manager
 from sstv_core.api.session_manager import session_manager
-
 
 router = APIRouter(prefix="/transmit", tags=["transmit"])
 
 
 @router.post("", response_model=TransmitResponse, status_code=status.HTTP_201_CREATED)
 async def start_transmit(request: TransmitRequest) -> TransmitResponse:
-    """
-    Start a new SSTV transmission.
+    """Start a new SSTV transmission.
 
     Encodes the image, engages PTT (if configured), and transmits the SSTV signal.
     The transmission duration depends on the SSTV mode selected.
@@ -40,6 +37,7 @@ async def start_transmit(request: TransmitRequest) -> TransmitResponse:
         409 Conflict: If another decode/transmit session is already active (half-duplex)
         404 Not Found: If image file doesn't exist
         400 Bad Request: If image format is unsupported or invalid
+
     """
     session = None
     try:
@@ -98,7 +96,7 @@ async def start_transmit(request: TransmitRequest) -> TransmitResponse:
                     "message": str(e),
                     "suggested_action": "Stop the active session before starting a new one",
                 },
-            )
+            ) from e
         raise
     except Exception as e:
         if session is not None:
@@ -115,8 +113,7 @@ async def start_transmit(request: TransmitRequest) -> TransmitResponse:
 
 @router.get("/status/{tx_id}", response_model=TransmitStatusResponse)
 async def get_transmit_status(tx_id: UUID) -> TransmitStatusResponse:
-    """
-    Get the current status of a transmission.
+    """Get the current status of a transmission.
 
     Returns detailed progress information including:
     - Current state (pending, ptt_engaged, transmitting, completed, etc.)
@@ -125,6 +122,7 @@ async def get_transmit_status(tx_id: UUID) -> TransmitStatusResponse:
 
     Raises:
         404 Not Found: If transmission doesn't exist
+
     """
     session = await session_manager.get_transmit_session(tx_id)
 
@@ -171,14 +169,14 @@ async def get_transmit_status(tx_id: UUID) -> TransmitStatusResponse:
 
 @router.post("/cancel/{tx_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def cancel_transmit(tx_id: UUID) -> None:
-    """
-    Cancel an active transmission.
+    """Cancel an active transmission.
 
     Releases PTT and stops transmitting. The partial transmission will be aborted.
 
     Raises:
         404 Not Found: If transmission doesn't exist
         409 Conflict: If transmission is already in a terminal state
+
     """
     session = await session_manager.get_transmit_session(tx_id)
 
@@ -213,7 +211,7 @@ async def cancel_transmit(tx_id: UUID) -> None:
                 "error": "SESSION_NOT_FOUND",
                 "message": str(e),
             },
-        )
+        ) from e
 
 
 def _estimate_duration(mode) -> float:

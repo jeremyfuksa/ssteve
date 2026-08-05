@@ -8,11 +8,11 @@ This module implements the fallback hierarchy for populating Smart Reply fields:
 """
 
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any
 
 from sqlalchemy.orm import Session
 
-from ..database.models import Configuration, SSTVImage, get_or_create_config
+from ..database.models import SSTVImage, get_or_create_config
 
 
 class FieldPopulationError(Exception):
@@ -24,8 +24,8 @@ class FieldPopulationError(Exception):
 def populate_smart_reply_fields(
     session: Session,
     image_id: int,
-    overrides: Optional[Dict[str, Any]] = None
-) -> Dict[str, Any]:
+    overrides: dict[str, Any] | None = None
+) -> dict[str, Any]:
     """Auto-populate template fields from image metadata with fallback hierarchy.
 
     Args:
@@ -39,6 +39,7 @@ def populate_smart_reply_fields(
     Raises:
         FieldPopulationError: If callsign_received cannot be determined
         ValueError: If image not found
+
     """
     if overrides is None:
         overrides = {}
@@ -64,10 +65,13 @@ def populate_smart_reply_fields(
                             or "YOUR_CALL",
 
         # Frequency (from image metadata or config default)
-        "frequency_mhz": overrides.get("frequency_mhz")
-                        or (image.frequency_hz / 1e6 if image.frequency_hz else None)
-                        or getattr(config, "default_frequency_hz", None) / 1e6 if hasattr(config, "default_frequency_hz") else None
-                        or None,
+        "frequency_mhz": (
+            overrides.get("frequency_mhz")
+            or (image.frequency_hz / 1e6 if image.frequency_hz else None)
+            or getattr(config, "default_frequency_hz", 0.0) / 1e6
+            if hasattr(config, "default_frequency_hz")
+            else None
+        ),
 
         # Timestamp (always from image)
         "timestamp_utc": image.timestamp,
@@ -98,7 +102,7 @@ def populate_smart_reply_fields(
     return formatted_fields
 
 
-def _format_field_values(fields: Dict[str, Any]) -> Dict[str, Any]:
+def _format_field_values(fields: dict[str, Any]) -> dict[str, Any]:
     """Format field values for display in template.
 
     Args:
@@ -106,8 +110,9 @@ def _format_field_values(fields: Dict[str, Any]) -> Dict[str, Any]:
 
     Returns:
         Dictionary with formatted values
+
     """
-    formatted = {}
+    formatted: dict[str, Any] = {}
 
     for key, value in fields.items():
         if value is None:
@@ -127,7 +132,7 @@ def _format_field_values(fields: Dict[str, Any]) -> Dict[str, Any]:
     return formatted
 
 
-def validate_smart_reply_fields(fields: Dict[str, Any]) -> tuple[bool, list[str]]:
+def validate_smart_reply_fields(fields: dict[str, Any]) -> tuple[bool, list[str]]:
     """Validate that all required fields are present and valid.
 
     Args:
@@ -135,6 +140,7 @@ def validate_smart_reply_fields(fields: Dict[str, Any]) -> tuple[bool, list[str]
 
     Returns:
         Tuple of (is_valid, list_of_errors)
+
     """
     errors = []
 
@@ -151,14 +157,17 @@ def validate_smart_reply_fields(fields: Dict[str, Any]) -> tuple[bool, list[str]
         callsign = fields.get(callsign_field)
         if callsign and callsign not in ("N/A", "UNKNOWN", "YOUR_CALL"):
             # Basic callsign validation: 3-10 alphanumeric characters
-            if not (3 <= len(callsign) <= 10 and callsign.replace("/", "").replace("-", "").isalnum()):
+            if not (
+                3 <= len(callsign) <= 10
+                and callsign.replace("/", "").replace("-", "").isalnum()
+            ):
                 errors.append(f"Invalid callsign format: {callsign}")
 
     is_valid = len(errors) == 0
     return is_valid, errors
 
 
-def suggest_field_improvements(fields: Dict[str, Any]) -> Dict[str, str]:
+def suggest_field_improvements(fields: dict[str, Any]) -> dict[str, str]:
     """Suggest improvements for field values that are present but suboptimal.
 
     Args:
@@ -166,6 +175,7 @@ def suggest_field_improvements(fields: Dict[str, Any]) -> Dict[str, str]:
 
     Returns:
         Dictionary of field_id -> suggestion_text
+
     """
     suggestions = {}
 
@@ -174,7 +184,9 @@ def suggest_field_improvements(fields: Dict[str, Any]) -> Dict[str, str]:
         suggestions["callsign_operator"] = "Configure your callsign in Settings for auto-population"
 
     if fields.get("frequency_mhz") is None or fields.get("frequency_mhz") == "N/A":
-        suggestions["frequency_mhz"] = "Add frequency to image metadata or configure default frequency"
+        suggestions["frequency_mhz"] = (
+            "Add frequency to image metadata or configure default frequency"
+        )
 
     if fields.get("snr_db") == "N/A":
         suggestions["snr_db"] = "Signal quality not available (decode metadata missing)"

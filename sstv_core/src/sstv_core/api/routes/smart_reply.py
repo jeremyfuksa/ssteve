@@ -10,20 +10,19 @@ Ref: backend-spec.md §6.4 (Smart Reply Technical Implementation)
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from ...database.models import get_or_create_config
 from ...smart_features.field_populator import (
     FieldPopulationError,
     populate_smart_reply_fields,
     validate_smart_reply_fields,
     )
-from ...smart_features.template_engine import TemplateEngine, TemplateMetadata
+from ...smart_features.template_engine import TemplateEngine
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/smart_reply", tags=["smart_reply"])
@@ -37,7 +36,7 @@ def get_db() -> Session:
     raise NotImplementedError("Database session dependency not configured")
 
 # Global template engine instance
-_template_engine: Optional[TemplateEngine] = None
+_template_engine: TemplateEngine | None = None
 
 
 def get_template_engine() -> TemplateEngine:
@@ -64,7 +63,7 @@ class TemplateFieldInfo(BaseModel):
     color: str
     font_family: str = "Arial"
     alignment: str = "left"
-    format: Optional[str] = None
+    format: str | None = None
 
 
 class TemplateInfo(BaseModel):
@@ -74,7 +73,7 @@ class TemplateInfo(BaseModel):
     name: str
     default_mode: str
     base_image: str
-    fields: List[TemplateFieldInfo]
+    fields: list[TemplateFieldInfo]
 
 
 class GenerateSmartReplyRequest(BaseModel):
@@ -82,7 +81,7 @@ class GenerateSmartReplyRequest(BaseModel):
 
     image_id: int = Field(..., description="Received image to reply to")
     template_id: str = Field(default="qsl_card", description="Template to use")
-    field_overrides: Optional[Dict[str, Any]] = Field(
+    field_overrides: dict[str, Any] | None = Field(
         default=None,
         description="Optional manual overrides for specific fields"
     )
@@ -93,7 +92,7 @@ class GenerateSmartReplyResponse(BaseModel):
 
     preview_id: UUID = Field(..., description="Preview identifier for transmission")
     preview_image_path: str = Field(..., description="Path to preview image")
-    template_data: Dict[str, Any] = Field(..., description="All field values used")
+    template_data: dict[str, Any] = Field(..., description="All field values used")
     estimated_tx_duration: int = Field(..., description="Estimated transmit duration in seconds")
 
 
@@ -113,7 +112,7 @@ class TransmitSmartReplyResponse(BaseModel):
 
 
 # In-memory preview storage (temporary files + metadata)
-_preview_cache: Dict[UUID, Dict[str, Any]] = {}
+_preview_cache: dict[UUID, dict[str, Any]] = {}
 
 
 # =============================================================================
@@ -121,16 +120,17 @@ _preview_cache: Dict[UUID, Dict[str, Any]] = {}
 # =============================================================================
 
 
-@router.get("/templates", response_model=List[TemplateInfo])
+@router.get("/templates", response_model=list[TemplateInfo])
 async def list_templates(
     template_engine: TemplateEngine = Depends(get_template_engine)
-) -> List[TemplateInfo]:
+) -> list[TemplateInfo]:
     """List all available Smart Reply templates.
 
     Returns bundled templates and user-created templates from ~/.ssteve/templates/
 
     Returns:
         List of template metadata
+
     """
     templates = template_engine.list_templates()
 
@@ -186,6 +186,7 @@ async def generate_smart_reply(
 
     Raises:
         HTTPException: If image not found, template missing, or callsign required
+
     """
     try:
         # Populate fields from image metadata
@@ -235,18 +236,18 @@ async def generate_smart_reply(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
-        )
+        ) from e
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e)
-        )
+        ) from e
     except Exception as e:
         logger.error(f"Error generating Smart Reply: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to generate Smart Reply: {str(e)}"
-        )
+            detail=f"Failed to generate Smart Reply: {e!s}"
+        ) from e
 
 
 @router.post("/transmit/{preview_id}", response_model=TransmitSmartReplyResponse)
@@ -267,6 +268,7 @@ async def transmit_smart_reply(
 
     Raises:
         HTTPException: If preview not found or transmission fails
+
     """
     # Get preview from cache
     preview_data = _preview_cache.get(preview_id)
@@ -305,20 +307,21 @@ async def transmit_smart_reply(
         logger.error(f"Error transmitting Smart Reply: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to start transmission: {str(e)}"
-        )
+            detail=f"Failed to start transmission: {e!s}"
+        ) from e
 
 
 @router.post("/reload_templates")
 async def reload_templates(
     template_engine: TemplateEngine = Depends(get_template_engine)
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Hot-reload templates from disk.
 
     Useful for adding new templates without restarting the server.
 
     Returns:
         Status with count of loaded templates
+
     """
     template_engine.reload_templates()
     templates = template_engine.list_templates()
@@ -343,6 +346,7 @@ def _estimate_tx_duration(mode: str) -> int:
 
     Returns:
         Estimated duration in seconds
+
     """
     # Approximate durations for common modes (320x256 image)
     mode_durations = {

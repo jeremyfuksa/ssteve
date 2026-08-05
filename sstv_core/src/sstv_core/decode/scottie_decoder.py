@@ -12,8 +12,8 @@ Scottie S1 specifications:
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
-from typing import Iterator, Optional
+from collections.abc import Iterator
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ScottieS1Config:
     """Scottie S1 mode configuration."""
+
     width: int = 320
     height: int = 256
     sync_duration_ms: float = 9.0
@@ -50,6 +51,7 @@ class ScottieS1Config:
 @dataclass
 class ScanlineData:
     """Decoded scanline data."""
+
     line_number: int
     green: np.ndarray
     blue: np.ndarray
@@ -76,6 +78,7 @@ class ScanlineData:
 @dataclass
 class DecodeProgress:
     """Decode progress information."""
+
     lines_decoded: int
     total_lines: int
     current_line: int
@@ -107,9 +110,9 @@ class ScottieS1Decoder:
     7. Sync pulse (9ms at 1200Hz) - marks start of next line
     """
 
-    def __init__(self, config: Optional[ScottieS1Config] = None) -> None:
+    def __init__(self, config: ScottieS1Config | None = None) -> None:
         self._config = config or ScottieS1Config()
-        self._image_buffer: Optional[np.ndarray] = None
+        self._image_buffer: np.ndarray | None = None
         self._current_line = 0
         self._lines_decoded = 0
         self._quality_sum = 0.0
@@ -140,7 +143,9 @@ class ScottieS1Decoder:
     def _freq_to_luma(self, freq: float) -> int:
         """Convert frequency to luminance value (0-255)."""
         # Linear interpolation: 1500Hz -> 0, 2300Hz -> 255
-        normalized = (freq - self._config.black_freq) / (self._config.white_freq - self._config.black_freq)
+        normalized = (freq - self._config.black_freq) / (
+            self._config.white_freq - self._config.black_freq
+        )
         return int(max(0, min(255, normalized * 255)))
 
     def _samples_to_freq(self, samples: np.ndarray) -> np.ndarray:
@@ -175,6 +180,7 @@ class ScottieS1Decoder:
 
         Returns:
             Array of 320 pixel values (0-255)
+
         """
         # Resample to exactly 320 pixels
         target_len = self._config.width
@@ -198,6 +204,7 @@ class ScottieS1Decoder:
 
         Returns:
             ScanlineData with decoded RGB values
+
         """
         cfg = self._config
         samples_per_sep = int(cfg.sample_rate * cfg.separator_duration_ms / 1000)
@@ -215,9 +222,21 @@ class ScottieS1Decoder:
         red_end = red_start + samples_per_color
 
         # Extract and decode each channel
-        green_samples = line_samples[green_start:green_end] if green_end <= len(line_samples) else np.zeros(samples_per_color)
-        blue_samples = line_samples[blue_start:blue_end] if blue_end <= len(line_samples) else np.zeros(samples_per_color)
-        red_samples = line_samples[red_start:red_end] if red_end <= len(line_samples) else np.zeros(samples_per_color)
+        green_samples = (
+            line_samples[green_start:green_end]
+            if green_end <= len(line_samples)
+            else np.zeros(samples_per_color)
+        )
+        blue_samples = (
+            line_samples[blue_start:blue_end]
+            if blue_end <= len(line_samples)
+            else np.zeros(samples_per_color)
+        )
+        red_samples = (
+            line_samples[red_start:red_end]
+            if red_end <= len(line_samples)
+            else np.zeros(samples_per_color)
+        )
 
         green = self._decode_color_channel(green_samples)
         blue = self._decode_color_channel(blue_samples)
@@ -244,7 +263,9 @@ class ScottieS1Decoder:
 
         return scanline
 
-    def decode_stream(self, audio_iterator: Iterator[np.ndarray], sync_positions: list[int]) -> Iterator[ScanlineData]:
+    def decode_stream(
+        self, audio_iterator: Iterator[np.ndarray], sync_positions: list[int]
+    ) -> Iterator[ScanlineData]:
         """Decode SSTV image from audio stream with known sync positions.
 
         Args:
@@ -253,6 +274,7 @@ class ScottieS1Decoder:
 
         Yields:
             ScanlineData for each decoded line
+
         """
         self.reset()
 
@@ -268,24 +290,31 @@ class ScottieS1Decoder:
 
             # Calculate line boundaries
             line_start = sync_pos + self._config.samples_per_sync
-            line_end = sync_positions[i + 1] if i + 1 < len(sync_positions) else line_start + self._config.total_line_samples
+            line_end = (
+                sync_positions[i + 1]
+                if i + 1 < len(sync_positions)
+                else line_start + self._config.total_line_samples
+            )
 
             if line_end <= len(audio_buffer):
                 line_samples = audio_buffer[line_start:line_end]
                 scanline = self.decode_scanline(line_samples, i)
                 yield scanline
 
-    def get_image(self) -> Optional[np.ndarray]:
+    def get_image(self) -> np.ndarray | None:
         """Get the decoded image array.
 
         Returns:
             RGB image as numpy array (height, width, 3) or None if not decoded
+
         """
         return self._image_buffer.copy() if self._image_buffer is not None else None
 
     def get_progress(self) -> DecodeProgress:
         """Get current decode progress."""
-        percent = (self._lines_decoded / self._config.height) * 100 if self._config.height > 0 else 0
+        percent = (
+            (self._lines_decoded / self._config.height) * 100 if self._config.height > 0 else 0
+        )
         avg_quality = self._quality_sum / self._lines_decoded if self._lines_decoded > 0 else 0
 
         # Estimate remaining time (rough calculation)

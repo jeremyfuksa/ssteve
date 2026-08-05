@@ -16,26 +16,29 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import threading
+from collections.abc import Callable
+from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, Any, Optional
-from datetime import datetime, timedelta
+from typing import TYPE_CHECKING, Any
 
-from watchdog.observers import Observer
 from watchdog.events import (
-    FileSystemEventHandler,
-    FileCreatedEvent,
-    FileModifiedEvent,
-    FileDeletedEvent,
-    FileMovedEvent,
     DirCreatedEvent,
-    DirModifiedEvent,
     DirDeletedEvent,
+    DirModifiedEvent,
     DirMovedEvent,
+    FileCreatedEvent,
+    FileDeletedEvent,
+    FileModifiedEvent,
+    FileMovedEvent,
+    FileSystemEventHandler,
 )
+from watchdog.observers import Observer
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
+    from watchdog.observers.api import BaseObserver
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +70,7 @@ class DebouncedEventHandler(FileSystemEventHandler):
             on_deleted_callback: Called when an image file is deleted
             on_moved_callback: Called when an image file is moved/renamed
             debounce_delay: Delay in seconds before processing events (default 0.5s)
+
         """
         super().__init__()
         self._on_created = on_created_callback
@@ -90,6 +94,7 @@ class DebouncedEventHandler(FileSystemEventHandler):
             path: File path for event
             event_type: Type of event ("created", "modified", "deleted", "moved")
             callback: Function to call after debounce delay
+
         """
         with self._lock:
             # Cancel existing timer for this path
@@ -154,52 +159,60 @@ class DebouncedEventHandler(FileSystemEventHandler):
             logger.info("Processing file move: %s -> %s", src_path, dest_path)
             self._on_moved(Path(src_path), Path(dest_path))
         except Exception as e:
-            logger.error("Error processing file move %s -> %s: %s", src_path, dest_path, e, exc_info=True)
+            logger.error(
+                "Error processing file move %s -> %s: %s", src_path, dest_path, e, exc_info=True
+            )
         finally:
             with self._lock:
                 self._pending_events.pop(dest_path, None)
 
     def on_created(self, event: FileCreatedEvent | DirCreatedEvent) -> None:
-        """Called when a file or directory is created."""
-        if isinstance(event, DirCreatedEvent) or not self._is_image_file(event.src_path):
+        """Handle file or directory creation events."""
+        src_path = os.fsdecode(event.src_path)
+        if isinstance(event, DirCreatedEvent) or not self._is_image_file(src_path):
             return
 
         self._debounce_event(
-            event.src_path,
+            src_path,
             "created",
-            lambda: self._process_created(event.src_path)
+            lambda: self._process_created(src_path)
         )
 
     def on_modified(self, event: FileModifiedEvent | DirModifiedEvent) -> None:
-        """Called when a file or directory is modified."""
-        if isinstance(event, DirModifiedEvent) or not self._is_image_file(event.src_path):
+        """Handle file or directory modification events."""
+        src_path = os.fsdecode(event.src_path)
+        if isinstance(event, DirModifiedEvent) or not self._is_image_file(src_path):
             return
 
         self._debounce_event(
-            event.src_path,
+            src_path,
             "modified",
-            lambda: self._process_modified(event.src_path)
+            lambda: self._process_modified(src_path)
         )
 
     def on_deleted(self, event: FileDeletedEvent | DirDeletedEvent) -> None:
-        """Called when a file or directory is deleted."""
-        if isinstance(event, DirDeletedEvent) or not self._is_image_file(event.src_path):
+        """Handle file or directory deletion events."""
+        src_path = os.fsdecode(event.src_path)
+        if isinstance(event, DirDeletedEvent) or not self._is_image_file(src_path):
             return
 
         self._debounce_event(
-            event.src_path,
+            src_path,
             "deleted",
-            lambda: self._process_deleted(event.src_path)
+            lambda: self._process_deleted(src_path)
         )
 
     def on_moved(self, event: FileMovedEvent | DirMovedEvent) -> None:
-        """Called when a file or directory is moved or renamed."""
+        """Handle file or directory move/rename events."""
         if isinstance(event, DirMovedEvent):
             return
 
+        src_path = os.fsdecode(event.src_path)
+        dest_path = os.fsdecode(event.dest_path)
+
         # Handle move of image files
-        src_is_image = self._is_image_file(event.src_path)
-        dest_is_image = self._is_image_file(event.dest_path)
+        src_is_image = self._is_image_file(src_path)
+        dest_is_image = self._is_image_file(dest_path)
 
         if not src_is_image and not dest_is_image:
             return
@@ -207,23 +220,23 @@ class DebouncedEventHandler(FileSystemEventHandler):
         if src_is_image and dest_is_image:
             # Image renamed/moved to another image
             self._debounce_event(
-                event.dest_path,
+                dest_path,
                 "moved",
-                lambda: self._process_moved(event.src_path, event.dest_path)
+                lambda: self._process_moved(src_path, dest_path)
             )
         elif src_is_image:
             # Image renamed to non-image (treat as delete)
             self._debounce_event(
-                event.src_path,
+                src_path,
                 "deleted",
-                lambda: self._process_deleted(event.src_path)
+                lambda: self._process_deleted(src_path)
             )
         else:
             # Non-image renamed to image (treat as create)
             self._debounce_event(
-                event.dest_path,
+                dest_path,
                 "created",
-                lambda: self._process_created(event.dest_path)
+                lambda: self._process_created(dest_path)
             )
 
 
@@ -259,7 +272,7 @@ class ImageLibraryWatcher:
         self,
         watch_path: str | Path,
         session_factory: Callable[[], Session],
-        websocket_manager: Optional[Any] = None,
+        websocket_manager: Any | None = None,
         debounce_delay: float = 0.5,
     ):
         """Initialize the image library watcher.
@@ -269,14 +282,15 @@ class ImageLibraryWatcher:
             session_factory: SQLAlchemy session factory for database access
             websocket_manager: Optional WebSocket manager for broadcasting events
             debounce_delay: Delay in seconds before processing events (default 0.5s)
+
         """
         self.watch_path = Path(watch_path)
         self._session_factory = session_factory
         self._websocket_manager = websocket_manager
         self._debounce_delay = debounce_delay
 
-        self._observer: Optional[Observer] = None
-        self._event_handler: Optional[DebouncedEventHandler] = None
+        self._observer: BaseObserver | None = None
+        self._event_handler: DebouncedEventHandler | None = None
         self._running = False
 
         logger.info("Initialized ImageLibraryWatcher for %s", self.watch_path)
@@ -287,6 +301,7 @@ class ImageLibraryWatcher:
         Raises:
             RuntimeError: If watcher is already running
             FileNotFoundError: If watch path doesn't exist
+
         """
         if self._running:
             raise RuntimeError("Watcher is already running")
@@ -357,7 +372,9 @@ class ImageLibraryWatcher:
 
                     # Broadcast event if WebSocket manager available
                     if self._websocket_manager:
-                        asyncio.create_task(
+                        # Fire-and-forget broadcast from a watchdog thread;
+                        # task ownership fix lands in a separate PR.
+                        asyncio.create_task(  # noqa: RUF006
                             self._websocket_manager.broadcast_library_event(
                                 event={
                                     "event": "library_updated",
@@ -389,7 +406,9 @@ class ImageLibraryWatcher:
 
                     # Broadcast event if WebSocket manager available
                     if self._websocket_manager:
-                        asyncio.create_task(
+                        # Fire-and-forget broadcast from a watchdog thread;
+                        # task ownership fix lands in a separate PR.
+                        asyncio.create_task(  # noqa: RUF006
                             self._websocket_manager.broadcast_library_event(
                                 event={
                                     "event": "image_modified",
@@ -420,7 +439,9 @@ class ImageLibraryWatcher:
 
                     # Broadcast event if WebSocket manager available
                     if self._websocket_manager:
-                        asyncio.create_task(
+                        # Fire-and-forget broadcast from a watchdog thread;
+                        # task ownership fix lands in a separate PR.
+                        asyncio.create_task(  # noqa: RUF006
                             self._websocket_manager.broadcast_library_event(
                                 event={
                                     "event": "image_deleted",
@@ -445,11 +466,15 @@ class ImageLibraryWatcher:
                 image = importer.move_image(src_path, dest_path)
 
                 if image:
-                    logger.info("Moved image: %s -> %s (id=%d)", src_path.name, dest_path.name, image.id)
+                    logger.info(
+                        "Moved image: %s -> %s (id=%d)", src_path.name, dest_path.name, image.id
+                    )
 
                     # Broadcast event if WebSocket manager available
                     if self._websocket_manager:
-                        asyncio.create_task(
+                        # Fire-and-forget broadcast from a watchdog thread;
+                        # task ownership fix lands in a separate PR.
+                        asyncio.create_task(  # noqa: RUF006
                             self._websocket_manager.broadcast_library_event(
                                 event={
                                     "event": "image_moved",

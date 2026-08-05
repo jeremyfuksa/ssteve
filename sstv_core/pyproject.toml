@@ -73,8 +73,14 @@ line-length = 100
 target-version = "py310"
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "N", "D", "UP", "ANN", "S", "B", "A", "C4", "RUF"]
-ignore = ["D100", "D104", "ANN101", "ANN102"]
+select = ["E", "F", "W", "I", "N", "D", "UP", "S", "B", "A", "C4", "RUF"]
+# D1xx missing-docstring rules are off: docstrings are encouraged, not enforced.
+# ANN is off: mypy is the type gate; duplicating it in ruff is noise.
+ignore = ["D100", "D101", "D102", "D103", "D104", "D105", "D106", "D107"]
+
+[tool.ruff.lint.per-file-ignores]
+# B008: Depends()/File()/Query() in defaults is the idiomatic FastAPI pattern.
+"src/sstv_core/api/routes/*" = ["B008"]
 
 [tool.mypy]
 python_version = "3.10"

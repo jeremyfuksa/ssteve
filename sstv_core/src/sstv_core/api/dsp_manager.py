@@ -8,28 +8,26 @@ wires progress callbacks to WebSocket events, and handles session state updates.
 import asyncio
 import logging
 from pathlib import Path
-from typing import Dict, Optional
 from uuid import UUID
-import numpy as np
 
+import numpy as np
 from sqlalchemy.orm import Session, sessionmaker
 
+from sstv_core.api.image_ids import db_image_id_to_uuid
+from sstv_core.api.models import DecodeState, TransmitState
+from sstv_core.api.session_manager import session_manager
+from sstv_core.api.websocket_manager import websocket_manager
 from sstv_core.audio.device_manager import AudioDeviceManager
 from sstv_core.audio.ptt_controller import PTTController, PTTMethod
 from sstv_core.audio.stream_manager import AudioStreamManager
 from sstv_core.decode.rx_manager import RXManager, RXProgress, RXState
 from sstv_core.encode.tx_manager import TXManager, TXProgress, TXState
-from sstv_core.api.image_ids import db_image_id_to_uuid
-from sstv_core.api.models import DecodeState, TransmitState
-from sstv_core.api.session_manager import session_manager
-from sstv_core.api.websocket_manager import websocket_manager
 
 logger = logging.getLogger(__name__)
 
 
 class DSPManager:
-    """
-    Manages DSP module lifecycle and wiring to API sessions.
+    """Manages DSP module lifecycle and wiring to API sessions.
 
     Responsibilities:
     - Create and manage RXManager/TXManager instances
@@ -39,7 +37,7 @@ class DSPManager:
     - Manage shared audio infrastructure
     """
 
-    def __init__(self, db_session_factory: Optional[sessionmaker[Session]] = None):
+    def __init__(self, db_session_factory: sessionmaker[Session] | None = None):
         # Shared audio infrastructure
         self._device_manager = AudioDeviceManager()
         self._stream_manager = AudioStreamManager()
@@ -48,30 +46,32 @@ class DSPManager:
         self._db_session_factory = db_session_factory
 
         # Active RX/TX instances (session_id -> manager instance)
-        self._rx_managers: Dict[UUID, RXManager] = {}
-        self._tx_managers: Dict[UUID, TXManager] = {}
+        self._rx_managers: dict[UUID, RXManager] = {}
+        self._tx_managers: dict[UUID, TXManager] = {}
 
         # Background tasks (session_id -> asyncio.Task)
-        self._decode_tasks: Dict[UUID, asyncio.Task] = {}
-        self._transmit_tasks: Dict[UUID, asyncio.Task] = {}
+        self._decode_tasks: dict[UUID, asyncio.Task] = {}
+        self._transmit_tasks: dict[UUID, asyncio.Task] = {}
 
         # Track image paths for transmit operations (needed for database records)
-        self._transmit_image_paths: Dict[UUID, Path] = {}
+        self._transmit_image_paths: dict[UUID, Path] = {}
 
-        logger.info("DSPManager initialized (database: %s)", "enabled" if db_session_factory else "disabled")
+        logger.info(
+            "DSPManager initialized (database: %s)",
+            "enabled" if db_session_factory else "disabled",
+        )
 
     async def start_decode(
         self,
         session_id: UUID,
-        mode: Optional[str],
+        mode: str | None,
         auto_detect: bool,
         timeout_seconds: float,
         save_image: bool,
-        callsign: Optional[str],
-        device_id: Optional[str],
+        callsign: str | None,
+        device_id: str | None,
     ) -> None:
-        """
-        Start real decode operation for a session.
+        """Start real decode operation for a session.
 
         Args:
             session_id: UUID of the decode session
@@ -84,6 +84,7 @@ class DSPManager:
 
         Raises:
             RuntimeError: If audio device not found or unavailable
+
         """
         logger.info(
             "Starting decode session %s: mode=%s, auto_detect=%s, device=%s",
@@ -102,8 +103,11 @@ class DSPManager:
 
         # Wire progress callback
         def on_progress(progress: RXProgress):
-            """Callback invoked by rx_manager on progress updates."""
-            asyncio.create_task(self._handle_rx_progress(session_id, progress))
+            """Relay rx_manager progress updates to the event loop."""
+            # Fire-and-forget by design: task lifetime is tied to the running loop.
+            _task = asyncio.create_task(  # noqa: RUF006
+                self._handle_rx_progress(session_id, progress)
+            )
 
         rx_mgr.set_progress_callback(on_progress)
         self._rx_managers[session_id] = rx_mgr
@@ -131,11 +135,11 @@ class DSPManager:
         logger.info("Decode task started for session %s", session_id)
 
     async def stop_decode(self, session_id: UUID) -> None:
-        """
-        Stop active decode operation.
+        """Stop active decode operation.
 
         Args:
             session_id: UUID of the decode session to stop
+
         """
         logger.info("Stopping decode session %s", session_id)
 
@@ -163,12 +167,11 @@ class DSPManager:
         session_id: UUID,
         image_path: str,
         mode: str,
-        device_id: Optional[str],
+        device_id: str | None,
         vox_enabled: bool,
-        serial_port: Optional[str],
+        serial_port: str | None,
     ) -> None:
-        """
-        Start real transmit operation for a session.
+        """Start real transmit operation for a session.
 
         Args:
             session_id: UUID of the transmit session
@@ -180,6 +183,7 @@ class DSPManager:
 
         Raises:
             RuntimeError: If audio device or PTT device not found
+
         """
         logger.info(
             "Starting transmit session %s: mode=%s, device=%s, vox=%s, port=%s",
@@ -209,7 +213,7 @@ class DSPManager:
 
         # Create PTT controller based on configuration
         if serial_port:
-            ptt = PTTController(method=PTTMethod.SERIAL, port=serial_port)
+            ptt = PTTController(method=PTTMethod.SERIAL, serial_port=serial_port)
             logger.info("Using serial PTT on %s", serial_port)
         elif vox_enabled:
             ptt = PTTController(method=PTTMethod.VOX)
@@ -227,8 +231,11 @@ class DSPManager:
 
         # Wire progress callback
         def on_progress(progress: TXProgress):
-            """Callback invoked by tx_manager on progress updates."""
-            asyncio.create_task(self._handle_tx_progress(session_id, progress))
+            """Relay tx_manager progress updates to the event loop."""
+            # Fire-and-forget by design: task lifetime is tied to the running loop.
+            _task = asyncio.create_task(  # noqa: RUF006
+                self._handle_tx_progress(session_id, progress)
+            )
 
         tx_mgr.set_progress_callback(on_progress)
         self._tx_managers[session_id] = tx_mgr
@@ -259,11 +266,11 @@ class DSPManager:
         logger.info("Transmit task started for session %s", session_id)
 
     async def stop_transmit(self, session_id: UUID) -> None:
-        """
-        Stop active transmit operation.
+        """Stop active transmit operation.
 
         Args:
             session_id: UUID of the transmit session to stop
+
         """
         logger.info("Stopping transmit session %s", session_id)
 
@@ -290,12 +297,12 @@ class DSPManager:
     async def _handle_rx_progress(
         self, session_id: UUID, progress: RXProgress
     ) -> None:
-        """
-        Handle decode progress updates and emit WebSocket events.
+        """Handle decode progress updates and emit WebSocket events.
 
         Args:
             session_id: UUID of the decode session
             progress: RXProgress object from rx_manager
+
         """
         # Update session metadata
         metadata = {
@@ -313,7 +320,9 @@ class DSPManager:
         if audio_levels:
             # Convert linear RMS/peak to dB for display
             rms_db = 20.0 * np.log10(audio_levels.rms + 1e-10) if audio_levels.rms > 0 else -120.0
-            peak_db = 20.0 * np.log10(audio_levels.peak + 1e-10) if audio_levels.peak > 0 else -120.0
+            peak_db = (
+                20.0 * np.log10(audio_levels.peak + 1e-10) if audio_levels.peak > 0 else -120.0
+            )
 
             await websocket_manager.broadcast(
                 session_id,
@@ -380,12 +389,12 @@ class DSPManager:
     async def _handle_decode_complete(
         self, session_id: UUID, task: asyncio.Task
     ) -> None:
-        """
-        Handle decode completion or error.
+        """Handle decode completion or error.
 
         Args:
             session_id: UUID of the decode session
             task: Completed asyncio.Task from rx_manager.receive()
+
         """
         logger.info("Decode task completed for session %s", session_id)
 
@@ -463,9 +472,8 @@ class DSPManager:
 
     async def _create_image_record(
         self, session_id: UUID, filepath: Path
-    ) -> Optional[int]:
-        """
-        Create database record for decoded image.
+    ) -> int | None:
+        """Create database record for decoded image.
 
         Args:
             session_id: UUID of the decode session
@@ -473,7 +481,13 @@ class DSPManager:
 
         Returns:
             Database ID of created record, or None if failed
+
         """
+        session_factory = self._db_session_factory
+        if session_factory is None:
+            logger.info("Database disabled; skipping record for image %s", filepath)
+            return None
+
         try:
             # Get session metadata
             session_data = await session_manager.get_decode_session(session_id)
@@ -490,8 +504,8 @@ class DSPManager:
             from sstv_core.database.models import SSTVImage
 
             def create_record() -> int:
-                """Synchronous function to create database record."""
-                with self._db_session_factory() as db_session:
+                """Create the database record synchronously."""
+                with session_factory() as db_session:
                     # Extract filename from path
                     filename = filepath.name
 
@@ -532,9 +546,8 @@ class DSPManager:
 
     async def _create_transmit_image_record(
         self, session_id: UUID, filepath: Path
-    ) -> Optional[int]:
-        """
-        Create database record for transmitted image.
+    ) -> int | None:
+        """Create database record for transmitted image.
 
         Args:
             session_id: UUID of the transmit session
@@ -542,7 +555,13 @@ class DSPManager:
 
         Returns:
             Database ID of created record, or None if failed
+
         """
+        session_factory = self._db_session_factory
+        if session_factory is None:
+            logger.info("Database disabled; skipping record for image %s", filepath)
+            return None
+
         try:
             # Get session metadata
             session_data = await session_manager.get_transmit_session(session_id)
@@ -558,8 +577,8 @@ class DSPManager:
             from sstv_core.database.models import SSTVImage
 
             def create_record() -> int:
-                """Synchronous function to create database record."""
-                with self._db_session_factory() as db_session:
+                """Create the database record synchronously."""
+                with session_factory() as db_session:
                     # Extract filename from path
                     filename = filepath.name
 
@@ -600,12 +619,12 @@ class DSPManager:
     async def _handle_tx_progress(
         self, session_id: UUID, progress: TXProgress
     ) -> None:
-        """
-        Handle transmit progress updates and emit WebSocket events.
+        """Handle transmit progress updates and emit WebSocket events.
 
         Args:
             session_id: UUID of the transmit session
             progress: TXProgress object from tx_manager
+
         """
         # Update session metadata
         metadata = {
@@ -648,12 +667,12 @@ class DSPManager:
     async def _handle_transmit_complete(
         self, session_id: UUID, task: asyncio.Task
     ) -> None:
-        """
-        Handle transmit completion or error.
+        """Handle transmit completion or error.
 
         Args:
             session_id: UUID of the transmit session
             task: Completed asyncio.Task from tx_manager.transmit()
+
         """
         logger.info("Transmit task completed for session %s", session_id)
 

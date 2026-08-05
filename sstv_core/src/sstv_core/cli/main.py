@@ -44,12 +44,14 @@ def setup_logging(verbose: bool = False, json_mode: bool = False) -> None:
     Args:
         verbose: Enable verbose logging (DEBUG level)
         json_mode: Use JSON formatter for screen readers
+
     """
     level = logging.DEBUG if verbose else logging.INFO
 
     # Create console handler
     handler = logging.StreamHandler(sys.stderr)
 
+    formatter: logging.Formatter
     if json_mode:
         # JSON mode for screen readers
         formatter = JSONFormatter()
@@ -73,6 +75,7 @@ def log_event(event_type: str, **kwargs: Any) -> None:
     Args:
         event_type: Type of event (vis_detected, scanline_update, etc.)
         **kwargs: Additional event data
+
     """
     # Create log record with extra attributes
     extra = {"event_type": event_type, "data": kwargs}
@@ -87,6 +90,7 @@ def cmd_decode(args: argparse.Namespace) -> int:
 
     Returns:
         Exit code (0 = success)
+
     """
     from sstv_core.audio.device_manager import AudioDeviceManager
 
@@ -144,7 +148,8 @@ def cmd_decode(args: argparse.Namespace) -> int:
             progress=round(progress, 1),
         )
 
-    log_event("decode_complete", lines=256, output_path="/tmp/decoded.jpg")
+    # Placeholder path in a simulated event - no file is written.
+    log_event("decode_complete", lines=256, output_path="/tmp/decoded.jpg")  # noqa: S108
 
     return 0
 
@@ -157,6 +162,7 @@ def cmd_encode(args: argparse.Namespace) -> int:
 
     Returns:
         Exit code (0 = success)
+
     """
     from sstv_core.audio.device_manager import AudioDeviceManager
 
@@ -229,6 +235,7 @@ def cmd_list_devices(args: argparse.Namespace) -> int:
 
     Returns:
         Exit code (0 = success)
+
     """
     from sstv_core.audio.device_manager import AudioDeviceManager
 
@@ -267,6 +274,7 @@ def create_parser() -> argparse.ArgumentParser:
 
     Returns:
         Configured ArgumentParser
+
     """
     parser = argparse.ArgumentParser(
         prog="sstv-cli",
@@ -312,7 +320,8 @@ Examples:
         "--mode",
         type=str,
         default=None,
-        help="SSTV mode (ScottieS1, ScottieS2, MartinM1, Robot36, etc.). Auto-detect if not specified.",
+        help="SSTV mode (ScottieS1, ScottieS2, MartinM1, Robot36, etc.). "
+        "Auto-detect if not specified.",
     )
     decode_parser.add_argument(
         "--device",
@@ -367,13 +376,14 @@ Examples:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Main entry point for CLI.
+    """Run the CLI.
 
     Args:
         argv: Command-line arguments (None = use sys.argv)
 
     Returns:
         Exit code
+
     """
     parser = create_parser()
     args = parser.parse_args(argv)
