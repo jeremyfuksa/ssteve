@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -256,6 +256,11 @@ def configure_exception_handlers(app: FastAPI) -> None:
 
 def register_routes(app: FastAPI) -> None:
     """Register all API routes."""
+
+    @app.get("/", include_in_schema=False)
+    async def root() -> RedirectResponse:
+        """Redirect the bare root URL to the interactive API docs."""
+        return RedirectResponse(url="/docs")
 
     # Health check
     @app.get("/api/v1/health", tags=["Health"])
