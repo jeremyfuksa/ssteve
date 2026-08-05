@@ -47,11 +47,6 @@ dev = [
     "ruff>=0.1.0",
     "mypy>=1.0",
 ]
-accessibility = [
-    "transformers>=4.35",
-    "pytesseract>=0.3.10",
-]
-
 [project.scripts]
 sstv-decode = "sstv_core.cli:decode"
 sstv-encode = "sstv_core.cli:encode"
