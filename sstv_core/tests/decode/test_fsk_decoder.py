@@ -131,10 +131,14 @@ class TestFSKIDDecoder:
         # Generate valid FSKID
         audio = self._generate_fskid_audio("K8JTK")
 
-        # Corrupt last symbol (checksum) by inverting phase
+        # Corrupt the first checksum bit by changing its frequency. A phase
+        # inversion alone would preserve the FSK tone and remain valid.
         # Last symbol = 6 bits × 1056 samples = 6336 samples
         checksum_start = len(audio) - (6 * 1056)
-        audio[checksum_start:] *= -1  # Phase inversion corrupts FSK
+        audio[checksum_start : checksum_start + 1056] = self._generate_tone(
+            1900.0,
+            22,
+        )
 
         result = decoder.decode(audio)
 

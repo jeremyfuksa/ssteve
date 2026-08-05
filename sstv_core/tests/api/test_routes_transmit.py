@@ -45,6 +45,18 @@ class TestStartTransmit:
         assert "estimated_duration_seconds" in data
         assert data["estimated_duration_seconds"] > 0
 
+    def test_failed_dsp_start_releases_half_duplex(self, mock_dsp_manager):
+        """A setup error must not leave a phantom active transmission."""
+        mock_dsp_manager.start_transmit.side_effect = ValueError("bad mode")
+
+        response = client.post(
+            "/api/v1/transmit",
+            json={"image_path": "/home/admin/test.png", "mode": "MartinM1"},
+        )
+
+        assert response.status_code == 400
+        assert session_manager._active_transmit_id is None
+
     def test_start_transmit_with_callsign(self):
         """Should start transmit with callsign overlay."""
         response = client.post(

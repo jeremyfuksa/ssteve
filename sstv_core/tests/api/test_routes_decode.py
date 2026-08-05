@@ -10,7 +10,6 @@ from fastapi.testclient import TestClient
 
 from sstv_core.api.main import app
 from sstv_core.api.session_manager import session_manager
-from sstv_core.api.models import DecodeState, SSTVMode
 
 
 @pytest.fixture(autouse=True)
@@ -38,6 +37,15 @@ class TestStartDecode:
         assert data["state"] == "listening"
         assert "websocket_url" in data
         assert "started_at" in data
+
+    def test_failed_dsp_start_releases_half_duplex(self, mock_dsp_manager):
+        """A setup error must not leave a phantom active receiver."""
+        mock_dsp_manager.start_decode.side_effect = ValueError("bad device")
+
+        response = client.post("/api/v1/decode/start", json={})
+
+        assert response.status_code == 400
+        assert session_manager._active_decode_id is None
 
     def test_start_decode_with_mode(self):
         """Should start decode with explicit mode."""

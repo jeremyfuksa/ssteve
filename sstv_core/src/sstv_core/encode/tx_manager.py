@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -22,7 +23,9 @@ import numpy as np
 from sstv_core.audio.ptt_controller import PTTController, PTTMethod
 from sstv_core.audio.stream_manager import AudioStreamManager
 from sstv_core.encode.image_preprocessor import ImagePreprocessor, ModeResolution
-from sstv_core.encode.scottie_encoder import ScottieS1Encoder, ScottieS1EncoderConfig
+from sstv_core.encode.martin_encoder import MartinM1Encoder
+from sstv_core.encode.robot_encoder import Robot36Encoder
+from sstv_core.encode.scottie_encoder import ScottieS1Encoder
 from sstv_core.encode.vis_generator import VISGenerator, SSTVMode
 
 logger = logging.getLogger(__name__)
@@ -101,6 +104,21 @@ class TXManager:
             )
             self._progress_callback(progress)
 
+    def _get_encoder(self, mode: SSTVMode):
+        """Return an implemented encoder for the requested mode."""
+        encoder_types = {
+            SSTVMode.SCOTTIE_S1: ScottieS1Encoder,
+            SSTVMode.MARTIN_M1: MartinM1Encoder,
+            SSTVMode.ROBOT_36: Robot36Encoder,
+        }
+        try:
+            return encoder_types[mode]()
+        except KeyError as exc:
+            supported = ", ".join(item.name for item in encoder_types)
+            raise ValueError(
+                f"Unsupported transmit mode {mode.name}; implemented modes: {supported}"
+            ) from exc
+
     async def transmit(
         self,
         image_source: Union[str, Path, np.ndarray],
@@ -124,9 +142,16 @@ class TXManager:
         try:
             # Phase 1: Prepare image
             self._state = TXState.PREPARING
-            self._emit_progress(0, 0, 256, 0, 0, "Preparing image...")
+            encoder = self._get_encoder(mode)
+            total_lines = encoder.config.height
+            self._emit_progress(0, 0, total_lines, 0, 0, "Preparing image...")
 
-            preprocessor = ImagePreprocessor.for_scottie_s1()
+            resolution = ModeResolution(
+                width=encoder.config.width,
+                height=encoder.config.height,
+                aspect_ratio=encoder.config.width / encoder.config.height,
+            )
+            preprocessor = ImagePreprocessor(target_resolution=resolution)
             result = preprocessor.process(image_source)
             image = result.image
             logger.info("Image preprocessed: %s", result.final_size)
@@ -135,7 +160,6 @@ class TXManager:
             vis_gen = VISGenerator(sample_rate=self._sample_rate)
             vis_audio = vis_gen.generate(mode)
 
-            encoder = ScottieS1Encoder()
             image_audio = encoder.encode_image(image)
 
             # Combine VIS + image audio
@@ -152,7 +176,14 @@ class TXManager:
 
             # Phase 3: Key radio
             self._state = TXState.KEYING
-            self._emit_progress(5, 0, 256, time.time() - start_time, total_duration, "Keying radio...")
+            self._emit_progress(
+                5,
+                0,
+                total_lines,
+                time.time() - start_time,
+                total_duration,
+                "Keying radio...",
+            )
             await self._ptt.key_radio()
 
             if self._cancel_requested:
@@ -161,42 +192,70 @@ class TXManager:
 
             # Phase 4: Start output stream and transmit
             self._state = TXState.TRANSMITTING
-            self._stream_manager.start_output(device_index=output_device_index)
+            playback_lock = threading.Lock()
+            playback_offset = 0
 
-            # Write audio to output buffer
-            buffer = self._stream_manager.get_output_buffer()
-            if buffer:
-                buffer.add(full_audio)
+            def output_callback(frames: int) -> np.ndarray:
+                """Supply exactly one output block without truncating audio."""
+                nonlocal playback_offset
+                block = np.zeros(frames, dtype=np.float32)
+                with playback_lock:
+                    remaining = len(full_audio) - playback_offset
+                    count = min(frames, max(0, remaining))
+                    if count:
+                        block[:count] = full_audio[
+                            playback_offset : playback_offset + count
+                        ]
+                        playback_offset += count
+                return block
+
+            self._stream_manager.start_output(
+                device_index=output_device_index,
+                callback=output_callback,
+            )
 
             # Wait for transmission to complete
             samples_remaining = len(full_audio)
-            line_samples = len(image_audio) // 256
+            line_samples = len(image_audio) // total_lines
             current_line = 0
 
             while samples_remaining > 0 and not self._cancel_requested:
                 await asyncio.sleep(0.1)
-                samples_played = len(full_audio) - len(buffer) if buffer else len(full_audio)
+                with playback_lock:
+                    samples_played = playback_offset
                 samples_remaining = max(0, len(full_audio) - samples_played)
 
                 # Estimate current line
                 image_samples_played = max(0, samples_played - len(vis_audio))
                 if line_samples > 0:
-                    current_line = min(255, image_samples_played // line_samples)
+                    current_line = min(
+                        total_lines - 1,
+                        image_samples_played // line_samples,
+                    )
 
                 elapsed = time.time() - start_time
                 remaining = samples_remaining / self._sample_rate
                 percent = ((len(full_audio) - samples_remaining) / len(full_audio)) * 100
 
-                self._emit_progress(percent, current_line, 256, elapsed, remaining,
-                                   f"Transmitting line {current_line + 1}/256")
-
-                # Check if buffer is nearly empty
-                if buffer and len(buffer) < self._sample_rate * 0.5:
-                    break
+                self._emit_progress(
+                    percent,
+                    current_line,
+                    total_lines,
+                    elapsed,
+                    remaining,
+                    f"Transmitting line {current_line + 1}/{total_lines}",
+                )
 
             # Phase 5: Unkey radio
             self._state = TXState.UNKEYING
-            self._emit_progress(95, 256, 256, time.time() - start_time, 0.5, "Unkeying radio...")
+            self._emit_progress(
+                95,
+                total_lines,
+                total_lines,
+                time.time() - start_time,
+                0.5,
+                "Unkeying radio...",
+            )
             await self._ptt.unkey_radio()
 
             # Stop output
@@ -204,7 +263,14 @@ class TXManager:
 
             self._state = TXState.COMPLETE
             elapsed = time.time() - start_time
-            self._emit_progress(100, 256, 256, elapsed, 0, "Transmission complete!")
+            self._emit_progress(
+                100,
+                total_lines,
+                total_lines,
+                elapsed,
+                0,
+                "Transmission complete!",
+            )
             logger.info("Transmission complete in %.1f seconds", elapsed)
             return True
 
@@ -234,7 +300,7 @@ class TXManager:
     def get_estimated_duration(self, mode: SSTVMode = SSTVMode.SCOTTIE_S1) -> float:
         """Get estimated transmission duration in seconds."""
         vis_gen = VISGenerator(sample_rate=self._sample_rate)
-        encoder = ScottieS1Encoder()
+        encoder = self._get_encoder(mode)
         vis_dur = vis_gen.get_duration_ms() / 1000
         img_dur = encoder.get_total_duration_sec()
         ptt_dur = (self._ptt.pre_delay_ms + self._ptt.post_delay_ms) / 1000

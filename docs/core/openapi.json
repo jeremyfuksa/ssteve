@@ -1,6 +1,145 @@
 {
   "components": {
     "schemas": {
+      "ApplySettingsRequest": {
+        "description": "Request to apply recommended device settings.",
+        "properties": {
+          "audio_input_device_id": {
+            "anyOf": [
+              {
+                "maxLength": 256,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Audio input device ID",
+            "title": "Audio Input Device Id"
+          },
+          "audio_output_device_id": {
+            "anyOf": [
+              {
+                "maxLength": 256,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Audio output device ID",
+            "title": "Audio Output Device Id"
+          },
+          "profile_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Name of device profile to apply (e.g., 'Digirig Mobile')",
+            "title": "Profile Name"
+          },
+          "ptt_method": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "PTT method: 'serial_rts', 'serial_dtr', 'vox', 'none'",
+            "title": "Ptt Method"
+          },
+          "ptt_post_delay_ms": {
+            "anyOf": [
+              {
+                "maximum": 5000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "PTT post-delay in milliseconds",
+            "title": "Ptt Post Delay Ms"
+          },
+          "ptt_pre_delay_ms": {
+            "anyOf": [
+              {
+                "maximum": 5000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "PTT pre-delay in milliseconds",
+            "title": "Ptt Pre Delay Ms"
+          },
+          "ptt_serial_signal": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Serial PTT signal: 'RTS' or 'DTR'",
+            "title": "Ptt Serial Signal"
+          },
+          "vox_preamble_ms": {
+            "anyOf": [
+              {
+                "maximum": 5000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "VOX preamble duration in milliseconds",
+            "title": "Vox Preamble Ms"
+          }
+        },
+        "title": "ApplySettingsRequest",
+        "type": "object"
+      },
+      "ApplySettingsResponse": {
+        "description": "Response after applying settings.",
+        "examples": [],
+        "properties": {
+          "applied_fields": {
+            "description": "List of configuration fields that were updated",
+            "items": {
+              "type": "string"
+            },
+            "title": "Applied Fields",
+            "type": "array"
+          },
+          "updated_configuration": {
+            "additionalProperties": true,
+            "description": "Updated configuration after applying settings",
+            "title": "Updated Configuration",
+            "type": "object"
+          }
+        },
+        "required": [
+          "updated_configuration",
+          "applied_fields"
+        ],
+        "title": "ApplySettingsResponse",
+        "type": "object"
+      },
       "AudioDevice": {
         "description": "Audio device information.",
         "properties": {
@@ -113,7 +252,7 @@
             "type": "string"
           },
           "operating_mode": {
-            "$ref": "#/components/schemas/OperatingMode",
+            "$ref": "#/components/schemas/OperatingConditionMode",
             "default": "standard",
             "description": "Operating conditions mode"
           },
@@ -184,6 +323,19 @@
             ],
             "description": "Operator callsign (for QSO logging)",
             "title": "Callsign"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "maxLength": 256,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Audio input device ID (null for system default)",
+            "title": "Device Id"
           },
           "mode": {
             "anyOf": [
@@ -394,6 +546,185 @@
         "title": "DecodeStatusResponse",
         "type": "object"
       },
+      "DeviceDetectionResponse": {
+        "description": "Response from hardware device detection.",
+        "examples": [],
+        "properties": {
+          "detected_profile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Name of detected device profile (if any)",
+            "title": "Detected Profile"
+          },
+          "detection_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "User-friendly detection message in SSTeVe voice",
+            "title": "Detection Message"
+          },
+          "recommended_settings": {
+            "additionalProperties": true,
+            "description": "Recommended configuration settings for detected device",
+            "title": "Recommended Settings",
+            "type": "object"
+          },
+          "settings_preview": {
+            "additionalProperties": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "description": "Preview of what will change if settings are applied",
+            "title": "Settings Preview",
+            "type": "object"
+          }
+        },
+        "title": "DeviceDetectionResponse",
+        "type": "object"
+      },
+      "DirectoryValidationRequest": {
+        "description": "Request to validate directory for import.",
+        "properties": {
+          "directory_path": {
+            "description": "Path to directory to validate",
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "Directory Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "directory_path"
+        ],
+        "title": "DirectoryValidationRequest",
+        "type": "object"
+      },
+      "DirectoryValidationResponse": {
+        "description": "Response from directory validation.",
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Error message if validation failed",
+            "title": "Error"
+          },
+          "exists": {
+            "description": "True if directory exists",
+            "title": "Exists",
+            "type": "boolean"
+          },
+          "image_count": {
+            "description": "Number of importable images found",
+            "minimum": 0.0,
+            "title": "Image Count",
+            "type": "integer"
+          },
+          "is_directory": {
+            "description": "True if path is a directory",
+            "title": "Is Directory",
+            "type": "boolean"
+          },
+          "valid": {
+            "description": "True if directory can be imported",
+            "title": "Valid",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "valid",
+          "exists",
+          "is_directory",
+          "image_count"
+        ],
+        "title": "DirectoryValidationResponse",
+        "type": "object"
+      },
+      "GenerateSmartReplyRequest": {
+        "description": "Request to generate Smart Reply preview.",
+        "properties": {
+          "field_overrides": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional manual overrides for specific fields",
+            "title": "Field Overrides"
+          },
+          "image_id": {
+            "description": "Received image to reply to",
+            "title": "Image Id",
+            "type": "integer"
+          },
+          "template_id": {
+            "default": "qsl_card",
+            "description": "Template to use",
+            "title": "Template Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "image_id"
+        ],
+        "title": "GenerateSmartReplyRequest",
+        "type": "object"
+      },
+      "GenerateSmartReplyResponse": {
+        "description": "Response from Smart Reply generation.",
+        "properties": {
+          "estimated_tx_duration": {
+            "description": "Estimated transmit duration in seconds",
+            "title": "Estimated Tx Duration",
+            "type": "integer"
+          },
+          "preview_id": {
+            "description": "Preview identifier for transmission",
+            "format": "uuid",
+            "title": "Preview Id",
+            "type": "string"
+          },
+          "preview_image_path": {
+            "description": "Path to preview image",
+            "title": "Preview Image Path",
+            "type": "string"
+          },
+          "template_data": {
+            "additionalProperties": true,
+            "description": "All field values used",
+            "title": "Template Data",
+            "type": "object"
+          }
+        },
+        "required": [
+          "preview_id",
+          "preview_image_path",
+          "template_data",
+          "estimated_tx_duration"
+        ],
+        "title": "GenerateSmartReplyResponse",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -550,14 +881,354 @@
         "title": "ImageMetadata",
         "type": "object"
       },
-      "OperatingMode": {
+      "ImageMetadataSample": {
+        "description": "Sample image metadata from preview.",
+        "properties": {
+          "filename": {
+            "description": "Image filename",
+            "title": "Filename",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "description": "Parsed metadata",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "path": {
+            "description": "Full file path",
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "filename",
+          "path",
+          "metadata"
+        ],
+        "title": "ImageMetadataSample",
+        "type": "object"
+      },
+      "ImportPreviewResponse": {
+        "description": "Preview of what would be imported from a directory.",
+        "properties": {
+          "samples": {
+            "description": "Sample files with parsed metadata",
+            "items": {
+              "$ref": "#/components/schemas/ImageMetadataSample"
+            },
+            "title": "Samples",
+            "type": "array"
+          },
+          "total_files": {
+            "description": "Total importable image files",
+            "minimum": 0.0,
+            "title": "Total Files",
+            "type": "integer"
+          },
+          "validation": {
+            "$ref": "#/components/schemas/DirectoryValidationResponse",
+            "description": "Directory validation result"
+          }
+        },
+        "required": [
+          "total_files",
+          "validation"
+        ],
+        "title": "ImportPreviewResponse",
+        "type": "object"
+      },
+      "LogQSORequest": {
+        "description": "Request to log a QSO.",
+        "properties": {
+          "callsign": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Override callsign",
+            "title": "Callsign"
+          },
+          "comments": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Additional comments",
+            "title": "Comments"
+          },
+          "end_time": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Override end time",
+            "title": "End Time"
+          },
+          "frequency_hz": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Override frequency",
+            "title": "Frequency Hz"
+          },
+          "image_id": {
+            "description": "Image ID to create QSO from",
+            "title": "Image Id",
+            "type": "integer"
+          },
+          "is_sent": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": false,
+            "description": "True if we initiated contact",
+            "title": "Is Sent"
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Override mode",
+            "title": "Mode"
+          },
+          "report": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Override signal report",
+            "title": "Report"
+          },
+          "start_time": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Override start time",
+            "title": "Start Time"
+          }
+        },
+        "required": [
+          "image_id"
+        ],
+        "title": "LogQSORequest",
+        "type": "object"
+      },
+      "MMSStvImportRequest": {
+        "description": "Request to import MMSSTV library.",
+        "properties": {
+          "directory_path": {
+            "description": "Path to MMSSTV image library directory",
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "Directory Path",
+            "type": "string"
+          },
+          "recursive": {
+            "default": true,
+            "description": "Recursively scan subdirectories",
+            "title": "Recursive",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "directory_path"
+        ],
+        "title": "MMSStvImportRequest",
+        "type": "object"
+      },
+      "MMSStvImportResponse": {
+        "description": "Response from MMSSTV import operation.",
+        "properties": {
+          "errors": {
+            "description": "List of error messages",
+            "items": {
+              "type": "string"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "imported": {
+            "description": "Number of images successfully imported",
+            "minimum": 0.0,
+            "title": "Imported",
+            "type": "integer"
+          },
+          "skipped": {
+            "description": "Number of images skipped (already exist)",
+            "minimum": 0.0,
+            "title": "Skipped",
+            "type": "integer"
+          },
+          "total": {
+            "description": "Total files scanned",
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "imported",
+          "skipped",
+          "total"
+        ],
+        "title": "MMSStvImportResponse",
+        "type": "object"
+      },
+      "ModeDetectionRequest": {
+        "description": "Request for mode detection from sync timing.",
+        "properties": {
+          "audio_file": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Path to audio file for analysis",
+            "title": "Audio File"
+          },
+          "duration_sec": {
+            "default": 10.0,
+            "description": "Duration to analyze in seconds (default 10.0)",
+            "exclusiveMinimum": 0.0,
+            "maximum": 60.0,
+            "title": "Duration Sec",
+            "type": "number"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional session ID to analyze audio from active decode session",
+            "title": "Session Id"
+          }
+        },
+        "title": "ModeDetectionRequest",
+        "type": "object"
+      },
+      "ModeDetectionResponse": {
+        "description": "Response from mode detection analysis.",
+        "properties": {
+          "confidence": {
+            "default": 0.0,
+            "description": "Confidence score 0.0-1.0 (null if no detection)",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence",
+            "type": "number"
+          },
+          "expected_interval": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Expected interval for detected mode",
+            "title": "Expected Interval"
+          },
+          "fallback_modes": {
+            "description": "Top 3 alternative mode suggestions",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Fallback Modes",
+            "type": "array"
+          },
+          "measured_intervals": {
+            "description": "Measured inter-pulse intervals (first 10 for debugging)",
+            "items": {
+              "type": "number"
+            },
+            "title": "Measured Intervals",
+            "type": "array"
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Detected SSTV mode (null if confidence < 0.70)",
+            "title": "Mode"
+          },
+          "suggestion_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "User-friendly suggestion message in SSTeVe voice",
+            "title": "Suggestion Message"
+          }
+        },
+        "title": "ModeDetectionResponse",
+        "type": "object"
+      },
+      "OperatingConditionMode": {
         "description": "Operating conditions modes (accessibility, not aesthetic).",
         "enum": [
           "standard",
           "night_vision",
           "sunlight"
         ],
-        "title": "OperatingMode",
+        "title": "OperatingConditionMode",
         "type": "string"
       },
       "PTTMethod": {
@@ -570,6 +1241,129 @@
         ],
         "title": "PTTMethod",
         "type": "string"
+      },
+      "QSOListResponse": {
+        "description": "Paginated QSO list response.",
+        "properties": {
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "qsos": {
+            "items": {
+              "$ref": "#/components/schemas/QSOResponse"
+            },
+            "title": "Qsos",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "qsos",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "QSOListResponse",
+        "type": "object"
+      },
+      "QSOResponse": {
+        "description": "QSO record response.",
+        "properties": {
+          "callsign": {
+            "title": "Callsign",
+            "type": "string"
+          },
+          "comments": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comments"
+          },
+          "end_time": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Time"
+          },
+          "frequency_hz": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Frequency Hz"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "image_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Image Ids",
+            "type": "array"
+          },
+          "is_sent": {
+            "title": "Is Sent",
+            "type": "boolean"
+          },
+          "mode": {
+            "title": "Mode",
+            "type": "string"
+          },
+          "report": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Report"
+          },
+          "start_time": {
+            "format": "date-time",
+            "title": "Start Time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "callsign",
+          "mode",
+          "frequency_hz",
+          "start_time",
+          "end_time",
+          "report",
+          "comments",
+          "is_sent"
+        ],
+        "title": "QSOResponse",
+        "type": "object"
       },
       "SSTVMode": {
         "description": "Supported SSTV modes.",
@@ -627,6 +1421,103 @@
         "title": "SerialPort",
         "type": "object"
       },
+      "TemplateFieldInfo": {
+        "description": "Template field metadata.",
+        "properties": {
+          "alignment": {
+            "default": "left",
+            "title": "Alignment",
+            "type": "string"
+          },
+          "color": {
+            "title": "Color",
+            "type": "string"
+          },
+          "font_family": {
+            "default": "Arial",
+            "title": "Font Family",
+            "type": "string"
+          },
+          "font_size": {
+            "title": "Font Size",
+            "type": "integer"
+          },
+          "format": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Format"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "x": {
+            "title": "X",
+            "type": "integer"
+          },
+          "y": {
+            "title": "Y",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "x",
+          "y",
+          "font_size",
+          "color"
+        ],
+        "title": "TemplateFieldInfo",
+        "type": "object"
+      },
+      "TemplateInfo": {
+        "description": "Template metadata for API response.",
+        "properties": {
+          "base_image": {
+            "title": "Base Image",
+            "type": "string"
+          },
+          "default_mode": {
+            "title": "Default Mode",
+            "type": "string"
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/TemplateFieldInfo"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "template_id": {
+            "title": "Template Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "template_id",
+          "name",
+          "default_mode",
+          "base_image",
+          "fields"
+        ],
+        "title": "TemplateInfo",
+        "type": "object"
+      },
       "TransmitRequest": {
         "description": "Request to transmit an SSTV image.",
         "properties": {
@@ -644,6 +1535,19 @@
             "description": "Operator callsign (overlaid on image)",
             "title": "Callsign"
           },
+          "device_id": {
+            "anyOf": [
+              {
+                "maxLength": 256,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Audio output device ID (null for system default)",
+            "title": "Device Id"
+          },
           "image_path": {
             "description": "Absolute path to image file",
             "maxLength": 4096,
@@ -660,6 +1564,19 @@
           "mode": {
             "$ref": "#/components/schemas/SSTVMode",
             "description": "SSTV mode for transmission"
+          },
+          "serial_port": {
+            "anyOf": [
+              {
+                "maxLength": 256,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Serial port for PTT control (e.g., /dev/ttyUSB0, COM3)",
+            "title": "Serial Port"
           },
           "vox_enabled": {
             "default": false,
@@ -714,6 +1631,55 @@
           "started_at"
         ],
         "title": "TransmitResponse",
+        "type": "object"
+      },
+      "TransmitSmartReplyRequest": {
+        "description": "Request to transmit Smart Reply.",
+        "properties": {
+          "device_id": {
+            "description": "Audio output device ID",
+            "title": "Device Id",
+            "type": "string"
+          },
+          "mode": {
+            "description": "SSTV mode (ScottieS1, MartinM1, Robot36)",
+            "title": "Mode",
+            "type": "string"
+          },
+          "ptt_method": {
+            "description": "PTT method (none, serial, vox)",
+            "title": "Ptt Method",
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode",
+          "device_id",
+          "ptt_method"
+        ],
+        "title": "TransmitSmartReplyRequest",
+        "type": "object"
+      },
+      "TransmitSmartReplyResponse": {
+        "description": "Response from Smart Reply transmission.",
+        "properties": {
+          "status": {
+            "description": "Transmission status",
+            "title": "Status",
+            "type": "string"
+          },
+          "tx_id": {
+            "description": "Transmit session ID",
+            "format": "uuid",
+            "title": "Tx Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tx_id",
+          "status"
+        ],
+        "title": "TransmitSmartReplyResponse",
         "type": "object"
       },
       "TransmitState": {
@@ -868,7 +1834,7 @@
   "paths": {
     "/api/v1/config": {
       "get": {
-        "description": "Get the current system configuration.\n\nReturns all configuration settings including:\n- Audio device selections\n- PTT method and settings\n- Default SSTV mode\n- Image library path\n- Operating mode (standard/night vision/sunlight)\n- Auto-detection settings (mode, AFC, squelch)",
+        "description": "Return the current configuration stored in the database.",
         "operationId": "get_config_api_v1_config_get",
         "responses": {
           "200": {
@@ -889,7 +1855,7 @@
         ]
       },
       "patch": {
-        "description": "Update specific configuration fields.\n\nOnly the provided fields will be updated; others remain unchanged.\nThis is useful for changing individual settings without replacing\nthe entire configuration.\n\nExample:\n    PATCH /config\n    {\"ptt_method\": \"serial_rts\", \"ptt_serial_port\": \"/dev/ttyUSB0\"}\n\nRaises:\n    400 Bad Request: If update would create invalid configuration",
+        "description": "Update specific configuration fields.",
         "operationId": "patch_config_api_v1_config_patch",
         "requestBody": {
           "content": {
@@ -932,7 +1898,7 @@
         ]
       },
       "post": {
-        "description": "Replace the entire configuration.\n\nUpdates all configuration settings at once. Any fields not provided\nwill be reset to their defaults.\n\nRaises:\n    400 Bad Request: If configuration is invalid (e.g., serial PTT without port)",
+        "description": "Replace the entire configuration.",
         "operationId": "update_config_api_v1_config_post",
         "requestBody": {
           "content": {
@@ -970,6 +1936,49 @@
         "tags": [
           "Config",
           "config"
+        ]
+      }
+    },
+    "/api/v1/decode/detect_mode": {
+      "post": {
+        "description": "Detect SSTV mode from sync pulse timing.\n\nUsed when VIS code detection fails or returns low confidence.\nAnalyzes audio for sync timing patterns and suggests most likely SSTV mode.\n\nReturns:\n    - Detected mode (if confidence >= 0.70)\n    - Confidence score\n    - Measured inter-pulse intervals\n    - Expected interval for detected mode\n    - Top 3 alternative mode suggestions\n    - User-friendly suggestion message\n\nRaises:\n    400 Bad Request: If neither session_id nor audio_file provided\n    404 Not Found: If session_id not found\n    500 Internal Server Error: If analysis fails",
+        "operationId": "detect_mode_api_v1_decode_detect_mode_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModeDetectionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModeDetectionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Detect Mode",
+        "tags": [
+          "Decode",
+          "decode"
         ]
       }
     },
@@ -1099,6 +2108,49 @@
         ]
       }
     },
+    "/api/v1/devices/apply_settings": {
+      "post": {
+        "description": "Apply recommended or custom device settings.\n\nAccepts a partial configuration update with PTT, audio, and timing\nparameters. Validates settings and updates the global configuration.\n\nReturns:\n    - Updated configuration after applying settings\n    - List of fields that were updated\n\nRaises:\n    400 Bad Request: If settings are invalid\n    404 Not Found: If referenced devices don't exist",
+        "operationId": "apply_device_settings_api_v1_devices_apply_settings_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplySettingsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplySettingsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Apply Device Settings",
+        "tags": [
+          "Devices",
+          "devices"
+        ]
+      }
+    },
     "/api/v1/devices/audio": {
       "get": {
         "description": "List available audio input/output devices.\n\nReturns all audio devices detected by the system, including:\n- Device ID (OS-specific identifier)\n- Human-readable name\n- Channel count and sample rate\n- Default device indicator\n\nUsed for device selection in the UI.",
@@ -1120,6 +2172,29 @@
           }
         },
         "summary": "List Audio Devices",
+        "tags": [
+          "Devices",
+          "devices"
+        ]
+      }
+    },
+    "/api/v1/devices/detect": {
+      "get": {
+        "description": "Auto-detect connected SSTV hardware and provide recommended settings.\n\nAnalyzes serial ports and audio devices to identify known hardware\nlike Digirig, SignaLink, RigBlaster. Returns recommended configuration\nsettings for PTT control, audio routing, and timing parameters.\n\nReturns:\n    - Detected device profile (if any)\n    - User-friendly detection message\n    - Recommended configuration settings\n    - Preview of what will change\n\nRaises:\n    503 Service Unavailable: If device enumeration fails",
+        "operationId": "detect_devices_api_v1_devices_detect_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceDetectionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Detect Devices",
         "tags": [
           "Devices",
           "devices"
@@ -1338,6 +2413,597 @@
         "tags": [
           "Images",
           "images"
+        ]
+      }
+    },
+    "/api/v1/import/mmsstv": {
+      "post": {
+        "description": "Import SSTV images from an MMSSTV-compatible directory.\n\nScans the directory for image files (jpg, png, bmp) and imports them\nto the database with automatic metadata extraction from filenames and EXIF.\n\nFilenames should follow the format: YYYYMMDD_HHMMSS_MODE_CALLSIGN.jpg\n\nThe import is performed in batches (100 images per transaction) for efficiency.\nErrors are logged but don't abort the entire import.\n\n**Note:** Images already in the database (by filepath) will be skipped.",
+        "operationId": "import_mmsstv_library_api_v1_import_mmsstv_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MMSStvImportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MMSStvImportResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Import MMSSTV library",
+        "tags": [
+          "Import",
+          "import"
+        ]
+      }
+    },
+    "/api/v1/import/preview": {
+      "post": {
+        "description": "Get a preview of what would be imported from a directory.\n\nReturns validation status, total file count, and sample files with\nparsed metadata. Does NOT import anything.\n\nSample files are evenly distributed across the directory to give a\nrepresentative preview of the import.",
+        "operationId": "preview_import_api_v1_import_preview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DirectoryValidationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportPreviewResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preview import from directory",
+        "tags": [
+          "Import",
+          "import"
+        ]
+      }
+    },
+    "/api/v1/import/validate": {
+      "post": {
+        "description": "Validate that a directory exists and contains importable images.\n\nThis endpoint does NOT import anything - it just checks if the directory\nis valid and reports how many images would be imported.\n\nUse this before calling /import/mmsstv to verify the path.",
+        "operationId": "validate_directory_api_v1_import_validate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DirectoryValidationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DirectoryValidationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Validate directory for import",
+        "tags": [
+          "Import",
+          "import"
+        ]
+      }
+    },
+    "/api/v1/qso/export": {
+      "get": {
+        "description": "Export QSOs to ADIF format.\n\nADIF (Amateur Data Interchange Format) is the standard format for\namateur radio logbook data exchange.\n\nArgs:\n    start_date: Optional start date filter\n    end_date: Optional end date filter\n    callsign_filter: Optional callsign substring filter\n    db: Database session\n\nReturns:\n    ADIF format file as plain text",
+        "operationId": "export_adif_api_v1_qso_export_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "start_date",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Start Date"
+            }
+          },
+          {
+            "in": "query",
+            "name": "end_date",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "End Date"
+            }
+          },
+          {
+            "in": "query",
+            "name": "callsign_filter",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Callsign Filter"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Export Adif",
+        "tags": [
+          "QSO Logging",
+          "qso"
+        ]
+      }
+    },
+    "/api/v1/qso/list": {
+      "get": {
+        "description": "List QSOs with filtering and pagination.\n\nArgs:\n    limit: Maximum number of QSOs to return\n    offset: Offset for pagination\n    callsign_filter: Optional callsign substring filter\n    start_date: Optional start date filter\n    end_date: Optional end date filter\n    db: Database session\n\nReturns:\n    Paginated list of QSOs",
+        "operationId": "list_qsos_api_v1_qso_list_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "callsign_filter",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Callsign Filter"
+            }
+          },
+          {
+            "in": "query",
+            "name": "start_date",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Start Date"
+            }
+          },
+          {
+            "in": "query",
+            "name": "end_date",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "End Date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QSOListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Qsos",
+        "tags": [
+          "QSO Logging",
+          "qso"
+        ]
+      }
+    },
+    "/api/v1/qso/log": {
+      "post": {
+        "description": "Log a QSO with auto-populated fields from image metadata.\n\nAuto-populates fields from image metadata using fallback hierarchy:\n1. User override (from request)\n2. Image metadata (from decode)\n3. None/empty\n\nArgs:\n    request: QSO logging request with image_id and optional overrides\n    db: Database session\n\nReturns:\n    Created QSO record\n\nRaises:\n    HTTPException: If image not found or callsign missing/invalid",
+        "operationId": "log_qso_api_v1_qso_log_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LogQSORequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QSOResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Log Qso",
+        "tags": [
+          "QSO Logging",
+          "qso"
+        ]
+      }
+    },
+    "/api/v1/qso/{qso_id}": {
+      "delete": {
+        "description": "Delete QSO by ID.\n\nArgs:\n    qso_id: QSO ID\n    db: Database session\n\nRaises:\n    HTTPException: If QSO not found",
+        "operationId": "delete_qso_api_v1_qso__qso_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "qso_id",
+            "required": true,
+            "schema": {
+              "title": "Qso Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Qso",
+        "tags": [
+          "QSO Logging",
+          "qso"
+        ]
+      },
+      "get": {
+        "description": "Get single QSO by ID.\n\nArgs:\n    qso_id: QSO ID\n    db: Database session\n\nReturns:\n    QSO record\n\nRaises:\n    HTTPException: If QSO not found",
+        "operationId": "get_qso_api_v1_qso__qso_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "qso_id",
+            "required": true,
+            "schema": {
+              "title": "Qso Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QSOResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Qso",
+        "tags": [
+          "QSO Logging",
+          "qso"
+        ]
+      }
+    },
+    "/api/v1/smart_reply/generate": {
+      "post": {
+        "description": "Generate Smart Reply preview with auto-populated fields.\n\nAuto-populates template fields from image metadata using fallback hierarchy:\n1. User override (manual entry)\n2. Image metadata (callsign, frequency, SNR from decode)\n3. Configuration defaults (operator callsign)\n4. Placeholder text (\"N/A\", \"Unknown\")\n\nArgs:\n    request: Generation request with image_id, template_id, and optional overrides\n    db: Database session\n    template_engine: Template engine instance\n\nReturns:\n    Preview information with path and populated fields\n\nRaises:\n    HTTPException: If image not found, template missing, or callsign required",
+        "operationId": "generate_smart_reply_api_v1_smart_reply_generate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenerateSmartReplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenerateSmartReplyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Generate Smart Reply",
+        "tags": [
+          "Smart Reply",
+          "smart_reply"
+        ]
+      }
+    },
+    "/api/v1/smart_reply/reload_templates": {
+      "post": {
+        "description": "Hot-reload templates from disk.\n\nUseful for adding new templates without restarting the server.\n\nReturns:\n    Status with count of loaded templates",
+        "operationId": "reload_templates_api_v1_smart_reply_reload_templates_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Reload Templates Api V1 Smart Reply Reload Templates Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Reload Templates",
+        "tags": [
+          "Smart Reply",
+          "smart_reply"
+        ]
+      }
+    },
+    "/api/v1/smart_reply/templates": {
+      "get": {
+        "description": "List all available Smart Reply templates.\n\nReturns bundled templates and user-created templates from ~/.ssteve/templates/\n\nReturns:\n    List of template metadata",
+        "operationId": "list_templates_api_v1_smart_reply_templates_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TemplateInfo"
+                  },
+                  "title": "Response List Templates Api V1 Smart Reply Templates Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Templates",
+        "tags": [
+          "Smart Reply",
+          "smart_reply"
+        ]
+      }
+    },
+    "/api/v1/smart_reply/transmit/{preview_id}": {
+      "post": {
+        "description": "Transmit Smart Reply preview image.\n\nArgs:\n    preview_id: Preview ID from generate endpoint\n    request: Transmission parameters (mode, device, PTT)\n    db: Database session\n\nReturns:\n    Transmission session information\n\nRaises:\n    HTTPException: If preview not found or transmission fails",
+        "operationId": "transmit_smart_reply_api_v1_smart_reply_transmit__preview_id__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "preview_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Preview Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransmitSmartReplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransmitSmartReplyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Transmit Smart Reply",
+        "tags": [
+          "Smart Reply",
+          "smart_reply"
         ]
       }
     },

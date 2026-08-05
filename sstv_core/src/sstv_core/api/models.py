@@ -80,12 +80,12 @@ class ModeDetectionRequest(BaseModel):
         description="Duration to analyze in seconds (default 10.0)",
     )
 
-    @field_validator("session_id", "audio_file")
-    @classmethod
-    def validate_audio_source(cls, v, info):
-        if v["session_id"] is None and v["audio_file"] is None:
+    @model_validator(mode="after")
+    def validate_audio_source(self) -> "ModeDetectionRequest":
+        """Require at least one usable source for mode detection."""
+        if self.session_id is None and self.audio_file is None:
             raise ValueError("Either session_id or audio_file must be provided")
-        return v
+        return self
 
 
 class ModeDetectionResponse(BaseModel):

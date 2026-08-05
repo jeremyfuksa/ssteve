@@ -7,22 +7,17 @@ Handles:
 - POST /transmit/cancel/{tx_id} - Cancel active transmission
 """
 
-from datetime import datetime
-from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
 
 from sstv_core.api.models import (
-    AudioDevice,
-    SerialPort,
     SSTVMode,
     TransmitRequest,
     TransmitResponse,
     TransmitStatusResponse,
     TransmitState,
 )
-from sstv_core.api.main import get_db_session
 from sstv_core.api.dsp_manager import dsp_manager
 from sstv_core.api.session_manager import session_manager
 
@@ -46,6 +41,7 @@ async def start_transmit(request: TransmitRequest) -> TransmitResponse:
         404 Not Found: If image file doesn't exist
         400 Bad Request: If image format is unsupported or invalid
     """
+    session = None
     try:
         # Create session with request metadata
         metadata = {
@@ -84,6 +80,15 @@ async def start_transmit(request: TransmitRequest) -> TransmitResponse:
         )
 
     except RuntimeError as e:
+        if session is not None:
+            # Mark FAILED first so the half-duplex lock is released even if
+            # DSP teardown itself raises.
+            await session_manager.update_transmit_state(
+                session.session_id,
+                TransmitState.FAILED,
+                {"error": str(e)},
+            )
+            await dsp_manager.stop_transmit(session.session_id)
         # Half-duplex constraint violated
         if "already active" in str(e) or "half-duplex" in str(e):
             raise HTTPException(
@@ -94,6 +99,17 @@ async def start_transmit(request: TransmitRequest) -> TransmitResponse:
                     "suggested_action": "Stop the active session before starting a new one",
                 },
             )
+        raise
+    except Exception as e:
+        if session is not None:
+            # Mark FAILED first so the half-duplex lock is released even if
+            # DSP teardown itself raises.
+            await session_manager.update_transmit_state(
+                session.session_id,
+                TransmitState.FAILED,
+                {"error": str(e)},
+            )
+            await dsp_manager.stop_transmit(session.session_id)
         raise
 
 

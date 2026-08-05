@@ -55,10 +55,8 @@ class FSKIDDecoder:
 
     # Frequency constants (MMSSTV FSKID standard)
     PREAMBLE_FREQ = 1500.0  # Standard mode
-    PREAMBLE_NARROW_FREQ = 1900.0  # Narrow mode (rare)
-    GUARD_FREQ = 2100.0
-    MARK_FREQ = 1900.0  # Bit = 1
-    SPACE_FREQ = 2100.0  # Bit = 0
+    MARK_FREQ = 1900.0  # Bit = 1 (also narrow-mode preamble)
+    SPACE_FREQ = 2100.0  # Bit = 0 (also guard tone)
 
     # Timing constants
     PREAMBLE_DURATION_MS = 300
@@ -67,7 +65,7 @@ class FSKIDDecoder:
     BIT_DURATION_MS = 22
 
     # Detection threshold (lower than VIS - FSKID often more degraded)
-    DETECTION_THRESHOLD = 0.6
+    DETECTION_THRESHOLD = 0.5
 
     # Protocol constants
     START_MARKER = 0x0A  # $2A encoded ($2A - $20 = $0A)
@@ -95,12 +93,6 @@ class FSKIDDecoder:
         # Create Goertzel filters for frequency detection
         self._filter_preamble = GoertzelFilter(
             self.PREAMBLE_FREQ, sample_rate, self._bit_samples
-        )
-        self._filter_preamble_narrow = GoertzelFilter(
-            self.PREAMBLE_NARROW_FREQ, sample_rate, self._bit_samples
-        )
-        self._filter_guard = GoertzelFilter(
-            self.GUARD_FREQ, sample_rate, self._bit_samples
         )
         self._filter_mark = GoertzelFilter(
             self.MARK_FREQ, sample_rate, self._bit_samples
@@ -151,6 +143,19 @@ class FSKIDDecoder:
             offset += self._bit_samples
             samples_processed += self._bit_samples
 
+        # A leading delay can shift the fixed-size windows and leave the final
+        # checksum bit in a partial chunk. Process it when most of a bit is
+        # present instead of discarding an otherwise complete frame.
+        remaining = audio_buffer[offset:]
+        if (
+            self._state in ("reading_bits", "reading_checksum")
+            and len(remaining) >= self._bit_samples // 2
+        ):
+            padded = np.pad(remaining, (0, self._bit_samples - len(remaining)))
+            self._process_chunk(padded)
+            if self._state == "complete":
+                return self._extract_callsign()
+
         # Reached end of buffer without complete FSKID
         logger.debug("FSKID incomplete, no valid callsign detected")
         return None
@@ -166,7 +171,7 @@ class FSKIDDecoder:
 
         if self._state == "searching":
             # Look for preamble (1500 Hz or 1900 Hz narrow mode)
-            if freq in ("preamble", "preamble_narrow") and confidence > self.DETECTION_THRESHOLD:
+            if freq in ("tone_1500", "tone_1900") and confidence > self.DETECTION_THRESHOLD:
                 self._preamble_count += 1
                 # 300ms / 22ms = ~14 chunks
                 if self._preamble_count >= 13:
@@ -177,28 +182,26 @@ class FSKIDDecoder:
 
         elif self._state == "preamble_detected":
             # Look for guard tone (2100 Hz)
-            if freq == "guard" and confidence > self.DETECTION_THRESHOLD:
+            if freq == "tone_2100" and confidence > self.DETECTION_THRESHOLD:
                 self._state = "guard_detected"
                 self._preamble_chunks_remaining = 0  # Preamble done
                 logger.debug("FSKID guard tone detected")
-            elif freq not in ("preamble", "preamble_narrow"):
+            elif freq not in ("tone_1500", "tone_1900"):
                 # Lost preamble without guard
                 self._state = "searching"
                 self._preamble_count = 0
                 self._preamble_chunks_remaining = 14
 
         elif self._state == "guard_detected":
-            # Look for guard tone (2100 Hz) OR start bit (1900 Hz = mark)
-            if freq in ("guard", "mark") and confidence > self.DETECTION_THRESHOLD:
+            # Stay in the 2100 Hz guard until the 1900 Hz start bit arrives.
+            if freq == "tone_2100" and confidence > self.DETECTION_THRESHOLD:
+                return
+            if freq == "tone_1900" and confidence > self.DETECTION_THRESHOLD:
                 self._state = "start_bit_detected"
                 self._current_bits = []
                 self._symbols = []
-                logger.debug("FSKID guard tone or start bit detected, reading data")
-            elif freq == "mark" and confidence > self.DETECTION_THRESHOLD:
-                # Start bit detected, begin reading data
-                self._state = "reading_bits"
-                self._process_data_bit(freq, confidence)
-            elif freq not in ("preamble", "preamble_narrow"):
+                logger.debug("FSKID start bit detected, reading data")
+            else:
                 # Guard tone ended without start bit - back to search
                 self._state = "searching"
 
@@ -207,31 +210,41 @@ class FSKIDDecoder:
             self._state = "reading_bits"
             self._process_data_bit(freq, confidence)
 
-        elif self._state == "reading_bits":
+        elif self._state in ("reading_bits", "reading_checksum"):
             self._process_data_bit(freq, confidence)
 
     def _process_data_bit(self, freq: str, confidence: float) -> None:
         """Process a single data bit in symbol stream."""
-        if freq in ("mark", "space"):
-            bit = 1 if freq == "mark" else 0
+        if freq in ("tone_1900", "tone_2100"):
+            bit = 1 if freq == "tone_1900" else 0
             self._current_bits.append(bit)
             self._confidence_sum += confidence
             self._confidence_count += 1
 
             # Complete 6-bit symbol?
             if len(self._current_bits) == 6:
-                symbol_value = self._bits_to_symbol(self._current_bits)
+                symbol_bits = self._current_bits
+                symbol_value = self._bits_to_symbol(symbol_bits)
                 self._symbols.append(symbol_value)
+                self._current_bits = []
 
                 logger.debug(
                     f"FSKID symbol decoded: 0x{symbol_value:02X} "
-                    f"(bits: {''.join(map(str, self._current_bits))})"
+                    f"(bits: {''.join(map(str, symbol_bits))})"
                 )
 
-                # Check for end marker
-                if symbol_value == self.END_MARKER:
+                if self._state == "reading_checksum":
                     self._state = "complete"
-                    logger.debug(f"FSKID end marker detected, {len(self._symbols)} symbols total")
+                    logger.debug(
+                        "FSKID checksum received, %d symbols total",
+                        len(self._symbols),
+                    )
+                    return
+
+                # The checksum is one symbol after the end marker.
+                if symbol_value == self.END_MARKER:
+                    self._state = "reading_checksum"
+                    logger.debug("FSKID end marker detected; awaiting checksum")
                     return
 
                 # Safety: Prevent infinite loop from malformed transmission
@@ -240,8 +253,6 @@ class FSKIDDecoder:
                     self._state = "error"
                     return
 
-                # Reset for next symbol
-                self._current_bits = []
         else:
             # Unexpected frequency during data bits
             logger.warning(f"FSKID unexpected frequency '{freq}' during data bits, aborting")
@@ -253,12 +264,12 @@ class FSKIDDecoder:
         Returns:
             (frequency_name, confidence) tuple
         """
+        # Return physical tones only. Their protocol meaning depends on state:
+        # 1900 Hz is both narrow preamble and mark; 2100 Hz is guard and space.
         magnitudes = {
-            "preamble": self._filter_preamble.magnitude(samples),
-            "preamble_narrow": self._filter_preamble_narrow.magnitude(samples),
-            "guard": self._filter_guard.magnitude(samples),
-            "mark": self._filter_mark.magnitude(samples),
-            "space": self._filter_space.magnitude(samples),
+            "tone_1500": self._filter_preamble.magnitude(samples),
+            "tone_1900": self._filter_mark.magnitude(samples),
+            "tone_2100": self._filter_space.magnitude(samples),
         }
 
         max_freq = max(magnitudes, key=magnitudes.get)

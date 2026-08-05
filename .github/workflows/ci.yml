@@ -31,16 +31,5 @@ jobs:
       - name: Install dependencies
         run: uv sync --extra dev
 
-      # Suites listed with --ignore have pre-existing failures (see issue #11 era
-      # audit); they are excluded so CI reflects the actual green baseline.
-      # Remove an exclusion when its suite is fixed.
       - name: Run tests
-        run: >
-          uv run pytest -q
-          --ignore=tests/test_decode.py
-          --ignore=tests/decode/test_fsk_decoder.py
-          --ignore=tests/encode/test_fsk_generator.py
-          --ignore=tests/filesystem/test_mmsstv_importer.py
-          --ignore=tests/integration/test_decode_e2e.py
-          --ignore=tests/api/test_routes_devices.py
-          --ignore=tests/cli/test_main.py
+        run: uv run pytest -q

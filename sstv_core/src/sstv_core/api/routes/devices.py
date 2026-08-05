@@ -8,7 +8,7 @@ Handles:
 - POST /devices/apply_settings - Apply recommended device settings
 """
 
-from typing import List, Optional
+from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -24,6 +24,7 @@ from sstv_core.api.main import get_db_session
 from sstv_core.config import ConfigManager
 
 router = APIRouter(prefix="/devices", tags=["devices"])
+
 
 def _get_config_manager(session: Session = Depends(get_db_session)) -> ConfigManager:
     """Get config manager with database session."""
@@ -42,8 +43,6 @@ except Exception:  # pragma: no cover - depends on optional pyserial
     list_ports = None
 
 
-router = APIRouter(prefix="/devices", tags=["devices"])
-
 _SSTV_SAMPLE_RATE = 48000
 
 
@@ -54,7 +53,9 @@ def _pick_sample_rate(sample_rates: list[int]) -> int:
 
 
 @router.get("/detect", response_model=DeviceDetectionResponse)
-async def detect_devices() -> DeviceDetectionResponse:
+async def detect_devices(
+    config_manager: ConfigManager = Depends(_get_config_manager),
+) -> DeviceDetectionResponse:
     """
     Auto-detect connected SSTV hardware and provide recommended settings.
 
@@ -73,7 +74,7 @@ async def detect_devices() -> DeviceDetectionResponse:
     """
     try:
         # Detect hardware
-        if device_detector:
+        if _device_detector_available:
             detected_profile = device_detector.detect_hardware_device()
             # Get recommended settings from detected profile
             recommended_settings = device_detector.get_recommended_settings(detected_profile) if detected_profile else {}
@@ -82,13 +83,20 @@ async def detect_devices() -> DeviceDetectionResponse:
             recommended_settings = {}
 
         # Get current configuration
-        current_config = config_manager.get_all()
+        current_config = config_manager.to_dict()
 
         # Generate detection message
-        detection_message = generate_detection_message(detected_profile) if detected_profile else None
+        detection_message = (
+            device_detector.generate_detection_message(detected_profile)
+            if detected_profile
+            else None
+        )
 
         # Generate settings preview
-        settings_preview = generate_settings_preview(current_config, recommended_settings)
+        settings_preview = device_detector.generate_settings_preview(
+            current_config,
+            recommended_settings,
+        )
 
         # Build response
         return DeviceDetectionResponse(
@@ -172,16 +180,13 @@ async def apply_device_settings(
             )
 
         # Apply updates to configuration
-        config_manager.update_many(updates)
-
-        # Save to database
-        config_manager.save()
+        config_manager.update(updates)
 
         # Build response
         applied_fields = list(updates.keys())
 
         # Get updated configuration
-        updated_config = config_manager.get_all()
+        updated_config = config_manager.to_dict()
 
         return ApplySettingsResponse(
             updated_configuration=updated_config,
@@ -227,18 +232,18 @@ async def list_audio_devices() -> List[AudioDevice]:
         from sstv_core.audio.device_manager import AudioDeviceManager
 
         device_manager = AudioDeviceManager()
-        devices = device_manager.get_all_devices()
+        devices = device_manager.list_all_devices()
 
-        return [AudioDevice(
-            id=str(d.id),
-            name=d.name,
-            hostapi=d.hostapi,
-            channels=d.channels,
-            sample_rates=d.sample_rates,
-            is_input=d.is_input,
-            is_output=d.is_output,
-            is_default=d.is_default,
-        ) for d in devices]
+        return [
+            AudioDevice(
+                device_id=str(device.id),
+                name=device.name,
+                channels=device.channels,
+                sample_rate=_pick_sample_rate(device.sample_rates),
+                is_default=device.is_default,
+            )
+            for device in devices
+        ]
 
     except Exception as e:
         raise HTTPException(
@@ -249,53 +254,6 @@ async def list_audio_devices() -> List[AudioDevice]:
                 "suggested_action": "Check audio driver installation and permissions",
             },
         ) from e
-    """
-    List available audio input/output devices.
-
-    Returns all audio devices detected by the system, including:
-    - Device ID (OS-specific identifier)
-    - Human-readable name
-    - Channel count and sample rate
-    - Default device indicator
-
-    Used for device selection in the UI.
-    """
-    try:
-        from sstv_core.smart_features.device_detector import (
-    detect_hardware_device,
-    get_recommended_settings,
-    generate_detection_message,
-    generate_settings_preview,
-)
-
-        manager = AudioDeviceManager()
-        devices = manager.list_all_devices()
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={
-                "error": "DEVICE_FAILURE",
-                "message": f"Can't list audio devices - {e}",
-                "recoverable": True,
-                "suggested_action": "Check your audio connections and try again",
-            },
-        ) from e
-
-    response: List[AudioDevice] = []
-    for device in devices:
-        response.append(
-            AudioDevice(
-                device_id=device.id,
-                name=device.name,
-                channels=device.channels,
-                sample_rate=_pick_sample_rate(device.sample_rates),
-                is_default=device.is_default,
-            )
-        )
-
-    return response
-
-
 @router.get("/serial", response_model=List[SerialPort])
 async def list_serial_ports() -> List[SerialPort]:
     """

@@ -8,8 +8,7 @@ Handles:
 - POST /decode/stop/{session_id} - Stop active decode session
 """
 
-from datetime import datetime
-from typing import Optional
+import logging
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
@@ -31,6 +30,7 @@ from sstv_core.smart_features.mode_detector import (
 )
 
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/decode", tags=["decode"])
 
 
@@ -71,9 +71,6 @@ async def detect_mode(request: ModeDetectionRequest) -> ModeDetectionResponse:
                         "message": f"Can't find decode session {request.session_id}",
                     },
                 )
-
-            # Get audio buffer from ring buffer
-            from sstv_core.decode.rx_manager import RXManager
 
             # Get samples from ring buffer
             # Note: This requires access to the stream manager's buffer
@@ -213,6 +210,7 @@ async def start_decode(request: DecodeStartRequest) -> DecodeStartResponse:
     Raises:
         409 Conflict: If another decode/transmit session is already active (half-duplex)
     """
+    session = None
     try:
         # Create session with request metadata
         metadata = {
@@ -247,6 +245,15 @@ async def start_decode(request: DecodeStartRequest) -> DecodeStartResponse:
         )
 
     except RuntimeError as e:
+        if session is not None:
+            # Mark FAILED first so the half-duplex lock is released even if
+            # DSP teardown itself raises.
+            await session_manager.update_decode_state(
+                session.session_id,
+                DecodeState.FAILED,
+                {"error": str(e)},
+            )
+            await dsp_manager.stop_decode(session.session_id)
         # Half-duplex constraint violated
         if "already active" in str(e) or "half-duplex" in str(e):
             raise HTTPException(
@@ -257,6 +264,17 @@ async def start_decode(request: DecodeStartRequest) -> DecodeStartResponse:
                     "suggested_action": "Stop the active session before starting a new one",
                 },
             )
+        raise
+    except Exception as e:
+        if session is not None:
+            # Mark FAILED first so the half-duplex lock is released even if
+            # DSP teardown itself raises.
+            await session_manager.update_decode_state(
+                session.session_id,
+                DecodeState.FAILED,
+                {"error": str(e)},
+            )
+            await dsp_manager.stop_decode(session.session_id)
         raise
 
 
