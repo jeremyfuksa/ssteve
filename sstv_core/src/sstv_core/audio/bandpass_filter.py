@@ -123,21 +123,19 @@ class SSTVBandpassFilter:
         if self._config.apply_dithering:
             samples = samples + np.random.normal(0, 1e-6, samples.shape)
 
-        if self._config.use_zero_phase:
-            # Use filtfilt for zero-phase filtering
-            # This applies filter forward and backward, removing phase distortion
-            # Note: We maintain state zi for real-time streaming
-            filtered, self._zi = signal.lfilter_zi(self._b, self._a, samples, zi=self._zi)
-            # Apply reverse filter for zero-phase
-            filtered_reversed, zi_rev = signal.lfilter_zi(
-                self._b, self._a, filtered[::-1], zi=self._zi
-            )
-            filtered = filtered_reversed[::-1]
-            # Reset zi for next call
-            self._zi = zi_rev
+        # filtfilt needs a minimum chunk length for its edge padding; short
+        # chunks fall through to the stateful streaming path.
+        padlen = 3 * max(len(self._a), len(self._b))
+        if self._config.use_zero_phase and len(samples) > padlen:
+            # Zero-phase filtering (forward + backward). Block-based by
+            # nature; chunk-boundary transients are negligible at SSTV
+            # chunk sizes (~100 ms at 48 kHz vs. a ~1 ms filter settle).
+            filtered = signal.filtfilt(self._b, self._a, samples)
         else:
-            # Standard forward-only filtering
-            filtered, self._zi = signal.lfilter_zi(self._b, self._a, samples, zi=self._zi)
+            # Stateful forward-only filtering for streaming continuity
+            if self._zi is None:
+                self._zi = signal.lfilter_zi(self._b, self._a) * samples[0]
+            filtered, self._zi = signal.lfilter(self._b, self._a, samples, zi=self._zi)
 
         # Remove dithering noise (subtracts mean of added dither)
         if self._config.apply_dithering:
