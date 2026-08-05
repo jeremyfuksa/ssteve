@@ -1,7 +1,8 @@
 # SSTeVe Beta Launch Plan
 
-**Target Date:** 2026-01-31 (11 days remaining)
-**Current Status:** 89% complete
+> **Re-baselined 2026-08-05.** The January target date lapsed during a dormancy. As of PRs #13–#15: Priorities 1 and 2 below are **fully complete and tested** (including the watcher wiring and WebSocket library events this plan lists as open), and much of Priority 3's coverage exists (444 tests, zero CI exclusions, ruff/mypy gates). The task detail below is kept as historical planning record; for current truth see `docs/status/PROJECT_STATUS.md`, whose "Known Gaps" section is the live to-do list. A new beta target date has not been set.
+
+**Original Target Date:** 2026-01-31 (lapsed; see banner)
 **Required for Beta:** 90-95% complete (working decode/transmit flows)
 
 ---
@@ -55,15 +56,15 @@
 
 **Reference:** `BACKEND_TASKS.md` Task 5.2.2, `features/FSKID_SPECIFICATION.md`
 
-#### 1.2 Smart Device Config "Apply Settings" Endpoint (~2 hours)
+#### 1.2 Smart Device Config "Apply Settings" Endpoint (~2 hours) ✅ **COMPLETE**
 **File:** `sstv_core/src/sstv_core/api/routes/devices.py`
 
 **Acceptance Criteria:**
-- [ ] POST `/devices/apply_settings` endpoint implemented
-- [ ] Accepts device configuration
-- [ ] Updates configuration in database
-- [ ] Returns updated configuration
-- [ ] Integration test with device detector
+- [x] POST `/devices/apply_settings` endpoint implemented
+- [x] Accepts device configuration
+- [x] Updates configuration (via ConfigManager, which persists to the DB)
+- [x] Returns updated configuration
+- [x] Tests added 2026-08-05 (TestApplySettings, incl. profile-precedence)
 
 **Work:**
 - Create `apply_settings()` route
@@ -189,7 +190,7 @@
 
 ### Priority 3: Phase 6 Critical Testing (5-7 tasks, ~20-30 hours)
 
-**Status:** 0/11 complete (0%)
+**Status (2026-08-05):** substantially complete — 444 tests, no CI exclusions, ruff+mypy gated. Remaining from this list: WebSocket reconnection tests and live-hardware validation.
 
 #### 3.1 Decode Integration Test (~4 hours)
 **File:** `sstv_core/tests/integration/test_decode_e2e.py`
