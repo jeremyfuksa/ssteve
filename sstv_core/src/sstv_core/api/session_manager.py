@@ -110,6 +110,28 @@ class SessionManager:
 
     async def cleanup_expired_sessions(self) -> int:
         """Remove expired sessions. Returns number of sessions cleaned up."""
+        # Stop active DSP operations before deleting their bookkeeping. The
+        # import is local to avoid the module-level session/DSP dependency cycle.
+        async with self._lock:
+            expired_active_decode = [
+                sid
+                for sid, session in self._decode_sessions.items()
+                if session.is_expired() and not session.is_terminal_state()
+            ]
+            expired_active_transmit = [
+                sid
+                for sid, session in self._transmit_sessions.items()
+                if session.is_expired() and not session.is_terminal_state()
+            ]
+
+        if expired_active_decode or expired_active_transmit:
+            from sstv_core.api.dsp_manager import dsp_manager
+
+            for sid in expired_active_decode:
+                await dsp_manager.stop_decode(sid)
+            for sid in expired_active_transmit:
+                await dsp_manager.stop_transmit(sid)
+
         async with self._lock:
             cleaned = 0
 

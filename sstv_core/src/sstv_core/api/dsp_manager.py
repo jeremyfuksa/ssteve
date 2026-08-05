@@ -19,6 +19,7 @@ from sstv_core.audio.ptt_controller import PTTController, PTTMethod
 from sstv_core.audio.stream_manager import AudioStreamManager
 from sstv_core.decode.rx_manager import RXManager, RXProgress, RXState
 from sstv_core.encode.tx_manager import TXManager, TXProgress, TXState
+from sstv_core.api.image_ids import db_image_id_to_uuid
 from sstv_core.api.models import DecodeState, TransmitState
 from sstv_core.api.session_manager import session_manager
 from sstv_core.api.websocket_manager import websocket_manager
@@ -152,6 +153,9 @@ class DSPManager:
             except asyncio.CancelledError:
                 pass
 
+        self._rx_managers.pop(session_id, None)
+        self._decode_tasks.pop(session_id, None)
+
         logger.info("Decode session %s stopped", session_id)
 
     async def start_transmit(
@@ -186,6 +190,23 @@ class DSPManager:
             serial_port,
         )
 
+        # Map public API values explicitly so unsupported modes cannot be sent
+        # with a mismatched VIS header and scanline encoder.
+        from sstv_core.encode.vis_generator import SSTVMode
+
+        mode_map = {
+            "ScottieS1": SSTVMode.SCOTTIE_S1,
+            "MartinM1": SSTVMode.MARTIN_M1,
+            "Robot36": SSTVMode.ROBOT_36,
+        }
+        try:
+            sstv_mode = mode_map[mode]
+        except KeyError as exc:
+            supported = ", ".join(mode_map)
+            raise ValueError(
+                f"Unsupported transmit mode {mode!r}; implemented modes: {supported}"
+            ) from exc
+
         # Create PTT controller based on configuration
         if serial_port:
             ptt = PTTController(method=PTTMethod.SERIAL, port=serial_port)
@@ -217,18 +238,6 @@ class DSPManager:
 
         # Parse device ID
         device_index = int(device_id) if device_id and device_id.isdigit() else None
-
-        # Convert mode string to enum
-        from sstv_core.encode.vis_generator import SSTVMode
-
-        # Normalize mode name (e.g., "ScottieS1" -> "SCOTTIE_S1")
-        mode_normalized = mode.upper().replace(" ", "_")
-        try:
-            sstv_mode = SSTVMode[mode_normalized]
-        except KeyError:
-            # Try alternate naming (e.g., "SCOTTIE_S1" exists in enum)
-            logger.error("Unknown SSTV mode: %s", mode)
-            raise ValueError(f"Unsupported SSTV mode: {mode}")
 
         # Start transmit as background task
         transmit_task = asyncio.create_task(
@@ -271,6 +280,10 @@ class DSPManager:
                 await task
             except asyncio.CancelledError:
                 pass
+
+        self._tx_managers.pop(session_id, None)
+        self._transmit_tasks.pop(session_id, None)
+        self._transmit_image_paths.pop(session_id, None)
 
         logger.info("Transmit session %s stopped", session_id)
 
@@ -386,7 +399,9 @@ class DSPManager:
                 # Create database record if database is enabled
                 image_id = None
                 if self._db_session_factory:
-                    image_id = await self._create_image_record(session_id, result)
+                    db_image_id = await self._create_image_record(session_id, result)
+                    if db_image_id is not None:
+                        image_id = str(db_image_id_to_uuid(db_image_id))
 
                 await session_manager.update_decode_state(
                     session_id,
@@ -472,7 +487,6 @@ class DSPManager:
             signal_quality = metadata.get("signal_quality", 0.0)
 
             # Create database record in thread pool (SQLAlchemy is synchronous)
-            import functools
             from sstv_core.database.models import SSTVImage
 
             def create_record() -> int:
@@ -541,7 +555,6 @@ class DSPManager:
             callsign = metadata.get("callsign")
 
             # Create database record in thread pool (SQLAlchemy is synchronous)
-            import functools
             from sstv_core.database.models import SSTVImage
 
             def create_record() -> int:
@@ -654,7 +667,9 @@ class DSPManager:
                 image_id = None
                 if self._db_session_factory and session_id in self._transmit_image_paths:
                     filepath = self._transmit_image_paths[session_id]
-                    image_id = await self._create_transmit_image_record(session_id, filepath)
+                    db_image_id = await self._create_transmit_image_record(session_id, filepath)
+                    if db_image_id is not None:
+                        image_id = str(db_image_id_to_uuid(db_image_id))
 
                 await session_manager.update_transmit_state(
                     session_id,

@@ -6,7 +6,7 @@ Tests validation rules, security constraints, and serialization.
 
 import pytest
 from datetime import datetime
-from uuid import UUID, uuid4
+from uuid import uuid4
 from pydantic import ValidationError
 
 from sstv_core.api.models import (
@@ -22,15 +22,27 @@ from sstv_core.api.models import (
     DecodeStartResponse,
     DecodeStatusResponse,
     TransmitRequest,
-    TransmitResponse,
     TransmitStatusResponse,
     ImageMetadata,
     ImageListResponse,
+    ModeDetectionRequest,
     VISDetectedEvent,
     ScanlineUpdateEvent,
     DecodeCompleteEvent,
     ErrorEvent,
 )
+
+
+class TestModeDetectionRequest:
+    """Test cross-field validation for mode detection sources."""
+
+    def test_audio_file_is_accepted(self) -> None:
+        request = ModeDetectionRequest(audio_file="/tmp/signal.wav")
+        assert request.audio_file == "/tmp/signal.wav"
+
+    def test_missing_source_is_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="Either session_id or audio_file"):
+            ModeDetectionRequest()
 
 
 class TestAudioDevice:

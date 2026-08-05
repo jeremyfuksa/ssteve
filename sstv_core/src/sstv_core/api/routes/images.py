@@ -6,14 +6,15 @@ Handles:
 - GET /images/{id} - Get specific image metadata
 """
 
-from typing import List, Optional
-from uuid import UUID, uuid5, NAMESPACE_OID
+from typing import Optional
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
 from sstv_core.api.main import get_db_session
+from sstv_core.api.image_ids import db_image_id_to_uuid
 
 from sstv_core.api.models import ImageMetadata, ImageListResponse, SSTVMode
 
@@ -21,28 +22,8 @@ from sstv_core.api.models import ImageMetadata, ImageListResponse, SSTVMode
 router = APIRouter(prefix="/images", tags=["images"])
 
 
-def _db_id_to_uuid(db_id: int) -> UUID:
-    """Convert database integer ID to deterministic UUID."""
-    # Use UUID v5 (name-based) to create deterministic UUIDs from integer IDs
-    # This ensures the same database ID always maps to the same UUID
-    return uuid5(NAMESPACE_OID, f"sstv_image_{db_id}")
-
-
-def _uuid_to_db_id(image_uuid: UUID) -> int:
-    """Extract database ID from UUID.
-    
-    Since we use deterministic UUIDs, we can't directly extract the ID.
-    This function is a helper for error messages only.
-    For lookups, we need to iterate or use a proper UUID column in DB.
-    """
-    # For now, return a sentinel that will fail lookup gracefully
-    # TODO: Proper solution is to add UUID column to database
-    raise ValueError(f"Cannot extract database ID from UUID {image_uuid}")
-
-
 def _db_image_to_api(db_image) -> ImageMetadata:
     """Convert database SSTVImage to API ImageMetadata model."""
-    from sstv_core.database.models import SSTVImage
     from PIL import Image
 
     # Determine direction
@@ -64,7 +45,7 @@ def _db_image_to_api(db_image) -> ImageMetadata:
         pass  # Use defaults if can't read file
 
     return ImageMetadata(
-        id=_db_id_to_uuid(db_image.id),
+        id=db_image_id_to_uuid(db_image.id),
         filepath=db_image.filepath,
         mode=mode,
         direction=direction,
@@ -167,7 +148,7 @@ async def get_image(
     all_images = session.query(SSTVImage).all()
     
     for db_image in all_images:
-        if _db_id_to_uuid(db_image.id) == image_id:
+        if db_image_id_to_uuid(db_image.id) == image_id:
             return _db_image_to_api(db_image)
     
     # Not found

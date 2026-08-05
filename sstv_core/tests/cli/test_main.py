@@ -1,8 +1,7 @@
 """Tests for CLI main interface."""
 
 import json
-from io import StringIO
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -233,12 +232,11 @@ class TestCLICommands:
     """Tests for CLI command execution."""
 
     @patch("sstv_core.audio.device_manager.AudioDeviceManager")
-    @patch("sstv_core.database.models.init_database")
-    def test_decode_command_no_devices(self, mock_init_db, mock_device_mgr):
+    def test_decode_command_no_devices(self, mock_device_mgr):
         """Decode command fails gracefully when no devices found."""
         from sstv_core.cli.main import cmd_decode
 
-        mock_device_mgr.return_value.list_devices.return_value = []
+        mock_device_mgr.return_value.list_all_devices.return_value = []
 
         parser = create_parser()
         args = parser.parse_args(["decode", "--device", "test"])
@@ -264,7 +262,7 @@ class TestCLICommands:
         """List-devices command handles no devices gracefully."""
         from sstv_core.cli.main import cmd_list_devices
 
-        mock_device_mgr.return_value.list_devices.return_value = []
+        mock_device_mgr.return_value.list_all_devices.return_value = []
 
         parser = create_parser()
         args = parser.parse_args(["list-devices"])
@@ -276,29 +274,32 @@ class TestCLICommands:
     @patch("sstv_core.audio.device_manager.AudioDeviceManager")
     def test_list_devices_command_with_devices(self, mock_device_mgr):
         """List-devices command displays devices."""
-        from sstv_core.api.models import AudioDevice
+        from sstv_core.audio.device_manager import AudioDevice
         from sstv_core.cli.main import cmd_list_devices
 
         # Mock devices
         devices = [
             AudioDevice(
-                device_id="dev1",
+                id="dev1",
                 name="Test Device 1",
-                max_input_channels=2,
-                max_output_channels=2,
-                default_sample_rate=48000,
+                hostapi="Test",
+                channels=2,
+                sample_rates=[48000],
+                is_input=True,
+                is_output=True,
                 is_default=True,
             ),
             AudioDevice(
-                device_id="dev2",
+                id="dev2",
                 name="Test Device 2",
-                max_input_channels=0,
-                max_output_channels=2,
-                default_sample_rate=44100,
+                hostapi="Test",
+                channels=2,
+                sample_rates=[44100],
+                is_output=True,
                 is_default=False,
             ),
         ]
-        mock_device_mgr.return_value.list_devices.return_value = devices
+        mock_device_mgr.return_value.list_all_devices.return_value = devices
 
         parser = create_parser()
         args = parser.parse_args(["list-devices"])

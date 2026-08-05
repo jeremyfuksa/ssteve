@@ -95,10 +95,9 @@ Design targets four archetypes: Makers (scriptable/headless), Activators (POTA/S
 
 Work is done when, from `sstv_core/`:
 
-1. `uv run pytest` passes for every suite you touched, and you introduced no new failures elsewhere.
-2. Known pre-existing failures (as of 2026-07-18) are in: `tests/test_decode.py`, `tests/decode/test_fsk_decoder.py`, `tests/encode/test_fsk_generator.py`, `tests/filesystem/test_mmsstv_importer.py`, `tests/integration/test_decode_e2e.py`, `tests/api/test_routes_devices.py`, `tests/cli/test_main.py`. CI runs the suite excluding these files — that CI subset must stay green. If you fix one of these files, remove its exclusion from `.github/workflows/ci.yml`.
-3. `uv run ruff check src/` and `uv run mypy src/` are clean for files you changed.
-4. API changes keep `docs/core/backend-spec.md` / `docs/core/openapi.json` in sync (regenerate via `scripts/export_api_docs.py`).
+1. `uv run pytest` passes — the full suite, no exclusions. (As of 2026-08-05 there are no known pre-existing failures; CI runs the whole suite.)
+2. `uv run ruff check src/` and `uv run mypy src/` are clean for files you changed.
+3. API changes keep `docs/core/backend-spec.md` / `docs/core/openapi.json` in sync (regenerate via `scripts/export_api_docs.py`).
 
 ## Docs to Reference
 

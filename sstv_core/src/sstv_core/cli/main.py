@@ -89,16 +89,12 @@ def cmd_decode(args: argparse.Namespace) -> int:
         Exit code (0 = success)
     """
     from sstv_core.audio.device_manager import AudioDeviceManager
-    from sstv_core.database.models import init_database
 
     log_event("decode_start", mode=args.mode, device=args.device)
 
-    # Initialize database
-    engine, session_factory = init_database(":memory:")
-
     # Get audio devices
     device_mgr = AudioDeviceManager()
-    devices = device_mgr.list_devices()
+    devices = device_mgr.list_all_devices()
 
     if not devices:
         log_event("error", message="Can't find any audio devices")
@@ -108,7 +104,7 @@ def cmd_decode(args: argparse.Namespace) -> int:
     if args.device:
         selected_device = None
         for dev in devices:
-            if dev.device_id == args.device:
+            if dev.id == args.device:
                 selected_device = dev
                 break
 
@@ -116,17 +112,20 @@ def cmd_decode(args: argparse.Namespace) -> int:
             log_event(
                 "error",
                 message=f"Can't find device '{args.device}'",
-                available_devices=[d.device_id for d in devices],
+                available_devices=[d.id for d in devices],
             )
             return 1
     else:
         # Use default input device
-        selected_device = next((d for d in devices if d.is_default and d.max_input_channels > 0), None)
+        selected_device = next(
+            (d for d in devices if d.is_default and d.is_input),
+            None,
+        )
         if not selected_device:
             log_event("error", message="Can't find default input device")
             return 1
 
-    log_event("device_selected", device_id=selected_device.device_id, device_name=selected_device.name)
+    log_event("device_selected", device_id=selected_device.id, device_name=selected_device.name)
 
     # TODO: Implement actual decode logic with StreamManager
     # For now, just demonstrate event logging
@@ -175,7 +174,7 @@ def cmd_encode(args: argparse.Namespace) -> int:
 
     # Get audio devices
     device_mgr = AudioDeviceManager()
-    devices = device_mgr.list_devices()
+    devices = device_mgr.list_all_devices()
 
     if not devices:
         log_event("error", message="Can't find any audio devices")
@@ -185,7 +184,7 @@ def cmd_encode(args: argparse.Namespace) -> int:
     if args.device:
         selected_device = None
         for dev in devices:
-            if dev.device_id == args.device:
+            if dev.id == args.device:
                 selected_device = dev
                 break
 
@@ -193,17 +192,20 @@ def cmd_encode(args: argparse.Namespace) -> int:
             log_event(
                 "error",
                 message=f"Can't find device '{args.device}'",
-                available_devices=[d.device_id for d in devices],
+                available_devices=[d.id for d in devices],
             )
             return 1
     else:
         # Use default output device
-        selected_device = next((d for d in devices if d.is_default and d.max_output_channels > 0), None)
+        selected_device = next(
+            (d for d in devices if d.is_default and d.is_output),
+            None,
+        )
         if not selected_device:
             log_event("error", message="Can't find default output device")
             return 1
 
-    log_event("device_selected", device_id=selected_device.device_id, device_name=selected_device.name)
+    log_event("device_selected", device_id=selected_device.id, device_name=selected_device.name)
 
     # TODO: Implement actual encode logic
     # For now, demonstrate event logging
@@ -231,7 +233,7 @@ def cmd_list_devices(args: argparse.Namespace) -> int:
     from sstv_core.audio.device_manager import AudioDeviceManager
 
     device_mgr = AudioDeviceManager()
-    devices = device_mgr.list_devices()
+    devices = device_mgr.list_all_devices()
 
     if not devices:
         log_event("info", message="No audio devices found")
@@ -239,11 +241,11 @@ def cmd_list_devices(args: argparse.Namespace) -> int:
 
     for dev in devices:
         device_info = {
-            "device_id": dev.device_id,
+            "device_id": dev.id,
             "name": dev.name,
-            "inputs": dev.max_input_channels,
-            "outputs": dev.max_output_channels,
-            "sample_rate": dev.default_sample_rate,
+            "inputs": dev.channels if dev.is_input else 0,
+            "outputs": dev.channels if dev.is_output else 0,
+            "sample_rate": dev.sample_rates[0] if dev.sample_rates else None,
             "is_default": dev.is_default,
         }
 
@@ -252,9 +254,9 @@ def cmd_list_devices(args: argparse.Namespace) -> int:
         else:
             default_marker = " [DEFAULT]" if dev.is_default else ""
             print(
-                f"{dev.device_id}: {dev.name}{default_marker}\n"
-                f"  Inputs: {dev.max_input_channels}, Outputs: {dev.max_output_channels}, "
-                f"Sample Rate: {dev.default_sample_rate} Hz"
+                f"{dev.id}: {dev.name}{default_marker}\n"
+                f"  Inputs: {device_info['inputs']}, Outputs: {device_info['outputs']}, "
+                f"Sample Rate: {device_info['sample_rate']} Hz"
             )
 
     return 0
@@ -359,7 +361,7 @@ Examples:
     )
 
     # List devices command
-    list_parser = subparsers.add_parser("list-devices", help="List available audio devices")
+    subparsers.add_parser("list-devices", help="List available audio devices")
 
     return parser
 

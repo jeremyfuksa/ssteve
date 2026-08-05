@@ -261,7 +261,7 @@ def test_get_import_preview(db_session, temp_library_dir, create_test_image):
     """Test getting import preview."""
     # Create test images with SSTV filenames
     for i in range(20):
-        filename = f"20260115_14302{i % 10}_ScottieS1_K0ABC.jpg"
+        filename = f"20260115_1430{i:02d}_ScottieS1_K0ABC.jpg"
         create_test_image(temp_library_dir / filename)
 
     importer = MMSStvImporter(db_session)

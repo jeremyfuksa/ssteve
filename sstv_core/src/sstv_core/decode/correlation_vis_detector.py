@@ -11,9 +11,8 @@ vs tone detection which fails at -5 dB SNR.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
-from typing import Optional, Dict, Tuple
-from enum import Enum
+from dataclasses import dataclass
+from typing import Optional, Dict
 
 import numpy as np
 from scipy import signal
@@ -161,6 +160,7 @@ class CorrelationVISDetector:
         # Rolling buffer for incoming audio
         self._max_template_length = max(len(t.waveform) for t in self._templates.values())
         self._buffer = np.zeros(self._max_template_length, dtype=np.float32)
+        self._samples_buffered = 0
 
         # Track best correlation
         self._best_correlation: float = 0.0
@@ -179,6 +179,7 @@ class CorrelationVISDetector:
     def reset(self) -> None:
         """Reset detector state for new detection cycle."""
         self._buffer[:] = 0
+        self._samples_buffered = 0
         self._best_correlation = 0.0
         self._best_mode = None
 
@@ -199,14 +200,19 @@ class CorrelationVISDetector:
         buffer_size = len(self._buffer)
         samples_size = len(samples)
 
-        if samples_size < buffer_size:
-            # Buffer not yet full
-            self._buffer[buffer_size - samples_size:] = samples
-            return None
+        if samples_size >= buffer_size:
+            self._buffer[:] = samples[-buffer_size:]
+            self._samples_buffered = buffer_size
+        else:
+            self._buffer = np.roll(self._buffer, -samples_size)
+            self._buffer[-samples_size:] = samples
+            self._samples_buffered = min(
+                buffer_size,
+                self._samples_buffered + samples_size,
+            )
 
-        # Shift buffer and add new samples
-        self._buffer = np.roll(self._buffer, -samples_size)
-        self._buffer[-samples_size:] = samples
+        if self._samples_buffered < buffer_size:
+            return None
 
         # Correlate with all templates
         best_mode = None

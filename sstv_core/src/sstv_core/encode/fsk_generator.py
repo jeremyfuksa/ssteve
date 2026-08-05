@@ -220,7 +220,7 @@ class FSKIDGenerator:
         self._validate_callsign(callsign)
 
         # Calculate symbol count: start + chars + end + checksum
-        num_symbols = 2 + len(callsign) + 2
+        num_symbols = len(callsign) + 3
 
         # Duration calculation
         duration = (

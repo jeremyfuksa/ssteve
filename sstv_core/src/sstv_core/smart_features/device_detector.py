@@ -101,8 +101,11 @@ def detect_serial_devices() -> List[Dict]:
     Returns:
         List of serial port info dictionaries
     """
+    if list_ports is None:
+        return []
+
     ports = []
-    for port in serial.tools.list_ports.comports():
+    for port in list_ports.comports():
         port_info = {
             "port": port.device,
             "description": port.description,

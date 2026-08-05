@@ -19,7 +19,7 @@ import logging
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 import numpy as np
 
@@ -32,8 +32,6 @@ from sstv_core.decode.martin_decoder import MartinM1Decoder
 from sstv_core.decode.robot_decoder import Robot36Decoder
 from sstv_core.decode.image_saver import ImageSaver
 from sstv_core.decode.hough_slant_corrector import HoughSlantCorrector
-from typing import Any, Callable, Optional
-
 logger = logging.getLogger(__name__)
 
 
@@ -191,19 +189,27 @@ class RXManager:
             # Phase 2: Detect VIS code (unless mode forced)
             detected_mode = mode
             vis_confidence = 1.0 if mode else 0.0
+            stream_position = 0
+            vis_tail = np.array([], dtype=np.float32)
+            vis_tail_samples = self._sample_rate * 2
 
             if not mode:
                 logger.info("Detecting VIS code (timeout: %.1fs)", timeout_sec)
 
                 # Wait for VIS detection using correlation detector
                 vis_start = time.time()
-                vis_result: Optional[VISDetectionResult] = None
+                vis_result = None
 
                 while time.time() - vis_start < timeout_sec and not self._cancel_requested:
                     await asyncio.sleep(0.1)
-                    samples = ring_buffer.get()
+                    samples = ring_buffer.pop(len(ring_buffer))
 
                     if len(samples) > 0:
+                        stream_position += len(samples)
+                        vis_tail = np.concatenate((vis_tail, samples))[
+                            -vis_tail_samples:
+                        ]
+
                         # NEW: Apply bandpass filter before VIS detection
                         filtered_samples = self._bandpass_filter.filter(samples)
 
@@ -214,7 +220,7 @@ class RXManager:
                         audio_levels = self._stream_manager.get_input_levels()
 
                         if vis_result and vis_result.confidence > 0.7:
-                            detected_mode = vis_result.mode
+                            detected_mode = self._mode_name(vis_result.mode)
                             vis_confidence = vis_result.confidence
                             logger.info(
                                 "VIS detected: %s (confidence: %.2f)",
@@ -253,56 +259,85 @@ class RXManager:
             logger.info("Starting decode with %s", detected_mode)
 
             # Detect sync pulses
-            sync_detector = SyncDetector(sample_rate=self._sample_rate)
-            syncs_detected = []
+            sync_detector = SyncPulseDetector(sample_rate=self._sample_rate)
+            sync_positions = [
+                pulse.position_samples
+                for pulse in sync_detector.process_samples(
+                    vis_tail,
+                    position=stream_position - len(vis_tail),
+                )
+            ]
+            stream_audio = vis_tail.copy()
+            stream_base_position = stream_position - len(vis_tail)
             line_number = 0
+            last_sync_time = time.monotonic()
 
             # Decoding loop
             while line_number < total_lines and not self._cancel_requested:
                 await asyncio.sleep(0.05)  # Allow cancellation
 
-                # Get audio samples
-                samples = ring_buffer.get()
+                # Consume each input sample exactly once.
+                samples = ring_buffer.pop(len(ring_buffer))
                 if len(samples) == 0:
+                    if time.monotonic() - last_sync_time > 5.0:
+                        raise TimeoutError("No scanline sync received for 5 seconds")
                     continue
 
-                # Detect sync pulses
-                new_syncs = sync_detector.detect_sync_pulses(samples)
-                syncs_detected.extend(new_syncs)
+                chunk_position = stream_position
+                stream_position += len(samples)
+                stream_audio = np.concatenate((stream_audio, samples))
 
-                # If we have enough syncs, decode scanlines
-                if len(syncs_detected) >= 2:
-                    # Calculate scanline boundaries
-                    sync_pos = syncs_detected[0]
-                    next_sync = syncs_detected[1]
+                new_syncs = sync_detector.process_samples(
+                    samples,
+                    position=chunk_position,
+                )
+                if new_syncs:
+                    last_sync_time = time.monotonic()
+                    sync_positions.extend(
+                        pulse.position_samples for pulse in new_syncs
+                    )
 
-                    line_start = sync_pos + decoder.config.samples_per_sync
-                    line_end = next_sync
+                # Decode every complete frame currently buffered.
+                while len(sync_positions) >= 2 and line_number < total_lines:
+                    sync_pos = sync_positions[0]
+                    next_sync = sync_positions[1]
+                    line_start = sync_pos - stream_base_position
+                    line_end = next_sync - stream_base_position
 
-                    if line_end <= len(samples):
-                        # Extract scanline samples
-                        line_samples = samples[line_start:line_end]
+                    if line_start < 0:
+                        sync_positions.pop(0)
+                        continue
+                    if line_end > len(stream_audio):
+                        break
 
-                        # Decode scanline
-                        scanline = decoder.decode_scanline(line_samples, line_number)
+                    line_samples = stream_audio[line_start:line_end]
 
-                        # Update progress
-                        progress = decoder.get_progress()
-                        elapsed = time.time() - start_time
+                    # Decode scanline
+                    scanline = decoder.decode_scanline(line_samples, line_number)
 
-                        self._emit_progress(
-                            detected_mode,
-                            vis_confidence,
-                            progress.percent_complete,
-                            line_number + 1,
-                            total_lines,
-                            elapsed,
-                            scanline.decode_quality,
-                            f"Decoding line {line_number + 1}/{total_lines}",
-                        )
+                    # Update progress
+                    progress = decoder.get_progress()
+                    elapsed = time.time() - start_time
 
-                        line_number += 1
-                        syncs_detected.pop(0)  # Remove processed sync
+                    self._emit_progress(
+                        detected_mode,
+                        vis_confidence,
+                        progress.percent_complete,
+                        line_number + 1,
+                        total_lines,
+                        elapsed,
+                        scanline.decode_quality,
+                        f"Decoding line {line_number + 1}/{total_lines}",
+                    )
+
+                    line_number += 1
+                    sync_positions.pop(0)
+
+                    # Retain the remaining sync and following audio only.
+                    keep_from = sync_positions[0] - stream_base_position
+                    if keep_from > 0:
+                        stream_audio = stream_audio[keep_from:]
+                        stream_base_position += keep_from
 
             # Check if cancelled
             if self._cancel_requested:
@@ -339,12 +374,6 @@ class RXManager:
 
                     # Use corrected image if slant was detected
                     corrected_image = slant_result.corrected_image
-
-                    # Generate filename
-                    from datetime import datetime
-                    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-                    callsign_part = f"_{callsign}" if callsign else ""
-                    filename = f"{timestamp}_{detected_mode}{callsign_part}.png"
 
                     # Save with minimal parameters
                     saved_path = self._image_saver.save_image(
@@ -383,15 +412,28 @@ class RXManager:
             self._stream_manager.stop_input()
             self._state = RXState.IDLE
 
+    @staticmethod
+    def _mode_name(mode: Any) -> str:
+        """Normalize a VIS enum or user string to the public mode spelling."""
+        name = getattr(mode, "name", None)
+        names = {
+            "SCOTTIE_S1": "ScottieS1",
+            "MARTIN_M1": "MartinM1",
+            "ROBOT_36": "Robot36",
+        }
+        if name in names:
+            return names[name]
+        return str(mode)
+
     def _get_decoder(self, mode: str):
         """Get decoder instance for mode."""
-        mode_lower = mode.lower().replace(" ", "")
+        mode_lower = mode.lower().replace(" ", "").replace("_", "")
 
-        if "scottie" in mode_lower:
+        if mode_lower == "scotties1":
             return ScottieS1Decoder()
-        elif "martin" in mode_lower:
+        elif mode_lower == "martinm1":
             return MartinM1Decoder()
-        elif "robot" in mode_lower:
+        elif mode_lower == "robot36":
             return Robot36Decoder()
         else:
             return None

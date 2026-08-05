@@ -15,7 +15,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[2]
 DOCS_DIR = ROOT / "docs"
 POSTMAN_DIR = DOCS_DIR / "postman"
-OPENAPI_PATH = DOCS_DIR / "openapi.json"
+OPENAPI_PATH = DOCS_DIR / "core" / "openapi.json"
 POSTMAN_PATH = POSTMAN_DIR / "SSTeVe.postman_collection.json"
 
 

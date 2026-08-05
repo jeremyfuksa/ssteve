@@ -10,7 +10,7 @@ import os
 from contextlib import asynccontextmanager
 from typing import AsyncIterator, Iterator
 
-from fastapi import Depends, FastAPI, Request, status
+from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.engine import Engine
@@ -273,6 +273,12 @@ def register_routes(app: FastAPI) -> None:
         qso,
     )
 
+    # Depends() captures its callable when each route is defined. Override the
+    # placeholder callables rather than rebinding their module attributes.
+    app.dependency_overrides[import_routes.get_db] = get_db_session
+    app.dependency_overrides[smart_reply.get_db] = get_db_session
+    app.dependency_overrides[qso.get_db] = get_db_session
+
     app.include_router(decode.router, prefix="/api/v1", tags=["Decode"])
     app.include_router(transmit.router, prefix="/api/v1", tags=["Transmit"])
     app.include_router(devices.router, prefix="/api/v1", tags=["Devices"])
@@ -282,12 +288,6 @@ def register_routes(app: FastAPI) -> None:
     app.include_router(import_routes.router, prefix="/api/v1", tags=["Import"])
     app.include_router(smart_reply.router, prefix="/api/v1", tags=["Smart Reply"])
     app.include_router(qso.router, prefix="/api/v1", tags=["QSO Logging"])
-
-    # Override route get_db dependencies with the actual session factory
-    import_routes.get_db = get_db_session
-    smart_reply.get_db = get_db_session
-    qso.get_db = get_db_session
-
 
 # =============================================================================
 # Application Instance

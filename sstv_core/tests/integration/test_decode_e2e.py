@@ -11,16 +11,11 @@ Tests complete decode pipeline:
 """
 
 import asyncio
-import tempfile
-import uuid
 from pathlib import Path
-from unittest.mock import AsyncMock, patch, MagicMock
 
 import pytest
-import numpy as np
 
-from sstv_core.api.main import app, _db_session_factory, _db_engine
-from sstv_core.database.models import SSTVImage
+from sstv_core.api.main import app
 
 
 @pytest.fixture(scope="module")
@@ -34,12 +29,16 @@ def event_loop():
 @pytest.fixture
 def temp_db():
     """Create temporary in-memory database for tests."""
-    from sstv_core.database import init_database
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import StaticPool
 
     # Use in-memory SQLite database
-    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
     session_factory = sessionmaker(bind=engine)
 
     # Create tables
@@ -62,7 +61,6 @@ def client(temp_db):
     """Create test client with temp database."""
     from fastapi.testclient import TestClient
     from sstv_core.api import main as api_main
-    from sqlalchemy import create_engine
 
     # Save original values
     original_factory = api_main._db_session_factory
@@ -120,7 +118,7 @@ def test_decode_mmsstv_scottie_s1_audio(client, reference_audio):
         },
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 201
     session_id = response.json()["session_id"]
 
     # TODO: Simulate audio playback through mocked stream
@@ -164,7 +162,7 @@ def test_decode_essexham_scottie_s2_audio(client, reference_audio):
         },
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 201
     session_id = response.json()["session_id"]
 
     # Verify session created
@@ -198,7 +196,7 @@ def test_decode_ariss_real_world_audio(client, reference_audio):
         },
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 201
     session_id = response.json()["session_id"]
 
     # Verify session
@@ -222,7 +220,7 @@ def test_decode_half_duplex_enforcement(client):
             "timeout_seconds": 60,
         },
     )
-    assert response1.status_code == 200
+    assert response1.status_code == 201
     session_id_1 = response1.json()["session_id"]
 
     # Try to start second decode session (should fail)
@@ -251,7 +249,8 @@ def test_decode_half_duplex_enforcement(client):
             "timeout_seconds": 60,
         },
     )
-    assert response3.status_code == 200
+    assert response3.status_code == 201
+    client.post(f"/api/v1/decode/stop/{response3.json()['session_id']}")
 
     # Cleanup
     session_id_3 = response3.json()["session_id"]
