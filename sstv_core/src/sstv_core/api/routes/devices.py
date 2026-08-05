@@ -199,6 +199,8 @@ async def apply_device_settings(
             applied_fields=applied_fields,
         )
 
+    except HTTPException:
+        raise
     except ValueError as e:
         # Validation error (e.g., invalid device ID)
         raise HTTPException(

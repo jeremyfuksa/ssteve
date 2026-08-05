@@ -36,6 +36,7 @@ dependencies = [
     "pyserial>=3.5",
     "watchdog>=3.0",
     "opencv-python>=4.13.0.90",
+    "soundfile>=0.12",
 ]
 
 [project.optional-dependencies]
