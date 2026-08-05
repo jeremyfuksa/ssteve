@@ -4,8 +4,13 @@ Unit tests for decode endpoints.
 Tests /decode/start, /decode/status, and /decode/stop endpoints.
 """
 
-import pytest
+import sys
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 from uuid import uuid4
+
+import numpy as np
+import pytest
 from fastapi.testclient import TestClient
 
 from sstv_core.api.main import app
@@ -240,6 +245,133 @@ class TestDecodeWorkflow:
         # Verify stopped
         final_status = client.get(f"/api/v1/decode/status/{session_id}")
         assert final_status.json()["state"] == "stopped"
+
+
+class TestDetectMode:
+    """Test POST /decode/detect_mode endpoint."""
+
+    def _mock_detection(self, wav_path, detection_result, candidates=None):
+        """Build the patch stack for a file-based detection request."""
+        # soundfile may not be installed in the test env (the route imports it
+        # lazily), so inject a mock module instead of patching an attribute.
+        mock_sf = MagicMock()
+        mock_sf.read.return_value = (np.zeros(48000), 48000)
+        return (
+            patch.dict(sys.modules, {"soundfile": mock_sf}),
+            patch(
+                "sstv_core.api.routes.decode.detect_mode_from_sync_timing",
+                return_value=detection_result,
+            ),
+            patch(
+                "sstv_core.api.routes.decode.get_top_mode_candidates",
+                return_value=candidates or [],
+            ),
+            patch(
+                "sstv_core.api.routes.decode.get_suggestion_message",
+                return_value="Looks like Scottie S1 to me.",
+            ),
+        )
+
+    def test_detect_mode_from_audio_file(self, tmp_path):
+        """Should detect mode from an audio file with high confidence."""
+        wav_path = tmp_path / "signal.wav"
+        wav_path.write_bytes(b"fake wav")
+
+        detection_result = SimpleNamespace(
+            mode="ScottieS1",
+            confidence=0.92,
+            measured_intervals=[0.4275, 0.4276, 0.4274],
+            expected_interval=0.4275,
+        )
+        candidates = [("ScottieS1", 0.92), ("ScottieS2", 0.45), ("MartinM1", 0.30)]
+
+        sf_read, detect, top, suggest = self._mock_detection(
+            wav_path, detection_result, candidates
+        )
+        with sf_read, detect, top, suggest:
+            response = client.post(
+                "/api/v1/decode/detect_mode",
+                json={"audio_file": str(wav_path)},
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["mode"] == "ScottieS1"
+        assert data["confidence"] == 0.92
+        assert data["expected_interval"] == 0.4275
+        assert data["fallback_modes"] == [
+            {"mode": "ScottieS1", "confidence": 0.92},
+            {"mode": "ScottieS2", "confidence": 0.45},
+            {"mode": "MartinM1", "confidence": 0.30},
+        ]
+        assert data["suggestion_message"] == "Looks like Scottie S1 to me."
+
+    def test_detect_mode_detection_fails(self, tmp_path):
+        """Should return mode=None with manual fallback message when detection fails."""
+        wav_path = tmp_path / "noise.wav"
+        wav_path.write_bytes(b"fake wav")
+
+        sf_read, detect, top, suggest = self._mock_detection(wav_path, None)
+        with sf_read, detect, top, suggest:
+            response = client.post(
+                "/api/v1/decode/detect_mode",
+                json={"audio_file": str(wav_path)},
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["mode"] is None
+        assert data["confidence"] == 0.0
+        assert data["measured_intervals"] == []
+        assert data["fallback_modes"] == []
+        assert "choose the mode manually" in data["suggestion_message"]
+
+    def test_detect_mode_from_session_not_supported(self):
+        """Should return 400 for an existing session (not yet implemented)."""
+        start_resp = client.post("/api/v1/decode/start", json={})
+        session_id = start_resp.json()["session_id"]
+
+        response = client.post(
+            "/api/v1/decode/detect_mode",
+            json={"session_id": session_id},
+        )
+
+        assert response.status_code == 400
+        data = response.json()
+        assert data["detail"]["error"] == "SESSION_ANALYSIS_NOT_SUPPORTED"
+
+    def test_detect_mode_unknown_session(self):
+        """Should return 404 for a nonexistent session."""
+        fake_id = str(uuid4())
+        response = client.post(
+            "/api/v1/decode/detect_mode",
+            json={"session_id": fake_id},
+        )
+
+        assert response.status_code == 404
+        data = response.json()
+        assert data["detail"]["error"] == "SESSION_NOT_FOUND"
+
+    def test_detect_mode_no_audio_source(self):
+        """Should reject a request with neither session_id nor audio_file.
+
+        The Pydantic model validator rejects this before the route runs,
+        so it surfaces as a 422 validation error.
+        """
+        response = client.post("/api/v1/decode/detect_mode", json={})
+
+        assert response.status_code == 422
+
+    def test_detect_mode_nonexistent_audio_file(self):
+        """Should return 404 for an audio file that doesn't exist."""
+        response = client.post(
+            "/api/v1/decode/detect_mode",
+            json={"audio_file": "/nonexistent/audio.wav"},
+        )
+
+        assert response.status_code == 404
+        data = response.json()
+        assert data["detail"]["error"] == "AUDIO_FILE_NOT_FOUND"
 
 
 class TestDecodeErrorHandling:

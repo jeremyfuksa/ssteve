@@ -6,6 +6,7 @@ Tests /devices/audio and /devices/serial endpoints.
 
 import sys
 import types
+from unittest.mock import MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -61,6 +62,118 @@ def stub_device_enumeration(monkeypatch):
 
     monkeypatch.setattr(devices_route, "list_ports", DummyListPorts)
     yield
+
+
+@pytest.fixture
+def mock_config_manager():
+    """Override the ConfigManager dependency with a mock."""
+    mock_cm = MagicMock()
+    mock_cm.to_dict.return_value = {"ptt_method": "serial_rts"}
+    app.dependency_overrides[devices_route._get_config_manager] = lambda: mock_cm
+    yield mock_cm
+    del app.dependency_overrides[devices_route._get_config_manager]
+
+
+class TestApplySettings:
+    """Test POST /devices/apply_settings endpoint."""
+
+    def test_apply_ptt_and_audio_settings(self, client, mock_config_manager):
+        """Should pass explicit PTT/audio settings to config_manager.update()."""
+        response = client.post(
+            "/api/v1/devices/apply_settings",
+            json={
+                "ptt_method": "serial_rts",
+                "ptt_serial_signal": "RTS",
+                "ptt_pre_delay_ms": 500,
+                "ptt_post_delay_ms": 200,
+                "audio_input_device_id": "dev0",
+                "audio_output_device_id": "dev1",
+            },
+        )
+
+        assert response.status_code == 200
+        mock_config_manager.update.assert_called_once_with({
+            "ptt_method": "serial_rts",
+            "ptt_serial_signal": "RTS",
+            "ptt_pre_delay_ms": 500,
+            "ptt_post_delay_ms": 200,
+            "audio_input_device_id": "dev0",
+            "audio_output_device_id": "dev1",
+        })
+
+    def test_profile_does_not_override_explicit_settings(
+        self, client, mock_config_manager, monkeypatch
+    ):
+        """Profile defaults must not clobber explicitly-passed settings."""
+        profile = MagicMock()
+        profile.name = "Digirig Mobile"
+
+        detector = MagicMock()
+        detector.detect_hardware_device.return_value = profile
+        detector.get_recommended_settings.return_value = {
+            "ptt_method": "vox",  # Conflicts with explicit setting below
+            "vox_preamble_ms": 750,  # Not passed explicitly - should apply
+        }
+
+        monkeypatch.setattr(devices_route, "device_detector", detector)
+        monkeypatch.setattr(devices_route, "_device_detector_available", True)
+
+        response = client.post(
+            "/api/v1/devices/apply_settings",
+            json={
+                "profile_name": "Digirig Mobile",
+                "ptt_method": "serial_rts",
+            },
+        )
+
+        assert response.status_code == 200
+        mock_config_manager.update.assert_called_once_with({
+            "ptt_method": "serial_rts",  # Explicit setting wins
+            "vox_preamble_ms": 750,  # Profile fills the gap
+        })
+
+    def test_apply_settings_response_shape(self, client, mock_config_manager):
+        """Should return updated configuration and list of applied fields."""
+        mock_config_manager.to_dict.return_value = {
+            "ptt_method": "vox",
+            "vox_preamble_ms": 500,
+        }
+
+        response = client.post(
+            "/api/v1/devices/apply_settings",
+            json={"ptt_method": "vox", "vox_preamble_ms": 500},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["updated_configuration"] == {
+            "ptt_method": "vox",
+            "vox_preamble_ms": 500,
+        }
+        assert sorted(data["applied_fields"]) == ["ptt_method", "vox_preamble_ms"]
+
+    def test_apply_settings_empty_request(self, client, mock_config_manager):
+        """Should reject a request with no settings as 400 NO_SETTINGS_TO_APPLY."""
+        response = client.post("/api/v1/devices/apply_settings", json={})
+
+        assert response.status_code == 400
+        data = response.json()
+        assert data["detail"]["error"] == "NO_SETTINGS_TO_APPLY"
+        mock_config_manager.update.assert_not_called()
+
+    def test_apply_settings_validation_error(self, client, mock_config_manager):
+        """Should return 400 VALIDATION_ERROR when config update rejects a value."""
+        mock_config_manager.update.side_effect = ValueError("Unknown device ID: dev9")
+
+        response = client.post(
+            "/api/v1/devices/apply_settings",
+            json={"audio_input_device_id": "dev9"},
+        )
+
+        assert response.status_code == 400
+        data = response.json()
+        assert data["detail"]["error"] == "VALIDATION_ERROR"
+        assert "Unknown device ID" in data["detail"]["message"]
 
 
 class TestListAudioDevices:

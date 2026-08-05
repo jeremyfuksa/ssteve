@@ -90,7 +90,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Start file library watcher if database and watch path configured
     global _file_library_watcher
     if _db_session_factory is not None:
+        # Env var overrides; otherwise use the configured library directory.
         watch_path = os.environ.get("SSTVE_IMAGE_LIBRARY_PATH")
+        if not watch_path:
+            from sstv_core.config.manager import ConfigManager
+
+            with _db_session_factory() as session:
+                watch_path = ConfigManager(session).get("image_save_directory") or None
         if watch_path:
             try:
                 # Create watch path if it doesn't exist
@@ -111,7 +117,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             except Exception as e:
                 logger.error("Failed to start file library watcher: %s", e, exc_info=True)
         else:
-            logger.info("File library watcher not started (SSTVE_IMAGE_LIBRARY_PATH not set)")
+            logger.info(
+                "File library watcher not started (no SSTVE_IMAGE_LIBRARY_PATH env var "
+                "and image_save_directory is not configured)"
+            )
 
     yield
 

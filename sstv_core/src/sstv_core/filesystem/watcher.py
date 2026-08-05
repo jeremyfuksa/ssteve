@@ -292,6 +292,8 @@ class ImageLibraryWatcher:
         self._observer: BaseObserver | None = None
         self._event_handler: DebouncedEventHandler | None = None
         self._running = False
+        # Event loop for cross-thread WebSocket broadcasts; captured in start().
+        self._loop: asyncio.AbstractEventLoop | None = None
 
         logger.info("Initialized ImageLibraryWatcher for %s", self.watch_path)
 
@@ -311,6 +313,19 @@ class ImageLibraryWatcher:
 
         if not self.watch_path.is_dir():
             raise NotADirectoryError(f"Watch path is not a directory: {self.watch_path}")
+
+        # Capture the running loop (start() is called from async app startup).
+        # Handler callbacks run on watchdog/timer threads, which have no loop,
+        # so broadcasts must be scheduled onto this one.
+        try:
+            self._loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._loop = None
+            if self._websocket_manager:
+                logger.warning(
+                    "Watcher started outside an event loop; "
+                    "WebSocket library events will not be delivered"
+                )
 
         # Create event handler with callbacks
         self._event_handler = DebouncedEventHandler(
@@ -351,6 +366,22 @@ class ImageLibraryWatcher:
 
         logger.info("Stopped watching %s", self.watch_path)
 
+    def _broadcast(self, event: dict[str, Any]) -> None:
+        """Schedule a WebSocket broadcast from a watchdog/timer thread.
+
+        Handler callbacks run on threads with no event loop, so the coroutine
+        must be submitted to the loop captured in start().
+        """
+        if not self._websocket_manager:
+            return
+        if self._loop is None or self._loop.is_closed():
+            logger.warning("No event loop available; dropping library event %r", event.get("event"))
+            return
+        asyncio.run_coroutine_threadsafe(
+            self._websocket_manager.broadcast_library_event(event=event),
+            self._loop,
+        )
+
     def is_running(self) -> bool:
         """Check if watcher is currently running."""
         return self._running
@@ -370,22 +401,16 @@ class ImageLibraryWatcher:
                 if image:
                     logger.info("Imported new image: %s (id=%d)", filepath.name, image.id)
 
-                    # Broadcast event if WebSocket manager available
-                    if self._websocket_manager:
-                        # Fire-and-forget broadcast from a watchdog thread;
-                        # task ownership fix lands in a separate PR.
-                        asyncio.create_task(  # noqa: RUF006
-                            self._websocket_manager.broadcast_library_event(
-                                event={
-                                    "event": "library_updated",
-                                    "action": "created",
-                                    "filepath": str(filepath),
-                                    "image_id": image.id,
-                                    "metadata": image.to_dict(),
-                                    "timestamp": datetime.utcnow().isoformat(),
-                                }
-                            )
-                        )
+                    self._broadcast(
+                        {
+                            "event": "library_updated",
+                            "action": "created",
+                            "filepath": str(filepath),
+                            "image_id": image.id,
+                            "metadata": image.to_dict(),
+                            "timestamp": datetime.utcnow().isoformat(),
+                        }
+                    )
         except Exception as e:
             logger.error("Failed to import image %s: %s", filepath, e, exc_info=True)
 
@@ -404,21 +429,15 @@ class ImageLibraryWatcher:
                 if image:
                     logger.info("Updated image metadata: %s (id=%d)", filepath.name, image.id)
 
-                    # Broadcast event if WebSocket manager available
-                    if self._websocket_manager:
-                        # Fire-and-forget broadcast from a watchdog thread;
-                        # task ownership fix lands in a separate PR.
-                        asyncio.create_task(  # noqa: RUF006
-                            self._websocket_manager.broadcast_library_event(
-                                event={
-                                    "event": "image_modified",
-                                    "filepath": str(filepath),
-                                    "image_id": image.id,
-                                    "metadata": image.to_dict(),
-                                    "timestamp": datetime.utcnow().isoformat(),
-                                }
-                            )
-                        )
+                    self._broadcast(
+                        {
+                            "event": "image_modified",
+                            "filepath": str(filepath),
+                            "image_id": image.id,
+                            "metadata": image.to_dict(),
+                            "timestamp": datetime.utcnow().isoformat(),
+                        }
+                    )
         except Exception as e:
             logger.error("Failed to update image %s: %s", filepath, e, exc_info=True)
 
@@ -437,19 +456,13 @@ class ImageLibraryWatcher:
                 if deleted:
                     logger.info("Removed image from database: %s", filepath)
 
-                    # Broadcast event if WebSocket manager available
-                    if self._websocket_manager:
-                        # Fire-and-forget broadcast from a watchdog thread;
-                        # task ownership fix lands in a separate PR.
-                        asyncio.create_task(  # noqa: RUF006
-                            self._websocket_manager.broadcast_library_event(
-                                event={
-                                    "event": "image_deleted",
-                                    "filepath": str(filepath),
-                                    "timestamp": datetime.utcnow().isoformat(),
-                                }
-                            )
-                        )
+                    self._broadcast(
+                        {
+                            "event": "image_deleted",
+                            "filepath": str(filepath),
+                            "timestamp": datetime.utcnow().isoformat(),
+                        }
+                    )
         except Exception as e:
             logger.error("Failed to remove image %s: %s", filepath, e, exc_info=True)
 
@@ -470,21 +483,15 @@ class ImageLibraryWatcher:
                         "Moved image: %s -> %s (id=%d)", src_path.name, dest_path.name, image.id
                     )
 
-                    # Broadcast event if WebSocket manager available
-                    if self._websocket_manager:
-                        # Fire-and-forget broadcast from a watchdog thread;
-                        # task ownership fix lands in a separate PR.
-                        asyncio.create_task(  # noqa: RUF006
-                            self._websocket_manager.broadcast_library_event(
-                                event={
-                                    "event": "image_moved",
-                                    "old_filepath": str(src_path),
-                                    "new_filepath": str(dest_path),
-                                    "image_id": image.id,
-                                    "metadata": image.to_dict(),
-                                    "timestamp": datetime.utcnow().isoformat(),
-                                }
-                            )
-                        )
+                    self._broadcast(
+                        {
+                            "event": "image_moved",
+                            "old_filepath": str(src_path),
+                            "new_filepath": str(dest_path),
+                            "image_id": image.id,
+                            "metadata": image.to_dict(),
+                            "timestamp": datetime.utcnow().isoformat(),
+                        }
+                    )
         except Exception as e:
             logger.error("Failed to move image %s -> %s: %s", src_path, dest_path, e, exc_info=True)
