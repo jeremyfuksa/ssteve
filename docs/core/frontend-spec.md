@@ -3,39 +3,43 @@
 title: SSTeVe Frontend Specification - UI/UX & Implementation Blueprint
 created: 2025-12-27
 derived-from: app-spec.md (branding cleanup)
-status: Ready for Implementation
+status: Interaction spec — visual prescription intentionally removed
 brand: SSTeVe (Friendly & Nerdy)
-scope: Frontend UI/UX, React/Tauri Desktop App, Progressive Disclosure Strategy
+scope: Frontend interaction, UX, and implementation blueprint; React/Tauri Desktop App
 ---
 
 # SSTeVe Frontend Specification
 
-This document defines the frontend user interface, user experience, and implementation blueprint for the SSTeVe SSTV application desktop UI (React/Tauri).
+This document defines the frontend **interaction design, UX, and implementation
+blueprint** for the SSTeVe desktop UI (React/Tauri).
 
 **For backend/API specifications, see:** `backend-spec.md`
+**For durable product truth (users, constraints, principles), see:** `../../PRODUCT.md`
+
+> **Scope note (2026-08-05).** This spec previously carried a palette, typography, and
+> design-token system that contradicted a second, equally unimplemented spec. Neither
+> was ever built — no UI code exists in this repository. All visual prescription has
+> been removed so a future visual direction can be chosen deliberately rather than
+> inherited by accident. **PRODUCT.md records the visual world as an open decision.**
+>
+> What remains here is behavior: state machines, component contracts, API mappings,
+> error and empty states, accessibility criteria, and the viewport/no-scroll
+> constraint. Those are real decisions and still apply.
 
 ---
 
 ## 7. SSTeVe UI Concept
 
-### 7.1 Visual Language & Tone
+### 7.1 Tone
 
-**Intent:** SSTeVe should feel like a helpful radio buddy who's really into SSTV: friendly, nerdy, and genuinely excited to help without being condescending.
+**Intent:** SSTeVe should feel like a helpful radio buddy who's really into SSTV:
+friendly, nerdy, and genuinely excited to help without being condescending.
 
-**Palette:**
-- Backgrounds: Deep blue-charcoal panels (e.g., #0D1016, #151924)
-- Accents:
-  - Lock / good state: neutral lime (#7CFF8A)
-  - Progress: amber (#F2B451)
-  - Errors: magenta-red (#FF4D8C)
-  - Metrics / selection: teal-cyan (#5BD6E8)
+Tone reference: an instrument panel on a well-used workbench — not a lab bench, and not
+a themed "darkroom" experience.
 
-**Typography:**
-- Primary: Technical grotesk for headers and labels (e.g., Manrope-style)
-- Body: Atkinson Hyperlegible for legibility
-- Mono: JetBrains Mono for numeric telemetry and logs
-
-Overall tone: instrument panel on a well-used workbench, not a lab bench and not a themed "darkroom" experience.
+Visual expression of that tone (palette, typography, texture, motion vocabulary) is
+undecided. See PRODUCT.md § Brand Commitments.
 
 ### 7.2 SSTeVe Terminology (UI Vocabulary)
 
@@ -344,15 +348,12 @@ Include actions in the store for each major event (e.g., `startCapture`, `receiv
 - No devices found: message and short troubleshooting hints.
 - PTT test failure: inline error plus link to documentation.
 
-### 19.6 Design Tokens (Summary)
+### 19.6 Design Tokens
 
-Define these as Tailwind config or CSS variables:
-
-- Colors: palette as in §7.1.
-- Spacing: `4, 8, 12, 16, 24, 32` px steps.
-- Radius: `4px` for cards, `999px` for pills.
-- Typography scale: small (12), body (14–16), subtitle (18), heading (20–24).
-- Z-index layers: top bar (10), modals (100), toasts (200).
+Removed. Colors, typography scale, radii, and spacing steps are part of the visual
+world, which PRODUCT.md records as an open decision. The only layout value this spec
+still binds is the viewport budget in §20.11, which is an operational constraint (field
+laptops at 1280×720) rather than a stylistic one.
 
 ### 19.7 Accessibility Criteria
 
@@ -425,7 +426,7 @@ In December 2025, four specialized agents conducted a comprehensive evaluation o
 **Primary Interface Elements:**
 1. Input Device dropdown (with "Auto-detect" option if feasible)
 2. Mode Selection buttons (Auto / Scottie S1 / Martin M1 / Robot 36)
-3. **Start Capture** button (large, primary action - lime green #7CFF8A)
+3. **Start Capture** button (large, primary action)
 4. **Stop / Manual SYNC** button (context-dependent, appears when capture active)
 5. **Canvas** (60% of viewport, always visible - shows last image in idle, progressive decode during capture)
 6. **Status Indicator** (single horizontal rail: "Listening" / "VIS Detected: Scottie S1" / "Decoding 45%" / "Picture Locked")
@@ -582,7 +583,9 @@ def auto_threshold_squelch(audio_stream, duration_sec=1.0):
 **User-Facing Behavior:**
 - Auto Mode: AFC always ON, range auto-selected, detected frequency shown
 - Manual Mode: Operator selects range based on band/conditions
-- AFC lock indicator (lime green) when sync acquired, amber when searching
+- AFC lock indicator distinguishes three states — searching, locked, and locked-but-far-
+  from-expected — because a confident lock on the wrong tone is the failure mode that
+  silently ruins a decode
 
 ---
 
@@ -603,13 +606,13 @@ def auto_threshold_squelch(audio_stream, duration_sec=1.0):
    - **NOT a blank/black canvas** - users need visual confirmation of idle state
 
 2. **Listening (Waiting for VIS):**
-   - Last image fades to 40% opacity
-   - Waterfall overlay shows live audio spectrum (helps operator tune)
-   - Status text: "Listening for signal..." (large, centered, semi-transparent)
+   - Prior image recedes but stays visible — it must not read as the live signal
+   - Waterfall shows live audio spectrum (this is how the operator tunes)
+   - Clearly states that SSTeVe is listening
 
 3. **VIS Detected:**
-   - Brief (200ms) lime green flash border
-   - Mode badge appears: "Scottie S1 Detected" (top-left corner)
+   - Brief, unmissable acknowledgement that a signal was found (~200ms)
+   - Mode badge appears: "Scottie S1 Detected"
    - Canvas prepares for scanline rendering
 
 4. **Decoding (Active):**
@@ -618,7 +621,8 @@ def auto_threshold_squelch(audio_stream, duration_sec=1.0):
    - Progress indicator: "%X completed" (top-right corner)
 
 5. **Picture Locked (Complete):**
-   - Brief (400ms) lime green glow effect (not 2-second fade - too slow per Brand review)
+   - Brief completion acknowledgement (~400ms — a 2-second fade is too slow; the
+     operator has already been waiting up to two minutes)
    - Status banner: "Picture Locked" with save confirmation
    - Image remains visible (does NOT clear for next capture)
 
@@ -639,11 +643,13 @@ def auto_threshold_squelch(audio_stream, duration_sec=1.0):
 - Center line at 1900 Hz (SSTV center frequency per ITU)
 - Vertical axis: Time (scrolls upward, 10-30 seconds of history)
 
-**Color Mapping:**
-- Noise floor: Dark blue-charcoal (#0D1016)
-- Weak signal: Teal-cyan (#5BD6E8)
-- Strong signal: Lime green (#7CFF8A)
-- Sync pulse (1200 Hz): Amber highlight (#F2B451) when detected
+**Intensity Mapping (behavior, not specific colors):**
+- Four distinguishable levels must be readable at a glance: noise floor, weak signal,
+  strong signal, and detected sync pulse (1200 Hz).
+- The sync pulse gets a distinct treatment from raw signal strength — an operator uses
+  it to confirm they are tuned correctly, so it must not read as "just a strong bin."
+- The mapping must survive every Operating Conditions mode (§20.5), including the
+  red-shifted night palette, which rules out any scheme that depends on hue alone.
 
 **Interaction:**
 - Click on waterfall to set frequency offset (advanced feature, Manual Mode only)
@@ -662,11 +668,15 @@ def auto_threshold_squelch(audio_stream, duration_sec=1.0):
 
 **Mode Descriptions:**
 
-| Mode | When to Use | Technical Implementation |
-|------|-------------|-------------------------|
-| **Standard** | Indoor operation, color-accurate image preview | Default palette: Deep blue-charcoal backgrounds (#0D1016, #151924), lime/amber/teal accents |
-| **Night Vision** | Night operation (2AM Field Day, astronomy observers), preserves scotopic vision | Red-shifted palette: Replace blue (#0D1016) with deep red (#160D10), reduce blue channel by 70%, increase red channel by 30% |
-| **Sunlight** | Outdoor field operation (POTA, SOTA), bright ambient light | High-contrast palette: Increase all contrast ratios to 7:1 minimum (WCAG AAA), boost saturation by 40%, thicker UI strokes (2px → 3px) |
+| Mode | When to Use | Requirement |
+|------|-------------|-------------|
+| **Standard** | Indoor operation | Default. Must render the decoded image with accurate color — the operator is judging a received photograph, so the surrounding UI must not tint it. |
+| **Night Vision** | Night operation (2 AM Field Day, astronomy observers) | Must preserve scotopic (dark) adaptation: suppress short-wavelength emission across the whole interface. A dark theme is **not** sufficient — blue light at any brightness defeats dark adaptation. |
+| **Sunlight** | Outdoor field ops (POTA, SOTA) in bright ambient light | Must stay legible in direct sun: raise contrast to WCAG AAA (7:1 minimum) and thicken strokes and separators so structure survives glare. |
+
+The specific palettes that satisfy these three requirements are part of the visual
+world and are undecided. The requirements themselves are not negotiable — each names a
+physiological or environmental condition, not a preference.
 
 **Location:** Settings → Operating Conditions (4th item after Audio/Storage/PTT)
 

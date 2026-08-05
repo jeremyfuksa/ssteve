@@ -27,6 +27,8 @@ uv run python -m sstv_core.cli.main --help
 ## Documentation
 
 - `sstv_core/README.md` — core engine details
+- `PRODUCT.md` — who this is for, operating context, and interaction requirements
+- `docs/status/PROJECT_STATUS.md` — what works and what doesn't (authoritative)
 - `docs/core/backend-spec.md` — architecture and API contract
 - `docs/BETA_LAUNCH_PLAN.md` — roadmap
-- `AGENTS.md` / `CLAUDE.md` — conventions and project guide for coding agents
+- `CLAUDE.md` — conventions and project guide for coding agents
