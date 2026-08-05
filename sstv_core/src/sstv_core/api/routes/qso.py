@@ -10,7 +10,7 @@ Ref: backend-spec.md §6.3 (Smart QSO Logging)
 
 import logging
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.responses import PlainTextResponse
@@ -22,7 +22,6 @@ from ...smart_features.qso_logger import (
     create_qso_with_image,
     export_qsos_to_adif,
     populate_qso_from_image,
-    suggest_qso_improvements,
     validate_callsign,
     )
 
@@ -47,14 +46,14 @@ class LogQSORequest(BaseModel):
     """Request to log a QSO."""
 
     image_id: int = Field(..., description="Image ID to create QSO from")
-    callsign: Optional[str] = Field(None, description="Override callsign")
-    mode: Optional[str] = Field(None, description="Override mode")
-    frequency_hz: Optional[float] = Field(None, description="Override frequency")
-    start_time: Optional[datetime] = Field(None, description="Override start time")
-    end_time: Optional[datetime] = Field(None, description="Override end time")
-    report: Optional[str] = Field(None, description="Override signal report")
-    comments: Optional[str] = Field(None, description="Additional comments")
-    is_sent: Optional[bool] = Field(False, description="True if we initiated contact")
+    callsign: str | None = Field(None, description="Override callsign")
+    mode: str | None = Field(None, description="Override mode")
+    frequency_hz: float | None = Field(None, description="Override frequency")
+    start_time: datetime | None = Field(None, description="Override start time")
+    end_time: datetime | None = Field(None, description="Override end time")
+    report: str | None = Field(None, description="Override signal report")
+    comments: str | None = Field(None, description="Additional comments")
+    is_sent: bool | None = Field(False, description="True if we initiated contact")
 
 
 class QSOResponse(BaseModel):
@@ -63,19 +62,19 @@ class QSOResponse(BaseModel):
     id: int
     callsign: str
     mode: str
-    frequency_hz: Optional[float]
+    frequency_hz: float | None
     start_time: datetime
-    end_time: Optional[datetime]
-    report: Optional[str]
-    comments: Optional[str]
+    end_time: datetime | None
+    report: str | None
+    comments: str | None
     is_sent: bool
-    image_ids: List[int] = Field(default_factory=list)
+    image_ids: list[int] = Field(default_factory=list)
 
 
 class QSOListResponse(BaseModel):
     """Paginated QSO list response."""
 
-    qsos: List[QSOResponse]
+    qsos: list[QSOResponse]
     total: int
     limit: int
     offset: int
@@ -84,9 +83,9 @@ class QSOListResponse(BaseModel):
 class ExportADIFRequest(BaseModel):
     """Request to export QSOs to ADIF."""
 
-    start_date: Optional[datetime] = Field(None, description="Start date filter")
-    end_date: Optional[datetime] = Field(None, description="End date filter")
-    callsign_filter: Optional[str] = Field(None, description="Callsign substring filter")
+    start_date: datetime | None = Field(None, description="Start date filter")
+    end_date: datetime | None = Field(None, description="End date filter")
+    callsign_filter: str | None = Field(None, description="Callsign substring filter")
 
 
 # =============================================================================
@@ -115,10 +114,11 @@ async def log_qso(
 
     Raises:
         HTTPException: If image not found or callsign missing/invalid
+
     """
     try:
         # Build overrides from request
-        overrides = {}
+        overrides: dict[str, Any] = {}
         if request.callsign:
             overrides["callsign"] = request.callsign
         if request.mode:
@@ -177,22 +177,22 @@ async def log_qso(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
-        )
+        ) from e
     except Exception as e:
         logger.error(f"Error logging QSO: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to log QSO: {str(e)}"
-        )
+            detail=f"Failed to log QSO: {e!s}"
+        ) from e
 
 
 @router.get("/list", response_model=QSOListResponse)
 async def list_qsos(
     limit: int = 50,
     offset: int = 0,
-    callsign_filter: Optional[str] = None,
-    start_date: Optional[datetime] = None,
-    end_date: Optional[datetime] = None,
+    callsign_filter: str | None = None,
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
     db: Session = Depends(get_db),
 ) -> QSOListResponse:
     """List QSOs with filtering and pagination.
@@ -207,6 +207,7 @@ async def list_qsos(
 
     Returns:
         Paginated list of QSOs
+
     """
     # Build query
     query = db.query(QSO)
@@ -251,9 +252,9 @@ async def list_qsos(
 
 @router.get("/export", response_class=PlainTextResponse)
 async def export_adif(
-    start_date: Optional[datetime] = None,
-    end_date: Optional[datetime] = None,
-    callsign_filter: Optional[str] = None,
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
+    callsign_filter: str | None = None,
     db: Session = Depends(get_db),
 ) -> Response:
     """Export QSOs to ADIF format.
@@ -269,6 +270,7 @@ async def export_adif(
 
     Returns:
         ADIF format file as plain text
+
     """
     try:
         adif_content = export_qsos_to_adif(
@@ -294,8 +296,8 @@ async def export_adif(
         logger.error(f"Error exporting ADIF: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to export ADIF: {str(e)}"
-        )
+            detail=f"Failed to export ADIF: {e!s}"
+        ) from e
 
 
 @router.get("/{qso_id}", response_model=QSOResponse)
@@ -314,6 +316,7 @@ async def get_qso(
 
     Raises:
         HTTPException: If QSO not found
+
     """
     qso = db.get(QSO, qso_id)
     if qso is None:
@@ -349,6 +352,7 @@ async def delete_qso(
 
     Raises:
         HTTPException: If QSO not found
+
     """
     qso = db.get(QSO, qso_id)
     if qso is None:

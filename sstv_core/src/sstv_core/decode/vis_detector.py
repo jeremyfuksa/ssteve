@@ -8,7 +8,6 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional
 
 import numpy as np
 
@@ -17,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 class SSTVMode(Enum):
     """Supported SSTV modes with VIS codes."""
+
     SCOTTIE_S1 = 60
     SCOTTIE_S2 = 56
     SCOTTIE_DX = 76
@@ -32,7 +32,7 @@ class SSTVMode(Enum):
     WRAASE_SC2_180 = 55
 
     @classmethod
-    def from_vis_code(cls, code: int) -> Optional["SSTVMode"]:
+    def from_vis_code(cls, code: int) -> SSTVMode | None:
         """Get mode from VIS code."""
         for mode in cls:
             if mode.value == code:
@@ -43,7 +43,8 @@ class SSTVMode(Enum):
 @dataclass
 class VISDetectionResult:
     """Result of VIS code detection."""
-    mode: Optional[SSTVMode]
+
+    mode: SSTVMode | None
     vis_code: int
     confidence: float
     bit_pattern: list[int]
@@ -80,7 +81,7 @@ class GoertzelFilter:
             s2 = s1
             s1 = s0
         power = s1 * s1 + s2 * s2 - self._coeff * s1 * s2
-        return np.sqrt(power) / len(samples)
+        return float(np.sqrt(power) / len(samples))
 
 
 class VISDetector:
@@ -118,7 +119,7 @@ class VISDetector:
 
         self._state = "searching"
         self._leader_count = 0
-        self._bits = []
+        self._bits: list[int] = []
         self._confidence_sum = 0.0
         self._bit_count = 0
 
@@ -148,14 +149,14 @@ class VISDetector:
             "bit0": mag_bit0,
         }
 
-        max_freq = max(magnitudes, key=magnitudes.get)
+        max_freq = max(magnitudes, key=magnitudes.__getitem__)
         max_mag = magnitudes[max_freq]
         total_mag = sum(magnitudes.values())
 
         confidence = max_mag / total_mag if total_mag > 0 else 0.0
         return max_freq, confidence
 
-    def process_samples(self, samples: np.ndarray) -> Optional[VISDetectionResult]:
+    def process_samples(self, samples: np.ndarray) -> VISDetectionResult | None:
         """Process audio samples looking for VIS code.
 
         Args:
@@ -163,6 +164,7 @@ class VISDetector:
 
         Returns:
             VISDetectionResult if complete VIS code detected, None otherwise
+
         """
         freq, confidence = self._detect_frequency(samples)
 
@@ -257,7 +259,7 @@ class VISDetector:
             parity_valid=parity_valid,
         )
 
-    def detect_from_buffer(self, audio_buffer: np.ndarray) -> Optional[VISDetectionResult]:
+    def detect_from_buffer(self, audio_buffer: np.ndarray) -> VISDetectionResult | None:
         """Process an entire audio buffer looking for VIS code.
 
         Args:
@@ -265,6 +267,7 @@ class VISDetector:
 
         Returns:
             VISDetectionResult if VIS code found, None otherwise
+
         """
         self.reset()
         offset = 0

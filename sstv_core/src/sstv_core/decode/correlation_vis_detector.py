@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Optional, Dict
+from typing import ClassVar
 
 import numpy as np
 from scipy import signal
@@ -131,7 +131,7 @@ class CorrelationVISDetector:
     """
 
     # VIS templates for all supported modes
-    SUPPORTED_MODES = [
+    SUPPORTED_MODES: ClassVar[list[SSTVMode]] = [
         SSTVMode.SCOTTIE_S1,
         SSTVMode.SCOTTIE_S2,
         SSTVMode.SCOTTIE_DX,
@@ -145,16 +145,17 @@ class CorrelationVISDetector:
         SSTVMode.PD_240,
     ]
 
-    def __init__(self, config: Optional[CorrelationVISConfig] = None) -> None:
+    def __init__(self, config: CorrelationVISConfig | None = None) -> None:
         """Initialize correlation VIS detector.
 
         Args:
             config: Detection configuration
+
         """
         self._config = config or CorrelationVISConfig()
 
         # Generate templates for all supported modes
-        self._templates: Dict[SSTVMode, VISWaveformTemplate] = {}
+        self._templates: dict[SSTVMode, VISWaveformTemplate] = {}
         self._generate_templates()
 
         # Rolling buffer for incoming audio
@@ -164,7 +165,7 @@ class CorrelationVISDetector:
 
         # Track best correlation
         self._best_correlation: float = 0.0
-        self._best_mode: Optional[SSTVMode] = None
+        self._best_mode: SSTVMode | None = None
 
     def _generate_templates(self) -> None:
         """Generate VIS waveform templates for all supported modes."""
@@ -183,7 +184,7 @@ class CorrelationVISDetector:
         self._best_correlation = 0.0
         self._best_mode = None
 
-    def process_samples(self, samples: np.ndarray) -> Optional[VISDetectionResult]:
+    def process_samples(self, samples: np.ndarray) -> VISDetectionResult | None:
         """Process audio samples and detect VIS code.
 
         Args:
@@ -191,6 +192,7 @@ class CorrelationVISDetector:
 
         Returns:
             VISDetectionResult if mode detected with confidence, None otherwise
+
         """
         # Apply pre-filtering if enabled
         if self._config.enable_pre_filter:
@@ -239,7 +241,9 @@ class CorrelationVISDetector:
             self._best_mode = best_mode
 
         # Check if detection threshold met
-        if best_correlation >= self._config.threshold:
+        # (a correlation above threshold implies a template matched, so
+        # best_mode is not None here; the explicit check narrows the type)
+        if best_correlation >= self._config.threshold and best_mode is not None:
             logger.info(
                 "VIS detected via correlation: %s (correlation: %.3f)",
                 best_mode.name,
@@ -305,6 +309,7 @@ class CorrelationVISDetector:
 
         Returns:
             Filtered samples
+
         """
         nyquist = self._config.sample_rate / 2.0
         low = self._config.filter_low_freq / nyquist
@@ -316,7 +321,7 @@ class CorrelationVISDetector:
         # Apply filter using filtfilt for zero-phase filtering
         filtered = signal.filtfilt(b, a, samples)
 
-        return filtered
+        return np.asarray(filtered)
 
     @staticmethod
     def _check_parity(vis_code: int) -> bool:
@@ -332,6 +337,6 @@ class CorrelationVISDetector:
         """Get current best correlation score."""
         return self._best_correlation
 
-    def get_detected_mode(self) -> Optional[SSTVMode]:
+    def get_detected_mode(self) -> SSTVMode | None:
         """Get current detected mode (below threshold)."""
         return self._best_mode

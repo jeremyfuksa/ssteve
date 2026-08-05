@@ -10,11 +10,10 @@ without manual slider. Differentiates from 90% of free market."
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
-from typing import Optional, Tuple
+from dataclasses import dataclass
 
-import numpy as np
 import cv2
+import numpy as np
 
 from sstv_core.accessibility.slant_detector import SlantErrorData
 
@@ -79,11 +78,12 @@ class HoughSlantCorrector:
     - More accurate for severe slant
     """
 
-    def __init__(self, config: Optional[HoughSlantConfig] = None) -> None:
+    def __init__(self, config: HoughSlantConfig | None = None) -> None:
         """Initialize Hough slant corrector.
 
         Args:
             config: Correction configuration
+
         """
         self._config = config or HoughSlantConfig()
 
@@ -95,6 +95,7 @@ class HoughSlantCorrector:
 
         Returns:
             SlantCorrectionResult with corrected image and metadata
+
         """
         # Convert to grayscale if needed
         if len(image.shape) == 3:
@@ -207,13 +208,14 @@ class HoughSlantCorrector:
 
         Returns:
             Contrast-enhanced image
+
         """
         clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
         return clahe.apply(image)
 
     def _calculate_dominant_angle(
         self, lines: np.ndarray
-    ) -> Tuple[float, float]:
+    ) -> tuple[float, float]:
         """Calculate dominant line angle from Hough lines.
 
         Uses weighted averaging based on line length (longer lines = more weight).
@@ -223,6 +225,7 @@ class HoughSlantCorrector:
 
         Returns:
             Tuple of (dominant_angle_degrees, confidence_score)
+
         """
         angles = []
         weights = []
@@ -254,16 +257,16 @@ class HoughSlantCorrector:
             return 0.0, 0.0
 
         # Weighted average angle
-        angles = np.array(angles)
-        weights = np.array(weights)
+        angles_arr = np.array(angles)
+        weights_arr = np.array(weights)
 
         # Use weighted mean (longer lines have more influence)
-        dominant_angle = np.average(angles, weights=weights)
+        dominant_angle = np.average(angles_arr, weights=weights_arr)
 
         # Calculate confidence based on consistency
         # High confidence = most lines have similar angles
-        if len(angles) > 1:
-            angle_std = np.std(angles)
+        if len(angles_arr) > 1:
+            angle_std = np.std(angles_arr)
             # Lower std dev = higher confidence
             # Scale to [0, 1] range
             confidence = max(0.0, 1.0 - (angle_std / 30.0))
@@ -283,6 +286,7 @@ class HoughSlantCorrector:
 
         Returns:
             Rotated image
+
         """
         # Get image dimensions
         height, width = image.shape[:2]
@@ -337,7 +341,7 @@ class HoughSlantCorrector:
 
     def estimate_slant_from_edges(
         self, image: np.ndarray
-    ) -> Optional[SlantErrorData]:
+    ) -> SlantErrorData | None:
         """Estimate slant without applying correction.
 
         Useful for providing slant feedback to user via UI.
@@ -347,6 +351,7 @@ class HoughSlantCorrector:
 
         Returns:
             SlantErrorData with measurement, or None if detection failed
+
         """
         result = self.correct_slant(image)
 

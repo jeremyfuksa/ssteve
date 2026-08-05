@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Optional
+from typing import ClassVar
 
 import numpy as np
 
@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class SyncPulseResult:
     """Result of sync pulse detection."""
+
     position_samples: int
     duration_ms: float
     confidence: float
@@ -32,6 +33,7 @@ class SyncPulseResult:
 @dataclass
 class ModeTimingEstimate:
     """Estimated mode based on sync pulse timing."""
+
     mode_name: str
     line_duration_ms: float
     confidence: float
@@ -64,7 +66,7 @@ class GoertzelFilter:
             s2 = s1
             s1 = s0
         power = s1 * s1 + s2 * s2 - self._coeff * s1 * s2
-        return np.sqrt(power) / len(samples)
+        return float(np.sqrt(power) / len(samples))
 
 
 class SyncPulseDetector:
@@ -82,7 +84,7 @@ class SyncPulseDetector:
     DETECTION_THRESHOLD = 0.6
 
     # Mode timing database (line_duration_ms, sync_duration_ms)
-    MODE_TIMINGS = {
+    MODE_TIMINGS: ClassVar[dict[str, tuple[float, float]]] = {
         "ScottieS1": (428.22, 9.0),
         "ScottieS2": (277.69, 9.0),
         "ScottieDX": (1050.0, 9.0),
@@ -125,6 +127,7 @@ class SyncPulseDetector:
 
         Returns:
             List of detected sync pulses
+
         """
         detected = []
         offset = 0
@@ -158,7 +161,9 @@ class SyncPulseDetector:
 
                     # Calculate inter-pulse time
                     if self._last_sync_end > 0:
-                        inter_time_ms = (self._sync_start - self._last_sync_end) * 1000.0 / self._sample_rate
+                        inter_time_ms = (
+                            (self._sync_start - self._last_sync_end) * 1000.0 / self._sample_rate
+                        )
                         self._inter_pulse_times.append(inter_time_ms)
 
                     self._last_sync_end = current_pos
@@ -167,11 +172,12 @@ class SyncPulseDetector:
 
         return detected
 
-    def estimate_mode_from_timing(self) -> Optional[ModeTimingEstimate]:
+    def estimate_mode_from_timing(self) -> ModeTimingEstimate | None:
         """Estimate SSTV mode from detected sync pulse timing.
 
         Returns:
             ModeTimingEstimate if enough pulses detected, None otherwise
+
         """
         if len(self._inter_pulse_times) < 3:
             return None
@@ -216,7 +222,7 @@ class SyncPulseDetector:
         """Get all detected sync pulse positions."""
         return [p.position_samples for p in self._sync_pulses]
 
-    def get_last_sync(self) -> Optional[SyncPulseResult]:
+    def get_last_sync(self) -> SyncPulseResult | None:
         """Get the most recently detected sync pulse."""
         return self._sync_pulses[-1] if self._sync_pulses else None
 
@@ -228,6 +234,7 @@ class SyncPulseDetector:
 
         Returns:
             List of all detected sync pulses
+
         """
         self.reset()
         return self.process_samples(audio_buffer, 0)

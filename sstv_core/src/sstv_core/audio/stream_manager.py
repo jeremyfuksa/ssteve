@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import logging
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable, Optional
+from typing import Any
 
 import numpy as np
 import sounddevice as sd
@@ -18,6 +19,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class AudioLevels:
     """Audio level metrics."""
+
     rms: float = 0.0
     peak: float = 0.0
     is_clipping: bool = False
@@ -25,6 +27,7 @@ class AudioLevels:
 
 class AudioStreamError(Exception):
     """Raised when audio stream operations fail."""
+
     pass
 
 
@@ -37,6 +40,7 @@ class AudioStreamManager:
         sample_rate: Sample rate in Hz (default: 48000)
         block_size: Samples per callback (default: 1024)
         clip_threshold: Threshold for clipping detection (default: 0.99)
+
     """
 
     DEFAULT_SAMPLE_RATE = 48000
@@ -52,16 +56,16 @@ class AudioStreamManager:
         self._lock = threading.RLock()
         self._sample_rate = sample_rate
         self._block_size = block_size
-        self._input_stream: Optional[sd.InputStream] = None
-        self._output_stream: Optional[sd.OutputStream] = None
-        self._input_buffer: Optional[AudioRingBuffer] = None
-        self._output_buffer: Optional[AudioRingBuffer] = None
+        self._input_stream: sd.InputStream | None = None
+        self._output_stream: sd.OutputStream | None = None
+        self._input_buffer: AudioRingBuffer | None = None
+        self._output_buffer: AudioRingBuffer | None = None
         self._input_levels = AudioLevels()
         self._output_levels = AudioLevels()
-        self._input_callback: Optional[Callable] = None
-        self._output_callback: Optional[Callable] = None
-        self._input_device_id: Optional[str] = None
-        self._output_device_id: Optional[str] = None
+        self._input_callback: Callable | None = None
+        self._output_callback: Callable | None = None
+        self._input_device_id: str | None = None
+        self._output_device_id: str | None = None
 
     @property
     def sample_rate(self) -> int:
@@ -96,7 +100,7 @@ class AudioStreamManager:
         time_info: Any,
         status: sd.CallbackFlags,
     ) -> None:
-        """Internal input stream callback."""
+        """Handle input stream callbacks."""
         if status:
             logger.warning("Input stream status: %s", status)
 
@@ -127,7 +131,7 @@ class AudioStreamManager:
         time_info: Any,
         status: sd.CallbackFlags,
     ) -> None:
-        """Internal output stream callback."""
+        """Handle output stream callbacks."""
         if status:
             logger.warning("Output stream status: %s", status)
 
@@ -158,8 +162,8 @@ class AudioStreamManager:
 
     def start_input(
         self,
-        device_index: Optional[int] = None,
-        callback: Optional[Callable] = None,
+        device_index: int | None = None,
+        callback: Callable | None = None,
         buffer_size: int = AudioRingBuffer.DEFAULT_MAX_SAMPLES,
     ) -> None:
         """Start audio input stream.
@@ -168,6 +172,7 @@ class AudioStreamManager:
             device_index: Input device index (None for default).
             callback: Function called with (samples, levels) on each block.
             buffer_size: Size of the ring buffer in samples.
+
         """
         with self._lock:
             if self._input_stream is not None:
@@ -209,8 +214,8 @@ class AudioStreamManager:
 
     def start_output(
         self,
-        device_index: Optional[int] = None,
-        callback: Optional[Callable] = None,
+        device_index: int | None = None,
+        callback: Callable | None = None,
         buffer_size: int = AudioRingBuffer.DEFAULT_MAX_SAMPLES,
     ) -> None:
         """Start audio output stream."""
@@ -252,11 +257,11 @@ class AudioStreamManager:
                     self._output_stream = None
                 logger.info("Stopped output stream")
 
-    def get_input_buffer(self) -> Optional[AudioRingBuffer]:
+    def get_input_buffer(self) -> AudioRingBuffer | None:
         """Get the input ring buffer."""
         return self._input_buffer
 
-    def get_output_buffer(self) -> Optional[AudioRingBuffer]:
+    def get_output_buffer(self) -> AudioRingBuffer | None:
         """Get the output ring buffer."""
         return self._output_buffer
 

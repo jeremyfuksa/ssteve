@@ -5,7 +5,6 @@ provides recommended settings for PTT control, audio routing, and timing paramet
 """
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional
 
 try:
     from serial.tools import list_ports
@@ -23,19 +22,19 @@ class DeviceProfile:
 
     # PTT settings
     ptt_method: str  # "serial", "vox", "none"
-    ptt_serial_signal: Optional[str] = None  # "RTS" or "DTR"
+    ptt_serial_signal: str | None = None  # "RTS" or "DTR"
     ptt_pre_delay_ms: int = 500
     ptt_post_delay_ms: int = 200
     vox_preamble_ms: int = 500
 
     # Audio settings
-    recommended_input_device: Optional[str] = None
-    recommended_output_device: Optional[str] = None
+    recommended_input_device: str | None = None
+    recommended_output_device: str | None = None
 
     # Identification patterns
-    usb_vid: Optional[int] = None
-    usb_pid: Optional[int] = None
-    device_name_pattern: Optional[str] = None  # For audio device name matching
+    usb_vid: int | None = None
+    usb_pid: int | None = None
+    device_name_pattern: str | None = None  # For audio device name matching
 
     def to_dict(self) -> dict:
         """Convert to dictionary for API responses."""
@@ -95,11 +94,12 @@ DEVICE_PROFILES = [
 ]
 
 
-def detect_serial_devices() -> List[Dict]:
+def detect_serial_devices() -> list[dict]:
     """Detect connected serial devices.
 
     Returns:
         List of serial port info dictionaries
+
     """
     if list_ports is None:
         return []
@@ -117,7 +117,7 @@ def detect_serial_devices() -> List[Dict]:
     return ports
 
 
-def detect_hardware_device(serial_ports: Optional[List[Dict]] = None) -> Optional[DeviceProfile]:
+def detect_hardware_device(serial_ports: list[dict] | None = None) -> DeviceProfile | None:
     """Detect known SSTV hardware based on USB VID/PID.
 
     Args:
@@ -125,6 +125,7 @@ def detect_hardware_device(serial_ports: Optional[List[Dict]] = None) -> Optiona
 
     Returns:
         DeviceProfile if known device detected, None otherwise
+
     """
     if serial_ports is None:
         serial_ports = detect_serial_devices()
@@ -164,7 +165,7 @@ def detect_hardware_device(serial_ports: Optional[List[Dict]] = None) -> Optiona
     return None
 
 
-def detect_audio_device_profile(device_name: str) -> Optional[DeviceProfile]:
+def detect_audio_device_profile(device_name: str) -> DeviceProfile | None:
     """Detect known SSTV hardware based on audio device name.
 
     Args:
@@ -172,6 +173,7 @@ def detect_audio_device_profile(device_name: str) -> Optional[DeviceProfile]:
 
     Returns:
         DeviceProfile if known device detected, None otherwise
+
     """
     device_name_lower = device_name.lower()
 
@@ -186,7 +188,7 @@ def detect_audio_device_profile(device_name: str) -> Optional[DeviceProfile]:
     return None
 
 
-def get_recommended_settings(profile: DeviceProfile) -> Dict:
+def get_recommended_settings(profile: DeviceProfile) -> dict:
     """Get recommended configuration settings for a device profile.
 
     Args:
@@ -194,6 +196,7 @@ def get_recommended_settings(profile: DeviceProfile) -> Dict:
 
     Returns:
         Dictionary of configuration key-value pairs
+
     """
     settings = {
         "ptt_method": profile.ptt_method,
@@ -226,11 +229,15 @@ def generate_detection_message(profile: DeviceProfile) -> str:
 
     Returns:
         Message for UI display
+
     """
-    return f"Oh hey, I see you've got a {profile.name}! I know how to set that up - want me to do it?"
+    return (
+        f"Oh hey, I see you've got a {profile.name}! "
+        "I know how to set that up - want me to do it?"
+    )
 
 
-def generate_settings_preview(current_settings: Dict, recommended_settings: Dict) -> Dict:
+def generate_settings_preview(current_settings: dict, recommended_settings: dict) -> dict:
     """Generate a preview of settings changes.
 
     Args:
@@ -239,6 +246,7 @@ def generate_settings_preview(current_settings: Dict, recommended_settings: Dict
 
     Returns:
         Dictionary showing what will change: {field: {"old": value, "new": value}}
+
     """
     preview = {}
 

@@ -16,27 +16,30 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any
 
 import numpy as np
 
+from sstv_core.audio.bandpass_filter import BandpassPresets, SSTVBandpassFilter
 from sstv_core.audio.stream_manager import AudioStreamManager
-from sstv_core.audio.bandpass_filter import SSTVBandpassFilter, BandpassPresets
 from sstv_core.decode.correlation_vis_detector import CorrelationVISDetector
-from sstv_core.decode.sync_detector import SyncPulseDetector
-from sstv_core.decode.scottie_decoder import ScottieS1Decoder
+from sstv_core.decode.hough_slant_corrector import HoughSlantCorrector
+from sstv_core.decode.image_saver import ImageSaver
 from sstv_core.decode.martin_decoder import MartinM1Decoder
 from sstv_core.decode.robot_decoder import Robot36Decoder
-from sstv_core.decode.image_saver import ImageSaver
-from sstv_core.decode.hough_slant_corrector import HoughSlantCorrector
+from sstv_core.decode.scottie_decoder import ScottieS1Decoder
+from sstv_core.decode.sync_detector import SyncPulseDetector
+
 logger = logging.getLogger(__name__)
 
 
 class RXState(Enum):
     """Receive states."""
+
     IDLE = "idle"
     LISTENING = "listening"
     VIS_DETECTED = "vis_detected"
@@ -50,8 +53,9 @@ class RXState(Enum):
 @dataclass
 class RXProgress:
     """Reception progress information."""
+
     state: RXState
-    mode: Optional[str]
+    mode: str | None
     mode_confidence: float
     percent_complete: float
     current_line: int
@@ -59,7 +63,7 @@ class RXProgress:
     elapsed_sec: float
     signal_quality: float
     message: str
-    audio_levels: Optional[Any] = None
+    audio_levels: Any | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -82,13 +86,13 @@ class RXManager:
         self,
         stream_manager: AudioStreamManager,
         sample_rate: int = 48000,
-        save_directory: Optional[Path] = None,
+        save_directory: Path | None = None,
     ):
         self._stream_manager = stream_manager
         self._sample_rate = sample_rate
         self._save_directory = save_directory or Path.home() / "sstv_images"
         self._state = RXState.IDLE
-        self._progress_callback: Optional[Callable] = None
+        self._progress_callback: Callable | None = None
         self._cancel_requested = False
         self._image_saver = ImageSaver(self._save_directory)
 
@@ -119,7 +123,7 @@ class RXManager:
 
     def _emit_progress(
         self,
-        mode: Optional[str],
+        mode: str | None,
         confidence: float,
         percent: float,
         line: int,
@@ -127,7 +131,7 @@ class RXManager:
         elapsed: float,
         quality: float,
         msg: str,
-        audio_levels: Optional[Any] = None,
+        audio_levels: Any | None = None,
     ) -> None:
         """Emit progress update via callback."""
         if self._progress_callback:
@@ -147,12 +151,12 @@ class RXManager:
 
     async def receive(
         self,
-        input_device_index: Optional[int] = None,
-        mode: Optional[str] = None,
+        input_device_index: int | None = None,
+        mode: str | None = None,
         timeout_sec: float = 120.0,
         save_image: bool = True,
-        callsign: Optional[str] = None,
-    ) -> Optional[Path]:
+        callsign: str | None = None,
+    ) -> Path | None:
         """Receive and decode an SSTV image.
 
         Args:
@@ -164,6 +168,7 @@ class RXManager:
 
         Returns:
             Path to saved image, or None if failed/cancelled
+
         """
         import time
         start_time = time.time()
@@ -177,7 +182,9 @@ class RXManager:
             # Phase 1: Start listening
             self._state = RXState.LISTENING
             audio_levels = self._stream_manager.get_input_levels()
-            self._emit_progress(None, 0.0, 0, 0, 0, 0, "Listening for signal...", audio_levels=audio_levels)
+            self._emit_progress(
+                None, 0.0, 0, 0, 0, 0, 0, "Listening for signal...", audio_levels=audio_levels
+            )
 
             # Start input stream
             self._stream_manager.start_input(device_index=input_device_index)
@@ -229,15 +236,15 @@ class RXManager:
                             )
                             break
 
-                if not detected_mode:
-                    logger.warning("No VIS code detected within timeout")
-                    self._state = RXState.ERROR
-                    audio_levels = self._stream_manager.get_input_levels()
-                    self._emit_progress(
-                        None, 0, 0, 0, 0, time.time() - start_time, 0,
-                        "No SSTV signal detected", audio_levels=audio_levels
-                    )
-                    return None
+            if not detected_mode:
+                logger.warning("No VIS code detected within timeout")
+                self._state = RXState.ERROR
+                audio_levels = self._stream_manager.get_input_levels()
+                self._emit_progress(
+                    None, 0, 0, 0, 0, time.time() - start_time, 0,
+                    "No SSTV signal detected", audio_levels=audio_levels
+                )
+                return None
 
             # Phase 3: Select decoder
             self._state = RXState.VIS_DETECTED
@@ -375,9 +382,9 @@ class RXManager:
                     # Use corrected image if slant was detected
                     corrected_image = slant_result.corrected_image
 
-                    # Save with minimal parameters
                     saved_path = self._image_saver.save_image(
-                        image=corrected_image,
+                        image_array=corrected_image,
+                        mode=detected_mode or "Unknown",
                     )
 
                     logger.info("Image saved: %s", saved_path)

@@ -12,23 +12,23 @@ Modules:
 """
 
 __all__ = [
-    "VISDetector",
-    "VISDetectionResult",
+    "DecodeProgress",
+    "GoertzelFilter",
+    "ImageSaveError",
+    "ImageSaver",
+    "MartinM1Config",
+    "MartinM1Decoder",
+    "ModeTimingEstimate",
+    "Robot36Config",
+    "Robot36Decoder",
     "SSTVMode",
+    "ScanlineData",
+    "ScottieS1Config",
+    "ScottieS1Decoder",
     "SyncPulseDetector",
     "SyncPulseResult",
-    "ModeTimingEstimate",
-    "ScottieS1Decoder",
-    "ScottieS1Config",
-    "MartinM1Decoder",
-    "MartinM1Config",
-    "Robot36Decoder",
-    "Robot36Config",
-    "ScanlineData",
-    "DecodeProgress",
-    "ImageSaver",
-    "ImageSaveError",
-    "GoertzelFilter",
+    "VISDetectionResult",
+    "VISDetector",
 ]
 
 
@@ -36,7 +36,10 @@ def __getattr__(name: str):
     """Lazy import for decode module components."""
     if name in ("VISDetector", "VISDetectionResult", "SSTVMode", "GoertzelFilter"):
         from sstv_core.decode.vis_detector import (
-            VISDetector, VISDetectionResult, SSTVMode, GoertzelFilter
+            GoertzelFilter,
+            SSTVMode,
+            VISDetectionResult,
+            VISDetector,
         )
         mapping = {
             "VISDetector": VISDetector,
@@ -47,7 +50,9 @@ def __getattr__(name: str):
         return mapping[name]
     elif name in ("SyncPulseDetector", "SyncPulseResult", "ModeTimingEstimate"):
         from sstv_core.decode.sync_detector import (
-            SyncPulseDetector, SyncPulseResult, ModeTimingEstimate
+            ModeTimingEstimate,
+            SyncPulseDetector,
+            SyncPulseResult,
         )
         mapping = {
             "SyncPulseDetector": SyncPulseDetector,
@@ -57,7 +62,10 @@ def __getattr__(name: str):
         return mapping[name]
     elif name in ("ScottieS1Decoder", "ScottieS1Config", "ScanlineData", "DecodeProgress"):
         from sstv_core.decode.scottie_decoder import (
-            ScottieS1Decoder, ScottieS1Config, ScanlineData, DecodeProgress
+            DecodeProgress,
+            ScanlineData,
+            ScottieS1Config,
+            ScottieS1Decoder,
         )
         mapping = {
             "ScottieS1Decoder": ScottieS1Decoder,
@@ -67,12 +75,12 @@ def __getattr__(name: str):
         }
         return mapping[name]
     elif name in ("MartinM1Decoder", "MartinM1Config"):
-        from sstv_core.decode.martin_decoder import MartinM1Decoder, MartinM1Config
+        from sstv_core.decode.martin_decoder import MartinM1Config, MartinM1Decoder
         return MartinM1Decoder if name == "MartinM1Decoder" else MartinM1Config
     elif name in ("Robot36Decoder", "Robot36Config"):
-        from sstv_core.decode.robot_decoder import Robot36Decoder, Robot36Config
+        from sstv_core.decode.robot_decoder import Robot36Config, Robot36Decoder
         return Robot36Decoder if name == "Robot36Decoder" else Robot36Config
     elif name in ("ImageSaver", "ImageSaveError"):
-        from sstv_core.decode.image_saver import ImageSaver, ImageSaveError
+        from sstv_core.decode.image_saver import ImageSaveError, ImageSaver
         return ImageSaver if name == "ImageSaver" else ImageSaveError
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

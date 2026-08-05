@@ -6,7 +6,6 @@ import logging
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Union
 
 import numpy as np
 from PIL import Image, ImageEnhance
@@ -61,7 +60,8 @@ class ImagePreprocessor:
     def target_height(self) -> int:
         return self._resolution.height
 
-    def load_image(self, source: Union[str, Path, np.ndarray]) -> Image.Image:
+    def load_image(self, source: str | Path | np.ndarray) -> Image.Image:
+        img: Image.Image
         if isinstance(source, (str, Path)):
             img = Image.open(source)
         elif isinstance(source, np.ndarray):
@@ -79,7 +79,10 @@ class ImagePreprocessor:
             new_h, new_w = self._resolution.height, int(self._resolution.height * orig_ratio)
         resized = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
         canvas = Image.new("RGB", (self._resolution.width, self._resolution.height), self._bg_color)
-        canvas.paste(resized, ((self._resolution.width - new_w) // 2, (self._resolution.height - new_h) // 2))
+        canvas.paste(
+            resized,
+            ((self._resolution.width - new_w) // 2, (self._resolution.height - new_h) // 2),
+        )
         return canvas, new_w != img.width or new_h != img.height, False
 
     def _resize_fill(self, img: Image.Image):
@@ -91,13 +94,20 @@ class ImagePreprocessor:
             new_w, new_h = self._resolution.width, int(self._resolution.width / orig_ratio)
         resized = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
         x, y = (new_w - self._resolution.width) // 2, (new_h - self._resolution.height) // 2
-        return resized.crop((x, y, x + self._resolution.width, y + self._resolution.height)), True, True
+        cropped = resized.crop((x, y, x + self._resolution.width, y + self._resolution.height))
+        return cropped, True, True
 
     def _resize_stretch(self, img: Image.Image):
-        return img.resize((self._resolution.width, self._resolution.height), Image.Resampling.LANCZOS), True, False
+        size = (self._resolution.width, self._resolution.height)
+        return img.resize(size, Image.Resampling.LANCZOS), True, False
 
-    def process(self, source: Union[str, Path, np.ndarray], enhance_contrast: float = 1.0,
-                enhance_saturation: float = 1.0, enhance_sharpness: float = 1.0) -> PreprocessResult:
+    def process(
+        self,
+        source: str | Path | np.ndarray,
+        enhance_contrast: float = 1.0,
+        enhance_saturation: float = 1.0,
+        enhance_sharpness: float = 1.0,
+    ) -> PreprocessResult:
         img = self.load_image(source)
         orig_size = (img.width, img.height)
         if enhance_contrast != 1.0:

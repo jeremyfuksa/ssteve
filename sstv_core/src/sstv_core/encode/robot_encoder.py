@@ -14,8 +14,8 @@ Robot 36 specifications:
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import Iterator, Optional
 
 import numpy as np
 
@@ -72,7 +72,7 @@ class EncoderProgress:
 class Robot36Encoder:
     """Encodes RGB images to Robot 36 SSTV audio."""
 
-    def __init__(self, config: Optional[Robot36EncoderConfig] = None):
+    def __init__(self, config: Robot36EncoderConfig | None = None):
         self._config = config or Robot36EncoderConfig()
         self._phase = 0.0
         self._lines_encoded = 0
@@ -91,7 +91,9 @@ class Robot36Encoder:
     def _luma_to_freq(self, luma: int) -> float:
         """Convert luminance value (0-255) to frequency (1500-2300 Hz)."""
         normalized = luma / 255.0
-        return self._config.black_freq + normalized * (self._config.white_freq - self._config.black_freq)
+        return self._config.black_freq + normalized * (
+            self._config.white_freq - self._config.black_freq
+        )
 
     def _rgb_to_yuv(self, rgb_image: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Convert RGB image to YUV using ITU-R BT.601 standard.
@@ -101,6 +103,7 @@ class Robot36Encoder:
 
         Returns:
             Tuple of (Y, U, V) arrays, each (height, width)
+
         """
         r = rgb_image[:, :, 0].astype(np.float32)
         g = rgb_image[:, :, 1].astype(np.float32)
@@ -127,6 +130,7 @@ class Robot36Encoder:
 
         Returns:
             Audio samples for the channel
+
         """
         samples_per_pixel = num_samples / len(pixels)
         audio = []
@@ -140,7 +144,9 @@ class Robot36Encoder:
 
         return np.concatenate(audio)
 
-    def encode_scanline(self, y_row: np.ndarray, chroma_row: np.ndarray, line_number: int) -> np.ndarray:
+    def encode_scanline(
+        self, y_row: np.ndarray, chroma_row: np.ndarray, line_number: int
+    ) -> np.ndarray:
         """Encode a single scanline to audio.
 
         Robot 36 line structure: sync + porch + Y + chroma + porch
@@ -152,6 +158,7 @@ class Robot36Encoder:
 
         Returns:
             Audio samples for the scanline
+
         """
         cfg = self._config
         audio_parts = []
@@ -182,6 +189,7 @@ class Robot36Encoder:
 
         Returns:
             Audio samples for complete image
+
         """
         if image.shape != (self._config.height, self._config.width, 3):
             logger.warning("Image size mismatch: expected (%d, %d, 3), got %s",

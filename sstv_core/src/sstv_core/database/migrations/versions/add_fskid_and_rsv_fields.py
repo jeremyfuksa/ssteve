@@ -1,4 +1,4 @@
-"""add FSKID and RSV signal report fields
+"""Add FSKID and RSV signal report fields.
 
 Revision ID: 2026011601
 Revises: 2026011501
@@ -24,9 +24,8 @@ RSV Signal Report Fields:
 These fields enable Smart Reply to auto-populate callsign and signal reports
 based on measured decode quality instead of requiring manual entry.
 """
-from alembic import op
 import sqlalchemy as sa
-
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = '2026011601'
@@ -37,7 +36,6 @@ depends_on = None
 
 def upgrade() -> None:
     """Add FSKID and RSV fields to sstv_images table."""
-
     # =================================================================
     # FSKID Fields (Automatic Callsign Detection)
     # =================================================================
@@ -195,7 +193,6 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Remove FSKID and RSV fields."""
-
     # Drop indexes first
     op.drop_index('idx_images_fskid_detected', table_name='sstv_images')
     op.drop_index('idx_images_snr', table_name='sstv_images')

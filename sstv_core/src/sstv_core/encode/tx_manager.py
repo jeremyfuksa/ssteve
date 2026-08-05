@@ -13,10 +13,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Callable, Optional, Union
 
 import numpy as np
 
@@ -26,7 +26,7 @@ from sstv_core.encode.image_preprocessor import ImagePreprocessor, ModeResolutio
 from sstv_core.encode.martin_encoder import MartinM1Encoder
 from sstv_core.encode.robot_encoder import Robot36Encoder
 from sstv_core.encode.scottie_encoder import ScottieS1Encoder
-from sstv_core.encode.vis_generator import VISGenerator, SSTVMode
+from sstv_core.encode.vis_generator import SSTVMode, VISGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -69,14 +69,14 @@ class TXManager:
     def __init__(
         self,
         stream_manager: AudioStreamManager,
-        ptt_controller: Optional[PTTController] = None,
+        ptt_controller: PTTController | None = None,
         sample_rate: int = 48000,
     ):
         self._stream_manager = stream_manager
         self._ptt = ptt_controller or PTTController(method=PTTMethod.NONE)
         self._sample_rate = sample_rate
         self._state = TXState.IDLE
-        self._progress_callback: Optional[Callable] = None
+        self._progress_callback: Callable | None = None
         self._cancel_requested = False
 
     @property
@@ -121,9 +121,9 @@ class TXManager:
 
     async def transmit(
         self,
-        image_source: Union[str, Path, np.ndarray],
+        image_source: str | Path | np.ndarray,
         mode: SSTVMode = SSTVMode.SCOTTIE_S1,
-        output_device_index: Optional[int] = None,
+        output_device_index: int | None = None,
     ) -> bool:
         """Transmit an image via SSTV.
 
@@ -134,6 +134,7 @@ class TXManager:
 
         Returns:
             True if transmission completed successfully
+
         """
         import time
         start_time = time.time()
@@ -305,4 +306,4 @@ class TXManager:
         img_dur = encoder.get_total_duration_sec()
         ptt_dur = (self._ptt.pre_delay_ms + self._ptt.post_delay_ms) / 1000
         vox_dur = self._ptt.vox_preamble_ms / 1000 if self._ptt.method == PTTMethod.VOX else 0
-        return vis_dur + img_dur + ptt_dur + vox_dur
+        return float(vis_dur + img_dur + ptt_dur + vox_dur)

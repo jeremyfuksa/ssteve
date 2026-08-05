@@ -1,5 +1,4 @@
-"""
-WebSocket endpoints for real-time SSTV events.
+"""WebSocket endpoints for real-time SSTV events.
 
 Handles:
 - ws://localhost:8000/api/v1/ws/decode/{session_id} - Decode progress events
@@ -21,8 +20,8 @@ from uuid import UUID
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
 
-from sstv_core.api.websocket_manager import websocket_manager
 from sstv_core.api.session_manager import session_manager
+from sstv_core.api.websocket_manager import websocket_manager
 
 logger = logging.getLogger(__name__)
 
@@ -31,8 +30,7 @@ router = APIRouter()
 
 @router.websocket("/ws/decode/{session_id}")
 async def decode_websocket(websocket: WebSocket, session_id: UUID):
-    """
-    WebSocket endpoint for decode session real-time updates.
+    """WebSocket endpoint for decode session real-time updates.
 
     Clients connect to receive live events during SSTV decoding:
     - vis_detected: VIS code detected with mode and confidence
@@ -130,8 +128,7 @@ async def decode_websocket(websocket: WebSocket, session_id: UUID):
 
 @router.websocket("/ws/transmit/{tx_id}")
 async def transmit_websocket(websocket: WebSocket, tx_id: UUID):
-    """
-    WebSocket endpoint for transmit session real-time updates.
+    """WebSocket endpoint for transmit session real-time updates.
 
     Clients connect to receive live events during SSTV transmission:
     - ptt_engaged: PTT activated

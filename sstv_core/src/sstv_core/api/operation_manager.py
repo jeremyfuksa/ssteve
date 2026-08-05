@@ -11,7 +11,6 @@ import logging
 import random
 import time
 from datetime import datetime
-from typing import Dict
 from uuid import UUID, uuid4
 
 from sstv_core.api.models import DecodeState, SSTVMode, TransmitState
@@ -31,8 +30,8 @@ class OperationManager:
     _VIS_CODE = 60
 
     def __init__(self) -> None:
-        self._decode_tasks: Dict[UUID, asyncio.Task] = {}
-        self._transmit_tasks: Dict[UUID, asyncio.Task] = {}
+        self._decode_tasks: dict[UUID, asyncio.Task] = {}
+        self._transmit_tasks: dict[UUID, asyncio.Task] = {}
 
     def start_decode(self, session: SessionData) -> None:
         """Start the background decode worker for a session."""
@@ -102,13 +101,14 @@ class OperationManager:
 
     async def wait_for_decode(self, session_id: UUID, timeout: float = 5.0) -> None:
         """Wait for decode task to complete (for testing).
-        
+
         Args:
             session_id: The decode session ID
             timeout: Maximum seconds to wait (default 5.0)
-            
+
         Raises:
             asyncio.TimeoutError: If task doesn't complete within timeout
+
         """
         task = self._decode_tasks.get(session_id)
         if task:
@@ -120,13 +120,14 @@ class OperationManager:
 
     async def wait_for_transmit(self, session_id: UUID, timeout: float = 5.0) -> None:
         """Wait for transmit task to complete (for testing).
-        
+
         Args:
             session_id: The transmit session ID
             timeout: Maximum seconds to wait (default 5.0)
-            
+
         Raises:
             asyncio.TimeoutError: If task doesn't complete within timeout
+
         """
         task = self._transmit_tasks.get(session_id)
         if task:
@@ -140,7 +141,7 @@ class OperationManager:
         """Simulate decode progress for a session."""
         session = await session_manager.get_decode_session(session_id)
         if session is None:
-            logger.debug("Decode worker aborted – session %s missing", session_id)
+            logger.debug("Decode worker aborted - session %s missing", session_id)
             return
 
         mode = self._resolve_mode(session.metadata.get("mode"))
@@ -184,8 +185,9 @@ class OperationManager:
 
             for line in range(1, self.DECODE_TOTAL_LINES + 1):
                 progress = round((line / self.DECODE_TOTAL_LINES) * 100, 1)
-                snr = -10.0 + random.uniform(0.0, 2.0)
-                frequency_offset = -15.0 + random.uniform(-1.0, 1.0)
+                # Simulated demo values, not security-sensitive.
+                snr = -10.0 + random.uniform(0.0, 2.0)  # noqa: S311
+                frequency_offset = -15.0 + random.uniform(-1.0, 1.0)  # noqa: S311
                 metadata = {
                     "progress_percent": progress,
                     "scanlines_received": line,
@@ -293,7 +295,7 @@ class OperationManager:
         """Simulate transmit progress including PTT/scanline events."""
         session = await session_manager.get_transmit_session(session_id)
         if session is None:
-            logger.debug("Transmit worker aborted – session %s missing", session_id)
+            logger.debug("Transmit worker aborted - session %s missing", session_id)
             return
 
         mode = self._resolve_mode(session.metadata.get("mode"))

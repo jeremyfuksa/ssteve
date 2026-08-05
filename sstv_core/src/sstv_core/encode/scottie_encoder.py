@@ -11,8 +11,8 @@ Scottie S1 specifications:
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import Iterator, Optional
 
 import numpy as np
 
@@ -63,7 +63,7 @@ class EncoderProgress:
 class ScottieS1Encoder:
     """Encodes RGB images to Scottie S1 SSTV audio."""
 
-    def __init__(self, config: Optional[ScottieS1EncoderConfig] = None):
+    def __init__(self, config: ScottieS1EncoderConfig | None = None):
         self._config = config or ScottieS1EncoderConfig()
         self._phase = 0.0
         self._lines_encoded = 0
@@ -80,7 +80,9 @@ class ScottieS1Encoder:
 
     def _luma_to_freq(self, luma: int) -> float:
         normalized = luma / 255.0
-        return self._config.black_freq + normalized * (self._config.white_freq - self._config.black_freq)
+        return self._config.black_freq + normalized * (
+            self._config.white_freq - self._config.black_freq
+        )
 
     def _encode_color_line(self, pixels: np.ndarray) -> np.ndarray:
         cfg = self._config
@@ -136,6 +138,7 @@ class ScottieS1Encoder:
 
         Returns:
             Audio samples for complete image
+
         """
         if image.shape != (self._config.height, self._config.width, 3):
             logger.warning("Image size mismatch: expected (%d, %d, 3), got %s",

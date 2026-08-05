@@ -6,12 +6,10 @@ the most likely mode based on measured scanline intervals.
 """
 
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
 
 import numpy as np
 
-from ..decode.sync_detector import GoertzelFilter, SyncPulseDetector
-
+from ..decode.sync_detector import SyncPulseDetector
 
 # Mode timing specifications (scanline duration in ms)
 # Ref: backend-spec.md §6.2 Smart Mode Detection Algorithm
@@ -36,7 +34,7 @@ class ModeDetectionResult:
 
     mode: str
     confidence: float
-    measured_intervals: List[float]
+    measured_intervals: list[float]
     expected_interval: float
     num_samples: int
 
@@ -50,7 +48,7 @@ class ModeDetectionResult:
         }
 
 
-def remove_outliers(data: List[float], z_threshold: float = 2.0) -> List[float]:
+def remove_outliers(data: list[float], z_threshold: float = 2.0) -> list[float]:
     """Remove statistical outliers from data using z-score method.
 
     Args:
@@ -59,6 +57,7 @@ def remove_outliers(data: List[float], z_threshold: float = 2.0) -> List[float]:
 
     Returns:
         List with outliers removed
+
     """
     if len(data) < 3:
         return data
@@ -76,7 +75,7 @@ def remove_outliers(data: List[float], z_threshold: float = 2.0) -> List[float]:
     # Filter out outliers
     filtered = data_array[z_scores < z_threshold]
 
-    return filtered.tolist()
+    return [float(v) for v in filtered]
 
 
 def calculate_mode_confidence(measured_interval: float, expected_interval: float) -> float:
@@ -93,6 +92,7 @@ def calculate_mode_confidence(measured_interval: float, expected_interval: float
 
     Returns:
         Confidence score 0.0-1.0
+
     """
     deviation = abs(measured_interval - expected_interval)
     percent_error = (deviation / expected_interval) * 100
@@ -111,7 +111,7 @@ def detect_mode_from_sync_timing(
     sample_rate: int = 48000,
     duration_sec: float = 10.0,
     min_samples: int = 10
-) -> Optional[ModeDetectionResult]:
+) -> ModeDetectionResult | None:
     """Detect SSTV mode from sync pulse timing when VIS fails.
 
     Algorithm:
@@ -129,6 +129,7 @@ def detect_mode_from_sync_timing(
 
     Returns:
         ModeDetectionResult or None if detection failed
+
     """
     # Limit audio to requested duration
     max_samples = int(duration_sec * sample_rate)
@@ -171,7 +172,7 @@ def detect_mode_from_sync_timing(
         mode_scores[mode_name] = confidence
 
     # Step 6: Return best match if confidence >= threshold
-    best_mode = max(mode_scores, key=mode_scores.get)
+    best_mode = max(mode_scores, key=mode_scores.__getitem__)
     best_confidence = mode_scores[best_mode]
 
     if best_confidence < 0.70:
@@ -192,7 +193,7 @@ def get_top_mode_candidates(
     sample_rate: int = 48000,
     duration_sec: float = 10.0,
     top_n: int = 3
-) -> List[Tuple[str, float]]:
+) -> list[tuple[str, float]]:
     """Get top N mode candidates sorted by confidence.
 
     Useful for providing fallback options when primary detection has low confidence.
@@ -205,6 +206,7 @@ def get_top_mode_candidates(
 
     Returns:
         List of (mode_name, confidence) tuples sorted by confidence (descending)
+
     """
     # Run detection analysis
     result = detect_mode_from_sync_timing(
@@ -238,6 +240,7 @@ def get_confidence_level(confidence: float) -> str:
 
     Returns:
         Confidence level: "high", "medium", or "low"
+
     """
     if confidence >= 0.85:
         return "high"
@@ -256,6 +259,7 @@ def get_suggestion_message(mode: str, confidence: float) -> str:
 
     Returns:
         Suggestion message for UI display
+
     """
     level = get_confidence_level(confidence)
     confidence_pct = int(confidence * 100)
@@ -263,6 +267,9 @@ def get_suggestion_message(mode: str, confidence: float) -> str:
     if level == "high":
         return f"This looks like {mode} to me. Should we go with that?"
     elif level == "medium":
-        return f"Not sure, but this looks like {mode} to me (about {confidence_pct}% sure). Want to try it?"
+        return (
+            f"Not sure, but this looks like {mode} to me (about {confidence_pct}% sure). "
+            "Want to try it?"
+        )
     else:
-        return f"Having trouble reading this signal. You'll need to choose the mode manually."
+        return "Having trouble reading this signal. You'll need to choose the mode manually."

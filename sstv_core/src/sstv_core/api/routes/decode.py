@@ -1,5 +1,4 @@
-"""
-Decode endpoints for SSTV reception.
+"""Decode endpoints for SSTV reception.
 
 Handles:
 - POST /decode/start - Start listening for SSTV signal
@@ -13,22 +12,21 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
 
+from sstv_core.api.dsp_manager import dsp_manager
 from sstv_core.api.models import (
     DecodeStartRequest,
     DecodeStartResponse,
-    DecodeStatusResponse,
     DecodeState,
+    DecodeStatusResponse,
     ModeDetectionRequest,
     ModeDetectionResponse,
 )
-from sstv_core.api.dsp_manager import dsp_manager
 from sstv_core.api.session_manager import session_manager
 from sstv_core.smart_features.mode_detector import (
     detect_mode_from_sync_timing,
-    get_top_mode_candidates,
     get_suggestion_message,
+    get_top_mode_candidates,
 )
-
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/decode", tags=["decode"])
@@ -36,8 +34,7 @@ router = APIRouter(prefix="/decode", tags=["decode"])
 
 @router.post("/detect_mode", response_model=ModeDetectionResponse, status_code=status.HTTP_200_OK)
 async def detect_mode(request: ModeDetectionRequest) -> ModeDetectionResponse:
-    """
-    Detect SSTV mode from sync pulse timing.
+    """Detect SSTV mode from sync pulse timing.
 
     Used when VIS code detection fails or returns low confidence.
     Analyzes audio for sync timing patterns and suggests most likely SSTV mode.
@@ -54,6 +51,7 @@ async def detect_mode(request: ModeDetectionRequest) -> ModeDetectionResponse:
         400 Bad Request: If neither session_id nor audio_file provided
         404 Not Found: If session_id not found
         500 Internal Server Error: If analysis fails
+
     """
     try:
         # Get audio samples
@@ -79,7 +77,8 @@ async def detect_mode(request: ModeDetectionRequest) -> ModeDetectionResponse:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail={
                     "error": "SESSION_ANALYSIS_NOT_SUPPORTED",
-                    "message": "Session-based mode detection not yet implemented. Please upload an audio file.",
+                    "message": "Session-based mode detection not yet implemented. "
+                    "Please upload an audio file.",
                 },
             )
 
@@ -115,9 +114,9 @@ async def detect_mode(request: ModeDetectionRequest) -> ModeDetectionResponse:
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail={
                         "error": "AUDIO_LOAD_ERROR",
-                        "message": f"Failed to load audio file: {str(e)}",
+                        "message": f"Failed to load audio file: {e!s}",
                     },
-                )
+                ) from e
         else:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -144,7 +143,8 @@ async def detect_mode(request: ModeDetectionRequest) -> ModeDetectionResponse:
                 measured_intervals=[],
                 expected_interval=None,
                 fallback_modes=[],
-                suggestion_message="I'm having trouble reading this signal. You'll need to choose the mode manually.",
+                suggestion_message="I'm having trouble reading this signal. "
+                "You'll need to choose the mode manually.",
             )
 
         # Get top 3 fallback modes for low confidence
@@ -190,15 +190,14 @@ async def detect_mode(request: ModeDetectionRequest) -> ModeDetectionResponse:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={
                 "error": "MODE_DETECTION_ERROR",
-                "message": f"Mode detection failed: {str(e)}",
+                "message": f"Mode detection failed: {e!s}",
             },
-        )
+        ) from e
 
 
 @router.post("/start", response_model=DecodeStartResponse, status_code=status.HTTP_201_CREATED)
 async def start_decode(request: DecodeStartRequest) -> DecodeStartResponse:
-    """
-    Start a new decode session.
+    """Start a new decode session.
 
     Creates a listening session that waits for SSTV signals. The session
     will auto-detect the SSTV mode from VIS code (if enabled) or use the
@@ -209,6 +208,7 @@ async def start_decode(request: DecodeStartRequest) -> DecodeStartResponse:
 
     Raises:
         409 Conflict: If another decode/transmit session is already active (half-duplex)
+
     """
     session = None
     try:
@@ -263,7 +263,7 @@ async def start_decode(request: DecodeStartRequest) -> DecodeStartResponse:
                     "message": str(e),
                     "suggested_action": "Stop the active session before starting a new one",
                 },
-            )
+            ) from e
         raise
     except Exception as e:
         if session is not None:
@@ -280,8 +280,7 @@ async def start_decode(request: DecodeStartRequest) -> DecodeStartResponse:
 
 @router.get("/status/{session_id}", response_model=DecodeStatusResponse)
 async def get_decode_status(session_id: UUID) -> DecodeStatusResponse:
-    """
-    Get the current status of a decode session.
+    """Get the current status of a decode session.
 
     Returns detailed progress information including:
     - Current state (listening, decoding, completed, etc.)
@@ -291,6 +290,7 @@ async def get_decode_status(session_id: UUID) -> DecodeStatusResponse:
 
     Raises:
         404 Not Found: If session doesn't exist
+
     """
     session = await session_manager.get_decode_session(session_id)
 
@@ -333,8 +333,7 @@ async def get_decode_status(session_id: UUID) -> DecodeStatusResponse:
 
 @router.post("/stop/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def stop_decode(session_id: UUID) -> None:
-    """
-    Stop an active decode session.
+    """Stop an active decode session.
 
     Gracefully stops listening for SSTV signals. If a decode is in progress,
     the partial image will be discarded.
@@ -342,6 +341,7 @@ async def stop_decode(session_id: UUID) -> None:
     Raises:
         404 Not Found: If session doesn't exist
         409 Conflict: If session is already in a terminal state
+
     """
     session = await session_manager.get_decode_session(session_id)
 
@@ -376,4 +376,4 @@ async def stop_decode(session_id: UUID) -> None:
                 "error": "SESSION_NOT_FOUND",
                 "message": str(e),
             },
-        )
+        ) from e

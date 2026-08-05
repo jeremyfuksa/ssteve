@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Optional
 
 import numpy as np
 
@@ -60,6 +59,7 @@ class AudioGuidance:
 
         # Mix with monitoring audio
         mixed = guidance.mix_with_monitoring(monitoring_audio, stereo_tone)
+
     """
 
     def __init__(self, config: GuidanceConfig, sample_rate: int = 48000) -> None:
@@ -68,6 +68,7 @@ class AudioGuidance:
         Args:
             config: Guidance configuration
             sample_rate: Audio sample rate
+
         """
         self._config = config
         self._sample_rate = sample_rate
@@ -76,7 +77,7 @@ class AudioGuidance:
     def generate_pilot_tone(
         self,
         duration_ms: float,
-        slant_error: Optional[SlantErrorData] = None,
+        slant_error: SlantErrorData | None = None,
     ) -> np.ndarray:
         """Generate pilot tone with stereo panning based on slant error.
 
@@ -86,6 +87,7 @@ class AudioGuidance:
 
         Returns:
             Stereo audio (shape: [samples, 2]) with L/R panning
+
         """
         if not self._config.enabled:
             # Return silence
@@ -129,6 +131,7 @@ class AudioGuidance:
 
         Returns:
             Stereo audio with lock chime chord
+
         """
         if not self._config.enabled or not self._config.lock_chime_enabled:
             return np.zeros((1, 2), dtype=np.float32)
@@ -141,7 +144,7 @@ class AudioGuidance:
         t = np.arange(num_samples) / self._sample_rate
 
         # Generate chord (sum of three sine waves)
-        chord = np.zeros(num_samples, dtype=np.float32)
+        chord: np.ndarray = np.zeros(num_samples, dtype=np.float32)
         for freq in chord_freqs:
             chord += np.sin(2.0 * np.pi * freq * t).astype(np.float32)
 
@@ -177,6 +180,7 @@ class AudioGuidance:
 
         Returns:
             Mixed stereo audio
+
         """
         # Ensure monitoring audio is stereo
         if monitoring_audio.ndim == 1:
@@ -196,7 +200,7 @@ class AudioGuidance:
         # Soft clip to prevent harsh distortion
         mixed = np.clip(mixed, -1.0, 1.0)
 
-        return mixed
+        return np.asarray(mixed)
 
     def reset_phase(self) -> None:
         """Reset pilot tone phase accumulator.
@@ -206,7 +210,7 @@ class AudioGuidance:
         """
         self._phase = 0.0
 
-    def _calculate_pan(self, slant_error: Optional[SlantErrorData]) -> float:
+    def _calculate_pan(self, slant_error: SlantErrorData | None) -> float:
         """Calculate stereo pan from slant error.
 
         Args:
@@ -214,6 +218,7 @@ class AudioGuidance:
 
         Returns:
             Pan value: -1.0 (full left) to +1.0 (full right), 0.0 (center)
+
         """
         if slant_error is None:
             return 0.0  # No slant data, center position
@@ -247,6 +252,7 @@ class AudioGuidance:
 
         Args:
             new_config: New guidance configuration
+
         """
         self._config = new_config
         # Reset phase if pilot tone frequency changed

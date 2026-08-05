@@ -6,7 +6,6 @@ and ADIF export for logbook integration.
 
 from datetime import datetime
 from io import StringIO
-from typing import Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
@@ -16,8 +15,8 @@ from ..database.models import QSO, QSOImage, SSTVImage
 def populate_qso_from_image(
     session: Session,
     image_id: int,
-    overrides: Optional[Dict] = None
-) -> Dict:
+    overrides: dict | None = None
+) -> dict:
     """Auto-populate QSO fields from image metadata.
 
     Fallback hierarchy:
@@ -35,6 +34,7 @@ def populate_qso_from_image(
 
     Raises:
         ValueError: If image not found or callsign missing
+
     """
     if overrides is None:
         overrides = {}
@@ -63,7 +63,7 @@ def populate_qso_from_image(
     return qso_fields
 
 
-def _convert_quality_to_report(rx_quality_score: Optional[float]) -> Optional[str]:
+def _convert_quality_to_report(rx_quality_score: float | None) -> str | None:
     """Convert RX quality score (0.0-1.0) to signal report format.
 
     Args:
@@ -71,6 +71,7 @@ def _convert_quality_to_report(rx_quality_score: Optional[float]) -> Optional[st
 
     Returns:
         Signal report string (e.g., "59", "55") or None
+
     """
     if rx_quality_score is None:
         return None
@@ -97,7 +98,7 @@ def _convert_quality_to_report(rx_quality_score: Optional[float]) -> Optional[st
 def create_qso_with_image(
     session: Session,
     image_id: int,
-    qso_fields: Dict
+    qso_fields: dict
 ) -> QSO:
     """Create QSO record and link to image.
 
@@ -108,6 +109,7 @@ def create_qso_with_image(
 
     Returns:
         Created QSO instance
+
     """
     # Create QSO record
     qso = QSO(
@@ -133,9 +135,9 @@ def create_qso_with_image(
 
 def export_qsos_to_adif(
     session: Session,
-    start_date: Optional[datetime] = None,
-    end_date: Optional[datetime] = None,
-    callsign_filter: Optional[str] = None
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
+    callsign_filter: str | None = None
 ) -> str:
     """Export QSOs to ADIF format.
 
@@ -147,6 +149,7 @@ def export_qsos_to_adif(
 
     Returns:
         ADIF format string
+
     """
     # Build query
     query = session.query(QSO)
@@ -165,9 +168,9 @@ def export_qsos_to_adif(
 
     # ADIF header
     output.write("ADIF Export from SSTeVe SSTV Platform\n")
-    output.write(f"<ADIF_VER:5>3.1.4\n")
-    output.write(f"<PROGRAMID:6>SSTeVe\n")
-    output.write(f"<PROGRAMVERSION:5>1.0.0\n")
+    output.write("<ADIF_VER:5>3.1.4\n")
+    output.write("<PROGRAMID:6>SSTeVe\n")
+    output.write("<PROGRAMVERSION:5>1.0.0\n")
     output.write("<EOH>\n\n")
 
     # QSO records
@@ -186,6 +189,7 @@ def _format_qso_as_adif(qso: QSO) -> str:
 
     Returns:
         ADIF record string (without EOR marker)
+
     """
     fields = []
 
@@ -228,6 +232,7 @@ def _adif_field(field_name: str, value: str) -> str:
 
     Returns:
         Formatted ADIF field: <FIELD:length>value
+
     """
     value_str = str(value)
     length = len(value_str)
@@ -244,6 +249,7 @@ def validate_callsign(callsign: str) -> bool:
 
     Returns:
         True if valid format, False otherwise
+
     """
     if not callsign or not (3 <= len(callsign) <= 10):
         return False
@@ -253,7 +259,7 @@ def validate_callsign(callsign: str) -> bool:
     return clean.isalnum()
 
 
-def suggest_qso_improvements(qso_fields: Dict) -> Dict[str, str]:
+def suggest_qso_improvements(qso_fields: dict) -> dict[str, str]:
     """Suggest improvements for QSO fields.
 
     Args:
@@ -261,6 +267,7 @@ def suggest_qso_improvements(qso_fields: Dict) -> Dict[str, str]:
 
     Returns:
         Dictionary of field -> suggestion text
+
     """
     suggestions = {}
 

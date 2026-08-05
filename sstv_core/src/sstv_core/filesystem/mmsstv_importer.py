@@ -7,8 +7,9 @@ Handles recursive scanning, progress tracking, and batch database transactions.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, Callable, List, Dict, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -49,7 +50,7 @@ class MMSStvImporter:
     """
 
     # Image file extensions to import
-    IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp"}
+    IMAGE_EXTENSIONS: ClassVar[set[str]] = {".jpg", ".jpeg", ".png", ".bmp"}
 
     # Batch size for database transactions
     BATCH_SIZE = 100
@@ -59,6 +60,7 @@ class MMSStvImporter:
 
         Args:
             session: Active SQLAlchemy session for database operations
+
         """
         self._session = session
 
@@ -66,8 +68,8 @@ class MMSStvImporter:
         self,
         directory: str | Path,
         recursive: bool = True,
-        progress_callback: Optional[Callable[[int, int], None]] = None,
-    ) -> Dict[str, Any]:
+        progress_callback: Callable[[int, int], None] | None = None,
+    ) -> dict[str, Any]:
         """Import all images from a directory.
 
         Scans directory for SSTV images and imports them to the database
@@ -88,6 +90,7 @@ class MMSStvImporter:
         Raises:
             FileNotFoundError: If directory doesn't exist
             NotADirectoryError: If path is not a directory
+
         """
         directory = Path(directory)
 
@@ -125,7 +128,7 @@ class MMSStvImporter:
         self,
         directory: Path,
         recursive: bool,
-    ) -> List[Path]:
+    ) -> list[Path]:
         """Scan directory for image files.
 
         Args:
@@ -134,8 +137,9 @@ class MMSStvImporter:
 
         Returns:
             List of image file paths, sorted by filename
+
         """
-        image_files: List[Path] = []
+        image_files: list[Path] = []
 
         for ext in self.IMAGE_EXTENSIONS:
             if recursive:
@@ -158,9 +162,9 @@ class MMSStvImporter:
 
     def _import_files(
         self,
-        files: List[Path],
-        progress_callback: Optional[Callable[[int, int], None]],
-    ) -> Dict[str, Any]:
+        files: list[Path],
+        progress_callback: Callable[[int, int], None] | None,
+    ) -> dict[str, Any]:
         """Import a list of image files to the database.
 
         Imports in batches, committing every BATCH_SIZE images for efficiency.
@@ -172,6 +176,7 @@ class MMSStvImporter:
 
         Returns:
             Dictionary with import statistics
+
         """
         from sstv_core.filesystem.importer import ImageImporter
 
@@ -179,7 +184,7 @@ class MMSStvImporter:
 
         imported_count = 0
         skipped_count = 0
-        errors: List[str] = []
+        errors: list[str] = []
 
         total_files = len(files)
         batch_start_idx = 0
@@ -248,7 +253,7 @@ class MMSStvImporter:
             "total": total_files,
         }
 
-    def validate_directory(self, directory: str | Path) -> Dict[str, Any]:
+    def validate_directory(self, directory: str | Path) -> dict[str, Any]:
         """Validate a directory for MMSSTV import.
 
         Checks if directory exists and contains importable images.
@@ -264,10 +269,11 @@ class MMSStvImporter:
                 - is_directory: bool (Path is a directory)
                 - image_count: int (Number of importable images found)
                 - error: str or None (Error message if validation failed)
+
         """
         directory = Path(directory)
 
-        result: Dict[str, Any] = {
+        result: dict[str, Any] = {
             "valid": False,
             "exists": directory.exists(),
             "is_directory": directory.is_dir() if directory.exists() else False,
@@ -305,7 +311,7 @@ class MMSStvImporter:
         self,
         directory: str | Path,
         max_samples: int = 10,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Get a preview of what would be imported from a directory.
 
         Scans directory and returns sample filenames with parsed metadata.
@@ -320,6 +326,7 @@ class MMSStvImporter:
                 - total_files: int (Total importable images)
                 - samples: List of dicts with parsed metadata
                 - validation: Validation result from validate_directory()
+
         """
         directory = Path(directory)
 

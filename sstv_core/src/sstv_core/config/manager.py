@@ -263,6 +263,7 @@ class ConfigManager:
 
         Args:
             session: Active SQLAlchemy session for database operations.
+
         """
         self._session = session
         self._config = self._load_or_create()
@@ -272,8 +273,9 @@ class ConfigManager:
 
         Returns:
             Configuration model instance.
+
         """
-        from sstv_core.database.models import Configuration, get_or_create_config
+        from sstv_core.database.models import get_or_create_config
 
         return get_or_create_config(self._session)
 
@@ -298,6 +300,7 @@ class ConfigManager:
 
         Raises:
             AttributeError: If key is not a valid configuration field.
+
         """
         with self._lock:
             if key in self.CORE_FIELDS:
@@ -316,6 +319,7 @@ class ConfigManager:
 
         Returns:
             Setting value or default.
+
         """
         advanced = self.get_advanced_settings()
         parts = key.split(".")
@@ -338,6 +342,7 @@ class ConfigManager:
         Raises:
             ValueError: If value fails validation.
             AttributeError: If key is not a valid configuration field.
+
         """
         with self._lock:
             if key in self.CORE_FIELDS:
@@ -356,6 +361,7 @@ class ConfigManager:
 
         Raises:
             ValueError: If validation fails.
+
         """
         # Skip validation for non-validated fields
         if key in ("window_geometry", "window_state", "last_input_device", "last_output_device"):
@@ -388,6 +394,7 @@ class ConfigManager:
 
         Raises:
             ValueError: If validation fails.
+
         """
         advanced = self.get_advanced_settings()
         advanced_dict = advanced.model_dump()
@@ -415,6 +422,7 @@ class ConfigManager:
 
         Raises:
             ValueError: If any value fails validation.
+
         """
         with self._lock:
             for key, value in values.items():
@@ -430,15 +438,18 @@ class ConfigManager:
 
         Returns:
             Dict containing all configuration values.
+
         """
         with self._lock:
-            return self._config.to_dict()
+            result: dict[str, Any] = self._config.to_dict()
+            return result
 
     def get_advanced_settings(self) -> AdvancedSettings:
         """Get advanced settings as a validated Pydantic model.
 
         Returns:
             AdvancedSettings instance with all advanced configuration.
+
         """
         with self._lock:
             json_str = self._config.advanced_settings_json
@@ -456,6 +467,7 @@ class ConfigManager:
 
         Args:
             settings: AdvancedSettings instance.
+
         """
         with self._lock:
             self._config.advanced_settings_json = settings.model_dump_json()
@@ -486,6 +498,7 @@ class ConfigManager:
 
         Returns:
             True if path is valid and within library directory.
+
         """
         library_dir = self.get("image_save_directory")
         if not library_dir:
@@ -516,6 +529,7 @@ class ConfigManager:
 
         Returns:
             GuidanceConfig instance from accessibility settings.
+
         """
         from sstv_core.accessibility import GuidanceConfig
 

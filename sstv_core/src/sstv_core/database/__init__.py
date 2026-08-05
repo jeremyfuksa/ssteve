@@ -21,9 +21,9 @@ Usage:
 """
 
 from sstv_core.database.models import (
+    QSO,
     Base,
     Configuration,
-    QSO,
     QSOImage,
     SSTVImage,
     create_db_engine,
@@ -35,18 +35,15 @@ from sstv_core.database.models import (
 )
 
 __all__ = [
-    # Base class
-    "Base",
-    # Models
-    "SSTVImage",
     "QSO",
-    "QSOImage",
+    "Base",
     "Configuration",
-    # Utilities
-    "get_default_db_path",
-    "get_database_url",
+    "QSOImage",
+    "SSTVImage",
     "create_db_engine",
     "create_session_factory",
-    "init_database",
+    "get_database_url",
+    "get_default_db_path",
     "get_or_create_config",
+    "init_database",
 ]

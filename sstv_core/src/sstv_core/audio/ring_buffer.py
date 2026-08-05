@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import threading
 from collections import deque
-from typing import Optional
 
 import numpy as np
 
@@ -18,6 +17,7 @@ class AudioRingBuffer:
     Attributes:
         max_samples: Maximum number of samples to store (default: 480000 = 10s @ 48kHz)
         sample_rate: Sample rate in Hz (default: 48000)
+
     """
 
     DEFAULT_MAX_SAMPLES = 480000  # 10 seconds at 48kHz
@@ -32,6 +32,7 @@ class AudioRingBuffer:
         Args:
             max_samples: Maximum number of samples to store.
             sample_rate: Sample rate in Hz.
+
         """
         self._lock = threading.RLock()
         self._buffer: deque[float] = deque(maxlen=max_samples)
@@ -62,6 +63,7 @@ class AudioRingBuffer:
 
         Args:
             samples: NumPy array of audio samples (mono).
+
         """
         # Flatten in case of multi-channel input
         flat_samples = np.asarray(samples).flatten()
@@ -70,7 +72,7 @@ class AudioRingBuffer:
             self._buffer.extend(flat_samples)
             self._total_samples_added += len(flat_samples)
 
-    def get(self, num_samples: Optional[int] = None) -> np.ndarray:
+    def get(self, num_samples: int | None = None) -> np.ndarray:
         """Get samples from the buffer without removing them.
 
         Args:
@@ -78,6 +80,7 @@ class AudioRingBuffer:
 
         Returns:
             NumPy array of samples.
+
         """
         with self._lock:
             if num_samples is None or num_samples >= len(self._buffer):
@@ -94,6 +97,7 @@ class AudioRingBuffer:
 
         Returns:
             NumPy array of samples.
+
         """
         with self._lock:
             actual_count = min(num_samples, len(self._buffer))

@@ -1,5 +1,4 @@
-"""
-Session manager for tracking decode and transmit sessions.
+"""Session manager for tracking decode and transmit sessions.
 
 Enforces half-duplex constraint: only one decode session and one transmit
 session can be active at a time. Sessions are tracked by UUID and expire
@@ -8,7 +7,7 @@ after 5 minutes of inactivity.
 
 import asyncio
 from datetime import datetime, timedelta
-from typing import Dict, Optional
+from typing import Optional
 from uuid import UUID, uuid4
 
 from sstv_core.api.models import DecodeState, TransmitState
@@ -23,7 +22,7 @@ class SessionData:
         self.state: str = "pending"
         self.created_at = datetime.utcnow()
         self.last_activity = datetime.utcnow()
-        self.metadata: Dict = {}
+        self.metadata: dict = {}
 
     def update_activity(self) -> None:
         """Update last activity timestamp."""
@@ -48,8 +47,7 @@ class SessionData:
 
 
 class SessionManager:
-    """
-    Singleton session manager for tracking SSTV sessions.
+    """Singleton session manager for tracking SSTV sessions.
 
     Enforces half-duplex constraint:
     - At most one active decode session
@@ -74,11 +72,11 @@ class SessionManager:
         if self._initialized:
             return
 
-        self._decode_sessions: Dict[UUID, SessionData] = {}
-        self._transmit_sessions: Dict[UUID, SessionData] = {}
-        self._active_decode_id: Optional[UUID] = None
-        self._active_transmit_id: Optional[UUID] = None
-        self._cleanup_task: Optional[asyncio.Task] = None
+        self._decode_sessions: dict[UUID, SessionData] = {}
+        self._transmit_sessions: dict[UUID, SessionData] = {}
+        self._active_decode_id: UUID | None = None
+        self._active_transmit_id: UUID | None = None
+        self._cleanup_task: asyncio.Task | None = None
         self._initialized = True
 
     async def start_cleanup_task(self) -> None:
@@ -162,13 +160,13 @@ class SessionManager:
             return cleaned
 
     async def create_decode_session(
-        self, metadata: Optional[Dict] = None
+        self, metadata: dict | None = None
     ) -> SessionData:
-        """
-        Create a new decode session.
+        """Create a new decode session.
 
         Raises:
             RuntimeError: If a decode session is already active (half-duplex)
+
         """
         async with self._lock:
             # Check for active decode session
@@ -202,13 +200,13 @@ class SessionManager:
             return session
 
     async def create_transmit_session(
-        self, metadata: Optional[Dict] = None
+        self, metadata: dict | None = None
     ) -> SessionData:
-        """
-        Create a new transmit session.
+        """Create a new transmit session.
 
         Raises:
             RuntimeError: If a transmit session is already active (half-duplex)
+
         """
         async with self._lock:
             # Check for active transmit session
@@ -241,7 +239,7 @@ class SessionManager:
 
             return session
 
-    async def get_decode_session(self, session_id: UUID) -> Optional[SessionData]:
+    async def get_decode_session(self, session_id: UUID) -> SessionData | None:
         """Get decode session by ID."""
         async with self._lock:
             session = self._decode_sessions.get(session_id)
@@ -249,7 +247,7 @@ class SessionManager:
                 session.update_activity()
             return session
 
-    async def get_transmit_session(self, tx_id: UUID) -> Optional[SessionData]:
+    async def get_transmit_session(self, tx_id: UUID) -> SessionData | None:
         """Get transmit session by ID."""
         async with self._lock:
             session = self._transmit_sessions.get(tx_id)
@@ -258,7 +256,7 @@ class SessionManager:
             return session
 
     async def update_decode_state(
-        self, session_id: UUID, state: DecodeState, metadata: Optional[Dict] = None
+        self, session_id: UUID, state: DecodeState, metadata: dict | None = None
     ) -> None:
         """Update decode session state."""
         async with self._lock:
@@ -277,7 +275,7 @@ class SessionManager:
                 self._active_decode_id = None
 
     async def update_transmit_state(
-        self, tx_id: UUID, state: TransmitState, metadata: Optional[Dict] = None
+        self, tx_id: UUID, state: TransmitState, metadata: dict | None = None
     ) -> None:
         """Update transmit session state."""
         async with self._lock:
@@ -303,12 +301,12 @@ class SessionManager:
         """Cancel a transmit session."""
         await self.update_transmit_state(tx_id, TransmitState.CANCELLED)
 
-    async def get_active_decode_id(self) -> Optional[UUID]:
+    async def get_active_decode_id(self) -> UUID | None:
         """Get active decode session ID."""
         async with self._lock:
             return self._active_decode_id
 
-    async def get_active_transmit_id(self) -> Optional[UUID]:
+    async def get_active_transmit_id(self) -> UUID | None:
         """Get active transmit session ID."""
         async with self._lock:
             return self._active_transmit_id

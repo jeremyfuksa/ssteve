@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Optional
 
 import numpy as np
 
@@ -72,6 +71,7 @@ class SlantDetector:
         slant = detector.calculate_slant_error()
         if slant and slant.needs_correction:
             print(f"Slant: {slant.slant_degrees:.2f}°")
+
     """
 
     def __init__(
@@ -88,6 +88,7 @@ class SlantDetector:
             image_height: Image height in pixels (scanlines)
             expected_line_duration_ms: Expected time per scanline (mode-specific)
             sample_rate: Audio sample rate
+
         """
         self._image_width = image_width
         self._image_height = image_height
@@ -109,6 +110,7 @@ class SlantDetector:
         Args:
             line_number: Scanline number (0-based)
             sync_time_ms: Time when sync pulse was detected (milliseconds)
+
         """
         self._sync_times.append((line_number, sync_time_ms))
 
@@ -116,11 +118,12 @@ class SlantDetector:
         expected_time = line_number * self._expected_line_duration_ms
         self._expected_times.append(expected_time)
 
-    def calculate_slant_error(self) -> Optional[SlantErrorData]:
+    def calculate_slant_error(self) -> SlantErrorData | None:
         """Calculate slant error from accumulated sync timing data.
 
         Returns:
             SlantErrorData if enough measurements available, None otherwise
+
         """
         if len(self._sync_times) < 10:
             # Need at least 10 lines for reliable measurement
@@ -183,7 +186,8 @@ class SlantDetector:
             slant_degrees = 0.0
 
         logger.info(
-            "Slant detected: %.2f° (%.1f px/line, %.1f total px drift over %d lines, confidence %.1f%%)",
+            "Slant detected: %.2f° (%.1f px/line, %.1f total px drift over %d lines, "
+            "confidence %.1f%%)",
             slant_degrees,
             drift_pixels_per_line,
             cumulative_drift_pixels,
@@ -209,6 +213,7 @@ class SlantDetector:
 
         Returns:
             Estimated horizontal drift in pixels (positive = shift right)
+
         """
         if len(self._sync_times) < 5:
             return 0.0
@@ -232,7 +237,7 @@ class SlantDetector:
             drift_pixels_per_line = drift_rate * pixels_per_ms
 
             # Calculate drift for current line
-            return drift_pixels_per_line * current_line
+            return float(drift_pixels_per_line * current_line)
 
         return 0.0
 

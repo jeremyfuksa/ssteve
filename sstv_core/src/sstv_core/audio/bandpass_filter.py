@@ -10,14 +10,13 @@ Purpose:
 - Enable "Driveway Mode" for acoustic coupling
 
 Reference: "A specific setting to filter out wind noise and background
-conversations, focusing only on the 1200Hz–2300Hz SSTV range."
+conversations, focusing only on the 1200Hz-2300Hz SSTV range."
 """
 
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Optional
 
 import numpy as np
 from scipy import signal
@@ -64,11 +63,12 @@ class SSTVBandpassFilter:
     - Critical for "Driveway Mode" acoustic coupling
     """
 
-    def __init__(self, config: Optional[BandpassConfig] = None) -> None:
+    def __init__(self, config: BandpassConfig | None = None) -> None:
         """Initialize SSTV bandpass filter.
 
         Args:
             config: Filter configuration
+
         """
         self._config = config or BandpassConfig()
 
@@ -76,7 +76,7 @@ class SSTVBandpassFilter:
         self._b, self._a = self._design_filter()
 
         # State for zero-phase filtering
-        self._zi: Optional[np.ndarray] = None
+        self._zi: np.ndarray | None = None
 
         logger.info(
             "Bandpass filter initialized: %d-%d Hz, order=%d, sr=%d",
@@ -91,6 +91,7 @@ class SSTVBandpassFilter:
 
         Returns:
             Tuple of (numerator_coeffs, denominator_coeffs)
+
         """
         nyquist = self._config.sample_rate / 2.0
         low = self._config.low_freq / nyquist
@@ -113,6 +114,7 @@ class SSTVBandpassFilter:
 
         Returns:
             Filtered samples
+
         """
         if len(samples) == 0:
             return samples
@@ -127,7 +129,9 @@ class SSTVBandpassFilter:
             # Note: We maintain state zi for real-time streaming
             filtered, self._zi = signal.lfilter_zi(self._b, self._a, samples, zi=self._zi)
             # Apply reverse filter for zero-phase
-            filtered_reversed, zi_rev = signal.lfilter_zi(self._b, self._a, filtered[::-1], zi=self._zi)
+            filtered_reversed, zi_rev = signal.lfilter_zi(
+                self._b, self._a, filtered[::-1], zi=self._zi
+            )
             filtered = filtered_reversed[::-1]
             # Reset zi for next call
             self._zi = zi_rev
@@ -139,7 +143,7 @@ class SSTVBandpassFilter:
         if self._config.apply_dithering:
             filtered = filtered - np.mean(filtered - samples)
 
-        return filtered
+        return np.asarray(filtered)
 
     def reset_state(self) -> None:
         """Reset filter state for new processing session."""
@@ -157,15 +161,19 @@ class SSTVBandpassFilter:
 
         Returns:
             Magnitude response at each frequency (linear scale)
+
         """
-        w, h = signal.freqz(self._b, self._a, worN=2 * np.pi * frequencies / self._config.sample_rate)
-        return np.abs(h)
+        _, h = signal.freqz(
+            self._b, self._a, worN=2 * np.pi * frequencies / self._config.sample_rate
+        )
+        return np.asarray(np.abs(h))
 
     def get_cutoff_frequencies(self) -> tuple[float, float]:
         """Get the filter cutoff frequencies.
 
         Returns:
             Tuple of (low_cutoff_hz, high_cutoff_hz)
+
         """
         return (self._config.low_freq, self._config.high_freq)
 
@@ -177,6 +185,7 @@ class SSTVBandpassFilter:
 
         Returns:
             True if frequency is within passband, False otherwise
+
         """
         return self._config.low_freq <= frequency <= self._config.high_freq
 
@@ -188,7 +197,7 @@ class BandpassPresets:
 
     @staticmethod
     def standard() -> BandpassConfig:
-        """Standard SSTV bandpass (1200-2300 Hz).
+        """Return the standard SSTV bandpass (1200-2300 Hz).
 
         Suitable for most SSTV reception conditions with normal noise levels.
         """

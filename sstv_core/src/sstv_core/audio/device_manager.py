@@ -7,7 +7,7 @@ import platform
 import re
 import threading
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, ClassVar
 
 import sounddevice as sd
 
@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class AudioDevice:
     """Represents an audio device with its capabilities."""
+
     id: str
     name: str
     hostapi: str
@@ -40,7 +41,8 @@ class AudioDeviceError(Exception):
 
 class AudioDeviceManager:
     """Manages audio device enumeration and selection."""
-    STANDARD_SAMPLE_RATES = [8000, 11025, 16000, 22050, 44100, 48000, 96000]
+
+    STANDARD_SAMPLE_RATES: ClassVar[list[int]] = [8000, 11025, 16000, 22050, 44100, 48000, 96000]
     SSTV_SAMPLE_RATE = 48000
 
     def __init__(
@@ -65,7 +67,11 @@ class AudioDeviceManager:
     def _enumerate_devices(self) -> None:
         try:
             hostapis_result = sd.query_hostapis()
-            self._hostapis = list(hostapis_result) if isinstance(hostapis_result, (list, tuple)) else hostapis_result
+            self._hostapis = (
+                list(hostapis_result)
+                if isinstance(hostapis_result, (list, tuple))
+                else hostapis_result
+            )
             devices_info = sd.query_devices()
             default_input, default_output = sd.default.device
             self._devices, self._input_devices, self._output_devices = [], [], []
@@ -98,14 +104,23 @@ class AudioDeviceManager:
         if max_in == 0 and max_out == 0:
             return None
         hostapi_idx = info.get("hostapi", 0)
-        hostapi_name = self._hostapis[hostapi_idx].get("name", "Unknown") if hostapi_idx < len(self._hostapis) else "Unknown"
+        hostapi_name = (
+            self._hostapis[hostapi_idx].get("name", "Unknown")
+            if hostapi_idx < len(self._hostapis)
+            else "Unknown"
+        )
         device_id = self._generate_device_id(idx, name, hostapi_name)
         is_input, is_output = max_in > 0, max_out > 0
         is_default = (idx == default_input and is_input) or (idx == default_output and is_output)
-        sample_rates = self._probe_device_sample_rates(idx, is_input) if self._probe_sample_rates else [int(info.get("default_samplerate", 48000))]
+        sample_rates = (
+            self._probe_device_sample_rates(idx, is_input)
+            if self._probe_sample_rates
+            else [int(info.get("default_samplerate", 48000))]
+        )
         return AudioDevice(id=device_id, name=self._clean_device_name(name), hostapi=hostapi_name,
                            channels=max_in if is_input else max_out, sample_rates=sample_rates,
-                           is_input=is_input, is_output=is_output, is_default=is_default, raw_info=dict(info))
+                           is_input=is_input, is_output=is_output, is_default=is_default,
+                           raw_info=dict(info))
 
     def _generate_device_id(self, idx, name, hostapi):
         p = platform.system().lower()
@@ -130,7 +145,8 @@ class AudioDeviceManager:
         supported = []
         for rate in self.STANDARD_SAMPLE_RATES:
             try:
-                (sd.check_input_settings if is_input else sd.check_output_settings)(device=device_idx, samplerate=rate)
+                check = sd.check_input_settings if is_input else sd.check_output_settings
+                check(device=device_idx, samplerate=rate)
                 supported.append(rate)
             except sd.PortAudioError:
                 pass
@@ -169,11 +185,15 @@ class AudioDeviceManager:
 
     def get_default_input_device(self):
         with self._lock:
-            return self._device_map.get(self._default_input_id) if self._default_input_id else (self._input_devices[0] if self._input_devices else None)
+            if self._default_input_id:
+                return self._device_map.get(self._default_input_id)
+            return self._input_devices[0] if self._input_devices else None
 
     def get_default_output_device(self):
         with self._lock:
-            return self._device_map.get(self._default_output_id) if self._default_output_id else (self._output_devices[0] if self._output_devices else None)
+            if self._default_output_id:
+                return self._device_map.get(self._default_output_id)
+            return self._output_devices[0] if self._output_devices else None
 
     def validate_device(self, device_id, require_input=False, require_output=False):
         with self._lock:
@@ -188,4 +208,7 @@ class AudioDeviceManager:
 
     def to_api_response(self):
         with self._lock:
-            return {"inputs": [d.to_dict() for d in self._input_devices], "outputs": [d.to_dict() for d in self._output_devices]}
+            return {
+                "inputs": [d.to_dict() for d in self._input_devices],
+                "outputs": [d.to_dict() for d in self._output_devices],
+            }

@@ -11,7 +11,6 @@ All timestamps use UTC. Image data stored as files, not blobs.
 
 from __future__ import annotations
 
-import os
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -26,7 +25,6 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
-    UniqueConstraint,
     create_engine,
     event,
 )
@@ -41,7 +39,7 @@ from sqlalchemy.orm import (
 )
 
 if TYPE_CHECKING:
-    from sqlalchemy.engine import Engine as EngineType
+    pass
 
 
 # =============================================================================
@@ -140,7 +138,7 @@ class SSTVImage(Base):
 
     # AI-generated alt-text for accessibility
     ai_caption: Mapped[str | None] = mapped_column(Text, nullable=True)
-    
+
     # Composition data for re-editing/retransmission (TRANSMIT_SPEC.md Phase 1)
     # Stores JSON: {background: {...}, zones: [{zone, text, font, size, color, alignment}, ...]}
     composition_json: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -492,6 +490,7 @@ def get_database_url(db_path: Path | str | None = None) -> str:
 
     Returns:
         SQLAlchemy connection URL (sqlite:///path/to/db)
+
     """
     if db_path is None:
         db_path = get_default_db_path()
@@ -513,6 +512,7 @@ def create_db_engine(
 
     Returns:
         SQLAlchemy Engine instance
+
     """
     url = get_database_url(db_path)
     engine = create_engine(url, echo=echo)
@@ -535,6 +535,7 @@ def create_session_factory(engine: Engine) -> sessionmaker[Session]:
 
     Returns:
         Session factory (call it to create new sessions)
+
     """
     return sessionmaker(bind=engine, expire_on_commit=False)
 
@@ -554,6 +555,7 @@ def init_database(
 
     Returns:
         Tuple of (engine, session_factory)
+
     """
     engine = create_db_engine(db_path, echo=echo)
     Base.metadata.create_all(engine)
@@ -570,6 +572,7 @@ def get_or_create_config(session: Session) -> Configuration:
 
     Returns:
         The Configuration instance (always id=1)
+
     """
     config = session.get(Configuration, 1)
     if config is None:

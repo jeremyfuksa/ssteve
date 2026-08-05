@@ -11,15 +11,17 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, Dict, Any
+from typing import TYPE_CHECKING, Any
 
 from PIL import Image
 from PIL.ExifTags import TAGS
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
+
     from sstv_core.database.models import SSTVImage
 
 logger = logging.getLogger(__name__)
@@ -35,7 +37,7 @@ KNOWN_SSTV_MODES = {
 }
 
 
-def parse_image_metadata(filepath: Path) -> Dict[str, Any]:
+def parse_image_metadata(filepath: Path) -> dict[str, Any]:
     """Parse metadata from image filename and EXIF data.
 
     Filename format: YYYYMMDD_HHMMSS_MODE_CALLSIGN.jpg
@@ -55,8 +57,9 @@ def parse_image_metadata(filepath: Path) -> Dict[str, Any]:
             - operator_name: str or None (from EXIF Artist tag)
             - comments: str or None (from EXIF ImageDescription)
             - is_received: bool (True by default, False if in "transmitted" dir)
+
     """
-    metadata: Dict[str, Any] = {
+    metadata: dict[str, Any] = {
         "timestamp": None,
         "mode": "Unknown",
         "callsign": None,
@@ -101,7 +104,7 @@ def parse_image_metadata(filepath: Path) -> Dict[str, Any]:
     return metadata
 
 
-def _parse_filename(filename_stem: str) -> Optional[Dict[str, Any]]:
+def _parse_filename(filename_stem: str) -> dict[str, Any] | None:
     """Parse SSTV metadata from filename.
 
     Expected format: YYYYMMDD_HHMMSS_MODE_CALLSIGN
@@ -112,6 +115,7 @@ def _parse_filename(filename_stem: str) -> Optional[Dict[str, Any]]:
 
     Returns:
         Dict with parsed fields, or None if format doesn't match
+
     """
     # Pattern: YYYYMMDD_HHMMSS_MODE_CALLSIGN
     # MODE and CALLSIGN are optional
@@ -124,7 +128,7 @@ def _parse_filename(filename_stem: str) -> Optional[Dict[str, Any]]:
 
     date_str, time_str, mode, callsign = match.groups()
 
-    metadata: Dict[str, Any] = {}
+    metadata: dict[str, Any] = {}
 
     # Parse timestamp
     try:
@@ -161,7 +165,7 @@ def _parse_filename(filename_stem: str) -> Optional[Dict[str, Any]]:
     return metadata
 
 
-def _extract_exif_metadata(filepath: Path) -> Optional[Dict[str, Any]]:
+def _extract_exif_metadata(filepath: Path) -> dict[str, Any] | None:
     """Extract metadata from image EXIF data.
 
     Args:
@@ -169,6 +173,7 @@ def _extract_exif_metadata(filepath: Path) -> Optional[Dict[str, Any]]:
 
     Returns:
         Dict with EXIF metadata, or None if extraction fails
+
     """
     try:
         with Image.open(filepath) as img:
@@ -177,7 +182,7 @@ def _extract_exif_metadata(filepath: Path) -> Optional[Dict[str, Any]]:
             if not exif_data:
                 return None
 
-            metadata: Dict[str, Any] = {}
+            metadata: dict[str, Any] = {}
 
             # Extract relevant EXIF tags
             for tag_id, value in exif_data.items():
@@ -227,10 +232,11 @@ class ImageImporter:
 
         Args:
             session: Active SQLAlchemy session for database operations
+
         """
         self._session = session
 
-    def import_image(self, filepath: Path) -> Optional[SSTVImage]:
+    def import_image(self, filepath: Path) -> SSTVImage | None:
         """Import a new image to the database.
 
         Extracts metadata from filename and EXIF data, creates database record.
@@ -241,6 +247,7 @@ class ImageImporter:
 
         Returns:
             Created SSTVImage instance, or None if import failed/skipped
+
         """
         from sstv_core.database.models import SSTVImage
 
@@ -287,7 +294,7 @@ class ImageImporter:
             logger.error("Failed to create database record for %s: %s", filepath, e, exc_info=True)
             return None
 
-    def update_image_metadata(self, filepath: Path) -> Optional[SSTVImage]:
+    def update_image_metadata(self, filepath: Path) -> SSTVImage | None:
         """Update metadata for an existing image.
 
         Re-extracts metadata from file and updates database record.
@@ -297,6 +304,7 @@ class ImageImporter:
 
         Returns:
             Updated SSTVImage instance, or None if update failed
+
         """
         from sstv_core.database.models import SSTVImage
 
@@ -342,6 +350,7 @@ class ImageImporter:
 
         Returns:
             True if image was removed, False if not found or error occurred
+
         """
         from sstv_core.database.models import SSTVImage
 
@@ -367,7 +376,7 @@ class ImageImporter:
             logger.error("Failed to remove database record for %s: %s", filepath, e, exc_info=True)
             return False
 
-    def move_image(self, src_path: Path, dest_path: Path) -> Optional[SSTVImage]:
+    def move_image(self, src_path: Path, dest_path: Path) -> SSTVImage | None:
         """Update database record when an image is moved/renamed.
 
         Args:
@@ -376,6 +385,7 @@ class ImageImporter:
 
         Returns:
             Updated SSTVImage instance, or None if update failed
+
         """
         from sstv_core.database.models import SSTVImage
 
@@ -405,7 +415,12 @@ class ImageImporter:
 
             self._session.commit()
 
-            logger.info("Moved image in database: %s -> %s (id=%d)", src_path.name, dest_path.name, image.id)
+            logger.info(
+                "Moved image in database: %s -> %s (id=%d)",
+                src_path.name,
+                dest_path.name,
+                image.id,
+            )
             return image
 
         except Exception as e:
@@ -417,7 +432,7 @@ class ImageImporter:
         self,
         directory: Path,
         recursive: bool = True,
-        progress_callback: Optional[callable] = None,
+        progress_callback: Callable[[int, int], None] | None = None,
     ) -> tuple[int, int, list[str]]:
         """Import all images from a directory.
 
@@ -428,6 +443,7 @@ class ImageImporter:
 
         Returns:
             Tuple of (imported_count, skipped_count, error_list)
+
         """
         if not directory.exists():
             raise FileNotFoundError(f"Directory does not exist: {directory}")
@@ -436,7 +452,7 @@ class ImageImporter:
             raise NotADirectoryError(f"Path is not a directory: {directory}")
 
         # Find all image files
-        image_files = []
+        image_files: list[Path] = []
         for ext in [".jpg", ".jpeg", ".png", ".bmp"]:
             if recursive:
                 image_files.extend(directory.rglob(f"*{ext}"))

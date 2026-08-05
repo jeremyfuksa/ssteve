@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import numpy as np
 from PIL import Image
@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 class ImageSaveError(Exception):
     """Raised when image save operations fail."""
+
     pass
 
 
@@ -32,7 +33,7 @@ class ImageSaver:
     - Database stores metadata only (filepath, mode, timestamp, etc.)
     """
 
-    SUPPORTED_FORMATS = {"png", "jpg", "jpeg", "webp"}
+    SUPPORTED_FORMATS: ClassVar[set[str]] = {"png", "jpg", "jpeg", "webp"}
     DEFAULT_FORMAT = "png"
 
     def __init__(
@@ -47,13 +48,16 @@ class ImageSaver:
             base_directory: Base directory for image storage
             auto_save_enabled: Whether to automatically save images
             file_format: Image format (png, jpg, webp)
+
         """
         self._base_dir = Path(base_directory)
         self._auto_save = auto_save_enabled
         self._format = file_format.lower()
 
         if self._format not in self.SUPPORTED_FORMATS:
-            raise ValueError(f"Unsupported format: {file_format}. Use one of {self.SUPPORTED_FORMATS}")
+            raise ValueError(
+                f"Unsupported format: {file_format}. Use one of {self.SUPPORTED_FORMATS}"
+            )
 
         # Ensure directories exist
         self._received_dir = self._base_dir / "received"
@@ -88,7 +92,7 @@ class ImageSaver:
         image_array: np.ndarray,
         mode: str,
         is_transmitted: bool = False,
-        custom_filename: Optional[str] = None,
+        custom_filename: str | None = None,
         quality: int = 95,
     ) -> Path:
         """Save image array to filesystem.
@@ -105,6 +109,7 @@ class ImageSaver:
 
         Raises:
             ImageSaveError: If save fails
+
         """
         # Determine target directory
         target_dir = self._transmitted_dir if is_transmitted else self._received_dir
@@ -125,7 +130,7 @@ class ImageSaver:
             image = Image.fromarray(image_array, mode="RGB")
 
             # Save with appropriate options
-            save_kwargs = {}
+            save_kwargs: dict[str, Any] = {}
             if self._format in ("jpg", "jpeg"):
                 save_kwargs["quality"] = quality
                 save_kwargs["optimize"] = True
@@ -143,14 +148,14 @@ class ImageSaver:
 
     def save_with_metadata(
         self,
-        session: "Session",
+        session: Session,
         image_array: np.ndarray,
         mode: str,
         is_transmitted: bool = False,
-        callsign: Optional[str] = None,
-        snr: Optional[float] = None,
-        frequency: Optional[float] = None,
-        custom_filename: Optional[str] = None,
+        callsign: str | None = None,
+        snr: float | None = None,
+        frequency: float | None = None,
+        custom_filename: str | None = None,
     ) -> tuple[Path, int]:
         """Save image and create database record.
 
@@ -166,6 +171,7 @@ class ImageSaver:
 
         Returns:
             Tuple of (filepath, database_id)
+
         """
         from sstv_core.database.models import SSTVImage
 
@@ -197,7 +203,7 @@ class ImageSaver:
 
     def list_images(
         self,
-        is_transmitted: Optional[bool] = None,
+        is_transmitted: bool | None = None,
         limit: int = 100,
     ) -> list[Path]:
         """List saved images.
@@ -208,6 +214,7 @@ class ImageSaver:
 
         Returns:
             List of image file paths, newest first
+
         """
         if is_transmitted is None:
             dirs = [self._received_dir, self._transmitted_dir]
@@ -216,7 +223,7 @@ class ImageSaver:
         else:
             dirs = [self._received_dir]
 
-        images = []
+        images: list[Path] = []
         for d in dirs:
             for ext in self.SUPPORTED_FORMATS:
                 images.extend(d.glob(f"*.{ext}"))
@@ -233,6 +240,7 @@ class ImageSaver:
 
         Returns:
             True if deleted, False if not found
+
         """
         path = Path(filepath)
 

@@ -1,23 +1,22 @@
-"""
-Image gallery endpoints.
+"""Image gallery endpoints.
 
 Handles:
 - GET /images - List images with pagination and filtering
 - GET /images/{id} - Get specific image metadata
 """
 
-from typing import Optional
+import logging
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
-from sstv_core.api.main import get_db_session
 from sstv_core.api.image_ids import db_image_id_to_uuid
+from sstv_core.api.main import get_db_session
+from sstv_core.api.models import ImageListResponse, ImageMetadata, SSTVMode
 
-from sstv_core.api.models import ImageMetadata, ImageListResponse, SSTVMode
-
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/images", tags=["images"])
 
@@ -42,7 +41,8 @@ def _db_image_to_api(db_image) -> ImageMetadata:
         with Image.open(db_image.filepath) as img:
             width, height = img.size
     except Exception:
-        pass  # Use defaults if can't read file
+        # Use default dimensions if the file can't be read
+        logger.debug("Couldn't read image dimensions from %s", db_image.filepath)
 
     return ImageMetadata(
         id=db_image_id_to_uuid(db_image.id),
@@ -62,13 +62,14 @@ def _db_image_to_api(db_image) -> ImageMetadata:
 async def list_images(
     limit: int = Query(default=20, ge=1, le=100, description="Number of images per page"),
     offset: int = Query(default=0, ge=0, description="Pagination offset"),
-    direction: Optional[str] = Query(default=None, pattern="^(rx|tx)$", description="Filter by direction"),
-    mode: Optional[SSTVMode] = Query(default=None, description="Filter by SSTV mode"),
-    callsign: Optional[str] = Query(default=None, description="Filter by callsign"),
+    direction: str | None = Query(
+        default=None, pattern="^(rx|tx)$", description="Filter by direction"
+    ),
+    mode: SSTVMode | None = Query(default=None, description="Filter by SSTV mode"),
+    callsign: str | None = Query(default=None, description="Filter by callsign"),
     session: Session = Depends(get_db_session),
 ) -> ImageListResponse:
-    """
-    List images with pagination and optional filtering.
+    """List images with pagination and optional filtering.
 
     Supports filtering by:
     - Direction: "rx" (received) or "tx" (transmitted)
@@ -85,7 +86,7 @@ async def list_images(
         callsign: Filter by operator callsign
     """
     from sstv_core.database.models import SSTVImage
-    
+
     # Build query
     query = session.query(SSTVImage)
 
@@ -128,8 +129,7 @@ async def get_image(
     image_id: UUID,
     session: Session = Depends(get_db_session),
 ) -> ImageMetadata:
-    """
-    Get metadata for a specific image.
+    """Get metadata for a specific image.
 
     Returns detailed information about the image including:
     - File path and dimensions
@@ -140,17 +140,18 @@ async def get_image(
 
     Raises:
         404 Not Found: If image doesn't exist
+
     """
     from sstv_core.database.models import SSTVImage
-    
+
     # Since UUIDs are deterministic (uuid5), we need to find matching database entry
     # TODO: Add UUID column to database for efficient lookups
     all_images = session.query(SSTVImage).all()
-    
+
     for db_image in all_images:
         if db_image_id_to_uuid(db_image.id) == image_id:
             return _db_image_to_api(db_image)
-    
+
     # Not found
     raise HTTPException(
         status_code=status.HTTP_404_NOT_FOUND,

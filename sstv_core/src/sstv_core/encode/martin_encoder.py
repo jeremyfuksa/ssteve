@@ -12,8 +12,8 @@ Martin M1 specifications:
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import Iterator, Optional
 
 import numpy as np
 
@@ -64,7 +64,7 @@ class EncoderProgress:
 class MartinM1Encoder:
     """Encodes RGB images to Martin M1 SSTV audio."""
 
-    def __init__(self, config: Optional[MartinM1EncoderConfig] = None):
+    def __init__(self, config: MartinM1EncoderConfig | None = None):
         self._config = config or MartinM1EncoderConfig()
         self._phase = 0.0
         self._lines_encoded = 0
@@ -75,7 +75,7 @@ class MartinM1Encoder:
 
     def _generate_tone(self, freq: float, num_samples: int) -> np.ndarray:
         """Generate a pure tone at the specified frequency.
-        
+
         Maintains phase continuity across calls for smooth transitions.
         """
         t = (np.arange(num_samples) + self._phase) / self._config.sample_rate
@@ -86,28 +86,31 @@ class MartinM1Encoder:
     def _luma_to_freq(self, luma: int) -> float:
         """Convert luminance value (0-255) to frequency (1500-2300 Hz)."""
         normalized = luma / 255.0
-        return self._config.black_freq + normalized * (self._config.white_freq - self._config.black_freq)
+        return self._config.black_freq + normalized * (
+            self._config.white_freq - self._config.black_freq
+        )
 
     def _encode_color_line(self, pixels: np.ndarray) -> np.ndarray:
         """Encode a color channel line to audio samples.
-        
+
         Args:
             pixels: Array of 320 pixel values (0-255)
-            
+
         Returns:
             Audio samples for the color line
+
         """
         cfg = self._config
         samples_per_pixel = cfg.samples_per_color_line / len(pixels)
         audio = []
-        
+
         for i, pixel in enumerate(pixels):
             freq = self._luma_to_freq(pixel)
             start_sample = int(i * samples_per_pixel)
             end_sample = int((i + 1) * samples_per_pixel)
             num_samples = end_sample - start_sample
             audio.append(self._generate_tone(freq, num_samples))
-            
+
         return np.concatenate(audio)
 
     def encode_scanline(self, rgb_row: np.ndarray, line_number: int) -> np.ndarray:
@@ -155,6 +158,7 @@ class MartinM1Encoder:
 
         Returns:
             Audio samples for complete image
+
         """
         if image.shape != (self._config.height, self._config.width, 3):
             logger.warning("Image size mismatch: expected (%d, %d, 3), got %s",
