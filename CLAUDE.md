@@ -17,7 +17,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `sstv_desktop/` — placeholder only (README, no code yet); future Tauri/React shell
 - `docs/` — specifications and status (see "Docs to Reference" below)
 - `.claude/agents/ssteve-backend-dev.md` — the one repo-defined agent (Python backend work)
-- `AGENTS.md` — build commands and code style conventions (canonical for style detail)
 
 **Key principle:** the core is 100% headless and UI-agnostic. All frontend communication happens via REST API and WebSocket. Never couple engine code to UI assumptions.
 
@@ -91,6 +90,13 @@ A December 2025 multi-perspective review of the UI settled these points (the rev
 
 Design targets four archetypes: Makers (scriptable/headless), Activators (POTA/SOTA field ops), Preppers ("just works"), Old Guard (MMSSTV migrants).
 
+**The visual world is an open decision.** Two contradictory palette/typography specs
+existed in this repo; neither was ever implemented, and both were removed on
+2026-08-05 (`docs/design/DESIGN_RATIONALE.md` deleted; the visual sections of
+`frontend-spec.md` §7.1/§19.6/§20.4–20.5 and `backend-spec.md` §7.1 stripped). Do not
+resurrect them from git history and do not treat any surviving color reference as
+binding. Interaction decisions survived and still apply; see `PRODUCT.md`.
+
 ## Definition of Done
 
 Work is done when, from `sstv_core/`:
@@ -101,13 +107,15 @@ Work is done when, from `sstv_core/`:
 
 ## Docs to Reference
 
+- `PRODUCT.md` — durable product truth: users, operating context, interaction
+  requirements, open decisions, and what must not be fabricated. Read before any UI work.
 - `docs/core/backend-spec.md` — backend architecture and REST/WebSocket API contract
-- `docs/core/frontend-spec.md` — UI components and design system spec
+- `docs/core/frontend-spec.md` — UI **interaction** spec (state machines, component
+  contracts, API mappings, viewport budget). Visual prescription was removed 2026-08-05.
 - `docs/core/openapi.json` — exported OpenAPI schema
-- `docs/design/DESIGN_RATIONALE.md` — UI design philosophy and voice
 - `docs/BETA_LAUNCH_PLAN.md` — beta roadmap and priorities
 - `docs/status/` — phase summaries and `PROJECT_STATUS.md` (what works / what doesn't)
 - `docs/features/` — FSKID, auto-RSV, and DSP feature specifications
-- `AGENTS.md` — canonical code style guide (imports, typing, logging, error handling, test patterns)
 
-GEMINI.md is retired; do not use it.
+Code style: match the surrounding module. `ruff check src/` and `mypy src/` are CI gates
+and enforce most of it mechanically.

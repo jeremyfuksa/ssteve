@@ -1124,14 +1124,14 @@ Every smart feature must have a fallback:
       "x": 50,
       "y": 150,
       "font_size": 24,
-      "color": "#7CFF8A"
+      "color": "#FFFFFF"
     },
     {
       "id": "frequency_mhz",
       "x": 50,
       "y": 200,
       "font_size": 18,
-      "color": "#F2B451",
+      "color": "#FFD24A",
       "format": "{value:.3f} MHz"
     },
     {
@@ -1139,7 +1139,7 @@ Every smart feature must have a fallback:
       "x": 50,
       "y": 230,
       "font_size": 16,
-      "color": "#5BD6E8",
+      "color": "#FFFFFF",
       "format": "{value:%Y-%m-%d %H:%M UTC}"
     },
     {
@@ -1147,7 +1147,7 @@ Every smart feature must have a fallback:
       "x": 50,
       "y": 260,
       "font_size": 16,
-      "color": "#7CFF8A",
+      "color": "#FFFFFF",
       "format": "SNR: {value}dB"
     }
   ]
@@ -2099,38 +2099,19 @@ sequenceDiagram
 
 ### 7.1 Visual Language
 
-**Color Palette (Instrument-Focused):**
-```typescript
-const BRAND_COLORS = {
-  // Primary: Cello (Slate Blue-Gray) - "Radio tuning"
-  CELLO: {
-    500: "#3B4E5F", // Base (approx)
-    900: "#1A232C"  // Deep
-  },
-  // Secondary: Terracotta (Earthy Red-Brown) - "Analog heritage"
-  TERRACOTTA: {
-    500: "#CCA48B", // Base (approx)
-    900: "#5C4234"  // Deep
-  },
-  // Backgrounds: Black Rock (Deep Earth Tones)
-  BLACK_ROCK: "#1A1D21", 
-  
-  // Status Indicators
-  SUCCESS_SAGE: "rgb(143, 177, 75)",       // Natural green
-  WARNING_AMBER: "rgb(249, 197, 116)",     // Warm glow
-  DANGER_FLAMINGO: "rgb(231, 83, 81)",     // Earthy red
-  INFO_CALX: "rgb(184, 197, 217)"          // Muted blue
-};
-```
+> **Removed 2026-08-05.** This section previously specified a color palette,
+> typography, and motion vocabulary for a UI that has never been built, and it
+> contradicted the palette in `frontend-spec.md` §7.1. Both have been stripped so the
+> visual world can be chosen deliberately. See `PRODUCT.md` § Brand Commitments — the
+> visual world is recorded there as an open decision.
+>
+> This is a **backend** specification; the UI's visual language does not belong in it
+> in any case.
 
-**Typography:**
-- System Font Stack (No web fonts)
-- Hierarchy: Medium weight headers, Monospace for data (Frequency, SNR)
-
-**Motion Language:**
-- **Easing:** Spring physics (mechanical instrument feel)
-- **Timing:** Deliberate, not instant (honoring SSTV's slow nature)
-- **Feedback:** "Instrument-like" settling into position
+The one durable constraint: numeric telemetry (frequency, SNR, RMS, scanline counts)
+must be rendered in a tabular/monospaced form so digits align and don't jitter as
+values update. That is a legibility requirement for reading live instrument data, not
+a typographic preference.
 
 ### 7.2 Terminology (Standardized)
 
@@ -2145,7 +2126,7 @@ const BRAND_COLORS = {
 ### 7.3 The Decode Animation
 
 - **Progressive:** Scan lines render in real-time
-- **Completion:** "Image Saved" success indicator (Green/Sage)
+- **Completion:** "Image Saved" success indicator
 - **Sound:** Subtle mechanical "complete" click or chime
 
 ### 7.4 First Run Experience
@@ -2243,13 +2224,14 @@ sstv-core --cli --verbose --mode ScottieS1 --rx
 ### 8.4 WCAG 2.1 Level AA Compliance
 
 **Contrast Ratios:**
-- Normal text: 4.5:1 minimum (white on #353535 = 19:1)
+- Normal text: 4.5:1 minimum
 - Large text: 3:1 minimum
 - UI components: 3:1 minimum
+- Sunlight operating mode raises the floor to 7:1 (AAA) — see `frontend-spec.md` §20.5
 
 **Keyboard Navigation:**
 - All functions accessible via keyboard
-- Focus indicators visible (2px blue outline)
+- Focus indicators always visible, at user-configurable intensity
 - Tab order follows logical flow
 
 **Screen Reader Support:**

@@ -1,9 +1,15 @@
 name: CI
 
+# Runs on pull requests only (2026-08-05). The push-to-main trigger was dropped to halve
+# Actions minutes on this private repo: merging a green PR re-ran the identical suite for
+# no new information.
+#
+# Caveat: branch protection is unavailable on this plan, so a direct push to main bypasses
+# CI entirely. Work must arrive via PR for this to gate anything.
+# `workflow_dispatch` allows a manual run from the Actions tab.
 on:
-  push:
-    branches: [ main ]
   pull_request:
+  workflow_dispatch:
 
 jobs:
   python-tests:
