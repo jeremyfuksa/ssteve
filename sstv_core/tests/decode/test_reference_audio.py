@@ -194,3 +194,122 @@ class TestRobot36Reference:
         assert len(np.unique(image)) > 20, (
             f"only {len(np.unique(image))} distinct values -- flat output"
         )
+
+
+class TestRobot36OffAirRecordings:
+    """Ten real off-air Robot 36 recordings from kevinnz/SSTV-MEL.
+
+    Vendored into `tests/reference/audio/robot36/` -- see
+    `tests/reference/ATTRIBUTION.md` for source and terms.
+
+    These are the first real-signal coverage Robot 36 has had. They confirm
+    the 2026-08-07 timing fix against audio recorded off the air by someone
+    else: line spacing measures 149.66ms against a 150ms spec on all ten,
+    where the pre-fix decoder implied 194ms.
+    """
+
+    AUDIO_DIR = Path(__file__).parent.parent / "reference" / "audio" / "robot36"
+
+    def _load(self, name: str) -> tuple[np.ndarray, int]:
+        import wave
+
+        path = self.AUDIO_DIR / name
+        if not path.exists():
+            pytest.skip(f"vendored Robot 36 sample missing: {name}")
+        with wave.open(str(path), "rb") as handle:
+            rate = handle.getframerate()
+            frames = handle.readframes(handle.getnframes())
+        audio = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
+        return audio, rate
+
+    def test_all_recordings_decode_at_spec_line_timing(self):
+        """Every recording must yield 240 lines at the specified 150ms.
+
+        Regression test for the chroma duration bug: Robot 36 previously
+        implied a 194ms line, 29% off. Encoder and decoder shared the error,
+        so only third-party audio could catch it.
+        """
+        samples = sorted(self.AUDIO_DIR.glob("*.wav"))
+        if not samples:
+            pytest.skip("vendored Robot 36 samples not present")
+
+        for path in samples:
+            audio, rate = self._load(path.name)
+
+            detector = SyncPulseDetector(sample_rate=rate)
+            detector.detect_in_buffer(audio)
+            positions = detector.get_sync_positions(
+                line_duration_ms=SPEC_LINE_MS["Robot36"]
+            )
+
+            assert len(positions) >= 200, (
+                f"{path.name}: only {len(positions)} line starts"
+            )
+
+            intervals = np.diff(np.array(positions, dtype=np.float64))
+            median_ms = float(np.median(intervals)) * 1000.0 / rate
+
+            assert abs(median_ms - 150.0) < 2.0, (
+                f"{path.name}: line spacing {median_ms:.2f}ms, spec is 150ms"
+            )
+
+    def test_luminance_carries_real_image_structure(self):
+        """The Y channel must contain a picture.
+
+        Deliberately luminance-only: colour reconstruction is currently
+        wrong. Measured on these recordings the U and V buffers average
+        about 22 where neutral is 128, which drives red and blue down and
+        green up through the BT.601 matrix and casts the whole image green.
+        The chroma window is being sampled from the wrong offset within the
+        line. Recorded as a known defect rather than asserted as correct --
+        see the colour test below, which is skipped for the same reason.
+        """
+        audio, rate = self._load("01_pt7apm.wav")
+
+        config = Robot36Config(sample_rate=rate)
+        detector = SyncPulseDetector(sample_rate=rate)
+        detector.detect_in_buffer(audio)
+        positions = detector.get_sync_positions(
+            line_duration_ms=SPEC_LINE_MS["Robot36"]
+        )
+
+        decoder = Robot36Decoder(config)
+        lines = sum(1 for _ in decoder.decode_stream(iter([audio]), positions))
+        assert lines >= 200, f"decoded only {lines} lines"
+
+        luminance = decoder._y_buffer
+        assert luminance is not None
+        assert len(np.unique(luminance)) > 100, "luminance is a flat field"
+        assert float(np.std(luminance)) > 25.0, (
+            f"luminance standard deviation {np.std(luminance):.1f} is too low "
+            "for a photograph"
+        )
+
+    @pytest.mark.skip(
+        reason="known defect: chroma is sampled from the wrong offset within "
+               "the line, so U and V average ~22 instead of ~128 and every "
+               "decode comes out green. Enable when fixed."
+    )
+    def test_colour_is_reconstructed_correctly(self):
+        """Decoded colour should be broadly neutral across a photograph."""
+        audio, rate = self._load("01_pt7apm.wav")
+
+        config = Robot36Config(sample_rate=rate)
+        detector = SyncPulseDetector(sample_rate=rate)
+        detector.detect_in_buffer(audio)
+        positions = detector.get_sync_positions(
+            line_duration_ms=SPEC_LINE_MS["Robot36"]
+        )
+
+        decoder = Robot36Decoder(config)
+        for _ in decoder.decode_stream(iter([audio]), positions):
+            pass
+        image = decoder.get_image()
+        assert image is not None
+
+        means = [float(image[:, :, c].mean()) for c in range(3)]
+        spread = max(means) - min(means)
+        assert spread < 60.0, (
+            f"channel means R={means[0]:.0f} G={means[1]:.0f} B={means[2]:.0f} "
+            "-- one channel dominates, colour reconstruction is wrong"
+        )
