@@ -87,6 +87,7 @@ class RXManager:
         stream_manager: AudioStreamManager,
         sample_rate: int = 48000,
         save_directory: Path | None = None,
+        slant_correction: bool = False,
     ):
         self._stream_manager = stream_manager
         self._sample_rate = sample_rate
@@ -102,8 +103,10 @@ class RXManager:
         # New: Correlation VIS detector (replaces Goertzel)
         self._correlation_vis = CorrelationVISDetector()
 
-        # New: Hough slant corrector for post-decode
+        # Hough slant corrector, opt-in. See the decision recorded at the call
+        # site in `receive` for the measurements behind the default.
         self._hough_corrector = HoughSlantCorrector()
+        self._slant_correction_enabled = slant_correction
 
     @property
     def state(self) -> RXState:
@@ -384,21 +387,33 @@ class RXManager:
 
                 image = decoder.get_image()
                 if image is not None:
-                    # NEW: Apply Hough slant correction
-                    logger.info("Applying Hough slant correction...")
-                    slant_result = self._hough_corrector.correct_slant(image)
-
-                    # Log correction results
-                    if slant_result.slant_angle_degrees != 0:
-                        logger.info(
-                            "Slant corrected: %.2f° (confidence: %.2f, lines: %d)",
-                            slant_result.slant_angle_degrees,
-                            slant_result.confidence,
-                            slant_result.num_lines_detected,
-                        )
-
-                    # Use corrected image if slant was detected
-                    corrected_image = slant_result.corrected_image
+                    # Hough slant correction is OFF by default. Measured on the
+                    # reference corpus with its confidence gate removed, it
+                    # lowered SSIM on 5 of 9 files and helped 1, by large
+                    # margins: winter_creek 0.499 -> 0.225, operator_shack
+                    # 0.343 -> 0.077. It infers a rotation angle from image
+                    # content and reports -13 to -15 degrees on pictures that
+                    # are not slanted, then resamples away detail the radio
+                    # actually delivered.
+                    #
+                    # With the shipped 0.7 confidence gate it is inert on every
+                    # reference file anyway (confidences measure 0.00-0.45), so
+                    # this changes no behaviour today -- it makes the default
+                    # honest and stops a latent regression if that gate is ever
+                    # lowered. See PRODUCT.md "Explicitly undecided" for the
+                    # timing-based alternative.
+                    corrected_image = image
+                    if self._slant_correction_enabled:
+                        logger.info("Applying Hough slant correction...")
+                        slant_result = self._hough_corrector.correct_slant(image)
+                        if slant_result.slant_angle_degrees != 0:
+                            logger.info(
+                                "Slant corrected: %.2f° (confidence: %.2f, lines: %d)",
+                                slant_result.slant_angle_degrees,
+                                slant_result.confidence,
+                                slant_result.num_lines_detected,
+                            )
+                        corrected_image = slant_result.corrected_image
 
                     saved_path = self._image_saver.save_image(
                         image_array=corrected_image,
