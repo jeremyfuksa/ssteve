@@ -232,6 +232,37 @@ not what it must look like.
     resort. Larger viewports gain breathing room, not a different layout.
 11. **Desktop-only.** SSTV needs audio I/O, PTT wiring, and a stable surface. There are
     no layouts below 1280px wide.
+12. **Every record says where it was heard.** Decided 2026-08-07, forced by SpyServer:
+    a decode from a remote receiver is not the same claim as a decode from the
+    operator's own antenna, and the interface must never let the two blur. Three record
+    types, distinguished everywhere they appear:
+
+    | Type | What happened | Export |
+    |---|---|---|
+    | **QSO** | Two-way exchange from the operator's station | ADIF, uploads |
+    | **Reception report** | Heard at the operator's own station; no exchange | SWL conventions only |
+    | **Remote reception report** | Heard at *someone else's* receiver via SpyServer | **Never as a QSO** |
+
+    - **Provenance is on the row, not in a detail panel.** An operator can switch
+      sources mid-session — three decodes off the local radio, three off a SpyServer in
+      Berlin — and the Log must remain readable a week later without the operator
+      recalling which was which.
+    - **Signal figures display, attributed.** SNR and slant on a remote decode are real
+      measurements of a real path; they are simply not the operator's path. Show them
+      tied visibly to the receiver rather than suppressing them.
+    - **ADIF export hard-blocks remote receptions as QSOs.** Not a warning, not a
+      preference — a block. `qso_logger._format_qso_as_adif` currently emits
+      `QSL_RCVD: Y` whenever images are attached, which asserts a *confirmed two-way
+      contact*; a remote decode reaching that path would put contacts that never
+      happened into LoTW, eQSL, or Club Log. The failure escapes SSTeVe and lands in
+      shared infrastructure other operators depend on, which is why the boundary is
+      absolute.
+    - This follows the SWL-logging convention hams already have, rather than inventing
+      a parallel one: "I heard you" and "we worked each other" have always been separate
+      records, and the distinction is never blurred.
+    - **This is a craft requirement, not only a data one.** `DESIGN.md` argues the
+      interface is a record being typeset. A record that quietly conflates "I heard
+      this" with "someone in Germany heard this" is a dishonest record.
 
 ### Vocabulary
 
@@ -245,8 +276,16 @@ Operator-facing language, used consistently in UI, docs, and audio cues:
 | Signal strength | Signal Level / SNR |
 | Mode selection | SSTV Mode |
 | Image gallery | Log / Gallery |
+| Two-way exchange | QSO / Contact |
+| Heard, not worked | Reception Report |
+| Heard via someone else's receiver | Remote Reception |
+| Where a decode was heard | Source |
+| The operator's own antenna | My Station |
 
 Modes are named as operators name them: Scottie S1, Martin M1, Robot 36.
+
+"Worked" is reserved for two-way contacts. A decode the operator only listened to is
+"heard" — never "worked", and never "logged" without saying which kind of record.
 
 ### Explicitly undecided
 
@@ -271,7 +310,11 @@ serving the argument, not by existing in the backend.
   migration feature. It is how an operator's existing library survives the switch, and
   it serves problem #1 directly.
 - **QSO logging** (`smart_features/qso_logger.py`, QSO routes) — an operator running a
-  real station logs contacts. Promoted out of post-MVP.
+  real station logs contacts. Promoted out of post-MVP. **Needs schema work before it
+  ships:** the `QSO` model is a contact record end to end (`is_sent` "we initiated",
+  `report` for an exchanged RST, ADIF export asserting `QSL_RCVD`) with no way to
+  express "I only heard this." Interaction requirement 12 requires three record types
+  and a hard export block; today's schema can represent exactly one.
 - **FSKID and auto-RSV** (`decode/fsk_decoder.py`, `encode/fsk_generator.py`,
   `docs/features/`) — signal-path features a serious operator expects and a newcomer
   never notices. They belong to the record being accurate.
