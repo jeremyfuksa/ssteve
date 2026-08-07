@@ -29,7 +29,12 @@ class Robot36EncoderConfig:
     sync_duration_ms: float = 9.0
     porch_duration_ms: float = 3.0
     y_scan_duration_ms: float = 88.0
-    chroma_scan_duration_ms: float = 88.0
+    # Robot 36 subsamples colour: full-rate luminance, half-width chroma
+    # alternating R-Y and B-Y between lines. 88.0 here (a copy of the Y
+    # duration) made an encoded line 194ms against the specified 150ms, so
+    # SSTeVe transmitted audio no standards-compliant decoder could read.
+    # The matching decoder bug was fixed in 3314571.
+    chroma_scan_duration_ms: float = 44.0
     black_freq: float = 1500.0
     white_freq: float = 2300.0
     sync_freq: float = 1200.0
@@ -149,7 +154,7 @@ class Robot36Encoder:
     ) -> np.ndarray:
         """Encode a single scanline to audio.
 
-        Robot 36 line structure: sync + porch + Y + chroma + porch
+        Robot 36 line structure: sync + porch + Y + porch + porch + chroma
 
         Args:
             y_row: Y (luminance) channel values (320 pixels)
@@ -172,11 +177,12 @@ class Robot36Encoder:
         # Y channel
         audio_parts.append(self._encode_channel(y_row, cfg.samples_per_y_scan))
 
+        # Separation and chroma porches, between luminance and colour.
+        audio_parts.append(self._generate_tone(cfg.porch_freq, cfg.samples_per_porch))
+        audio_parts.append(self._generate_tone(cfg.porch_freq, cfg.samples_per_porch))
+
         # Chroma channel (U for even lines, V for odd lines)
         audio_parts.append(self._encode_channel(chroma_row, cfg.samples_per_chroma_scan))
-
-        # Back porch
-        audio_parts.append(self._generate_tone(cfg.porch_freq, cfg.samples_per_porch))
 
         self._lines_encoded = line_number + 1
         return np.concatenate(audio_parts)

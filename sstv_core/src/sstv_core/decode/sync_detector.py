@@ -125,10 +125,20 @@ class SyncPulseDetector:
         "Robot72": (300.0, 9.0),
     }
 
+    # Goertzel block length. 1ms holds barely one cycle of 1200 Hz, too few to
+    # resolve it from the video band: measured at 48kHz, a pure 1500 Hz tone
+    # (black) scored 0.539 on the 1200 Hz filter against a 0.40 threshold, so
+    # dark picture content read as continuous sync and the detector found 32
+    # line starts in a 256-line image. At 2ms the same tone scores 0.000.
+    #
+    # 2ms is also the longest block that still fits inside the shortest sync
+    # pulse SSTeVe decodes (Martin M1, 4.862ms), leaving room to measure the
+    # pulse's duration rather than merely notice it.
+    BLOCK_DURATION_MS = 2.0
+
     def __init__(self, sample_rate: int = 48000) -> None:
         self._sample_rate = sample_rate
-        # Use small block for precise timing (1ms)
-        self._block_size = int(sample_rate / 1000)
+        self._block_size = max(4, int(sample_rate * self.BLOCK_DURATION_MS / 1000))
         self._filter = GoertzelFilter(self.SYNC_FREQ, sample_rate, self._block_size)
 
         self._in_sync = False

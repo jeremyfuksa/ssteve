@@ -287,5 +287,8 @@ class TestRobot36Encoder:
         from sstv_core.encode.robot_encoder import Robot36Encoder
         encoder = Robot36Encoder()
         duration = encoder.get_total_duration_sec()
-        # Robot 36: 240 lines * ~194ms/line = ~46.5 seconds
-        assert 45 < duration < 50
+        # Robot 36: 240 lines * 150ms/line = 36 seconds. The mode is named for
+        # that duration. This previously asserted 45-50s, matching a chroma
+        # scan of 88ms where the standard says 44ms -- the test encoded the
+        # bug, so fixing the encoder broke it.
+        assert 34 < duration < 38

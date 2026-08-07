@@ -201,23 +201,25 @@ class ScottieS1Decoder:
         samples_per_sep = int(cfg.sample_rate * cfg.separator_duration_ms / 1000)
         samples_per_color = cfg.samples_per_color_line
 
-        # Structure within a line, measured from the end of the sync pulse:
-        #   sep + green + sep + blue + sep + red
+        # Scottie transmits a line as: sep + GREEN + sep + BLUE + SYNC + RED,
+        # so the sync pulse ends a line rather than starting one. `decode_stream`
+        # slices from just after a detected sync, which means the buffer that
+        # arrives here begins with that line's RED channel and continues into
+        # the next line's green and blue:
         #
-        # Scottie's sync sits between blue and red in the transmitted stream,
-        # but `decode_stream` slices each line starting just after a detected
-        # sync, so by the time samples arrive here the sync has already been
-        # consumed and red follows blue across a plain separator. Verified
-        # against the reference corpus: adding the sync duration here shifts
-        # red by one channel and turns the image cyan.
-        green_start = samples_per_sep
+        #   red + sep + green + sep + blue
+        #
+        # Reading it as sep+green+sep+blue+sep+red -- the natural-looking
+        # order -- rotates every channel by one. Caught by round-tripping a
+        # solid red image, which decoded as solid green.
+        red_start = 0
+        red_end = red_start + samples_per_color
+
+        green_start = red_end + samples_per_sep
         green_end = green_start + samples_per_color
 
         blue_start = green_end + samples_per_sep
         blue_end = blue_start + samples_per_color
-
-        red_start = blue_end + samples_per_sep
-        red_end = red_start + samples_per_color
 
         # Extract and decode each channel
         green_samples = (
