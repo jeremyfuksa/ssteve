@@ -1,0 +1,468 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SSTeVe — SSTV for amateur radio</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<!--
+  SSTeVe — desktop shell prototype
+
+  THESIS: A decode is a table row being typeset in real time, not a progress bar
+  filling. This surface refuses the dark-glass instrument panel every SSTV
+  application ships (near-black chrome, cyan waterfall, glowing bezels).
+
+  OWN-WORLD: Departure board meets segmented travel document. Pale card stock
+  (#F4F1EA) and near-black ink (#16181C); one saturated yellow (#F5C518) reserved
+  for change and the primary action; dashed perforation rules divide fields;
+  every value sets in tabular figures on a strict column grid. Dark board panels
+  hold live listings. No cards, no rounded chrome, no glow.
+
+  STORY: The operator sees a signal arrive, watches the machine fill in what it
+  knows - mode, then callsign, then SNR - each field snapping into its column,
+  and sees at a glance which values are certain, which are guesses, and which a
+  human overrode.
+
+  FIRST VIEWPORT: Nav rail left; a top strip carrying station identity and live
+  status; the arriving decode occupies the upper field as one large image cell
+  in a row whose other cells typeset as they resolve; a ruled frequency strip
+  beneath it reads signal by density, never by hue; the control table sits below,
+  each control a row with AUTO and SET columns. Primary action (Listen) sits in
+  yellow at the control table's head. Fluid fill, no scroll at any viewport.
+
+  FORM: Boarding pass & gate board (challenger, user-pinned over the roll's
+  assigned Contact Sheet & Safelight). Grounded list position 4 of 7 (station
+  logbook, the nearest grounded relative). Seed key 6063ab5b.
+
+  FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
+-->
+
+<main id="app" data-view="capture" data-conditions="standard">
+
+  <!-- ============================ TOP STRIP ============================ -->
+  <header class="strip">
+    <div class="mark">SSTeVe</div>
+
+    <div class="station">
+      <span class="lbl">Station</span>
+      <span class="call" id="myCall">W0XYZ</span>
+    </div>
+
+    <div class="status">
+      <span class="lamp" id="lamp" data-on="idle" aria-hidden="true"></span>
+      <span class="lbl">Status</span>
+      <strong class="data" id="statusText">Idle</strong>
+      <span class="lbl" id="opLabel" hidden>Operation</span>
+      <strong class="data" id="opText" hidden></strong>
+    </div>
+
+    <div class="clock">
+      <span class="lbl">UTC</span>
+      <strong id="clock">--:--:--</strong>
+    </div>
+  </header>
+
+  <!-- ============================= NAV RAIL ============================ -->
+  <nav class="rail" aria-label="Main">
+    <button type="button" data-goto="capture" aria-current="page">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+        <path d="M2 12h3l2-7 3 14 3-11 2.5 8 2-4H22"/>
+      </svg>
+      Capture
+    </button>
+    <button type="button" data-goto="transmit">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+        <path d="M12 21V8"/><path d="M12 8 6 3M12 8l6-5"/><path d="M5 21h14"/>
+        <path d="M8.5 12.5 12 8l3.5 4.5"/>
+      </svg>
+      Transmit
+    </button>
+    <button type="button" data-goto="log">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+        <path d="M3 4h18v16H3z"/><path d="M3 9h18M3 14h18M9 4v16"/>
+      </svg>
+      Log
+    </button>
+
+    <div class="spacer"></div>
+
+    <!-- Settings replaces the Devices destination: set-once configuration is
+         a task you interrupt for, not a place you navigate to. -->
+    <button type="button" id="railSettings" title="Settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+        <circle cx="12" cy="12" r="3.2"/>
+        <path d="M12 2v2.6M12 19.4V22M2 12h2.6M19.4 12H22M4.9 4.9l1.9 1.9M17.2 17.2l1.9 1.9M19.1 4.9l-1.9 1.9M6.8 17.2l-1.9 1.9"/>
+      </svg>
+      Settings
+    </button>
+  </nav>
+
+  <!-- ============================== VIEWS ============================== -->
+  <div class="views">
+
+    <!-- Below the 1280px floor there is no layout, by decision. Say so
+         plainly rather than shipping a broken reflow. -->
+    <div class="below-floor">
+      <h2>I need a wider window.</h2>
+      <p>SSTeVe is built to sit beside your radio on a desktop or laptop screen —
+         the canvas, the waterfall, and the controls all need to stay visible at
+         once while you're decoding.</p>
+      <p class="data">Minimum 1280 &times; 720. Resize this window and I'll pick up
+         where you left off.</p>
+    </div>
+
+
+    <!-- ---------------------------- CAPTURE --------------------------- -->
+    <section class="view capture" data-view="capture" data-active aria-label="Capture">
+
+      <!-- THE ROW. The decode is one record being typeset: metadata fields
+           resolve left to right, and the image is the row's largest cell —
+           not a separate stage beneath a caption bar. -->
+      <div class="arrival" id="arrival" role="group" aria-label="Current decode">
+        <div class="fields">
+          <div class="cell"><span class="lbl">Time UTC</span><span class="val" id="aTime" data-conf="unknown">—</span></div>
+          <div class="cell"><span class="lbl">Mode</span><span class="val" id="aMode" data-conf="unknown">—</span></div>
+          <div class="cell"><span class="lbl">Callsign</span><span class="val" id="aCall" data-conf="unknown">—</span></div>
+          <div class="cell"><span class="lbl">SNR</span><span class="val" id="aSnr" data-conf="unknown">—</span></div>
+          <div class="cell"><span class="lbl">Slant</span><span class="val" id="aSlant" data-conf="unknown">—</span></div>
+          <div class="cell"><span class="lbl">Lines</span><span class="val" id="aLines" data-conf="unknown">—</span></div>
+          <div class="cell detect" id="detectCell" hidden>
+            <span class="lbl">Detection</span>
+            <span class="val" id="aDetect" data-conf="unknown">—</span>
+            <div class="segset" id="modeFallback" role="group" aria-label="Choose mode manually">
+              <button type="button" data-force="Scottie S1">Scottie S1</button>
+              <button type="button" data-force="Martin M1">Martin M1</button>
+              <button type="button" data-force="Robot 36">Robot 36</button>
+            </div>
+          </div>
+
+          <!-- Live signal readings close the record. They belong with the
+               capture data, not beside the buttons: these are things the
+               operator reads, not things they set. -->
+          <div class="cell measured">
+            <span class="lbl">Signal</span>
+            <span class="val" id="tSnr">—</span>
+            <div class="meter"><i id="mSnr"></i></div>
+          </div>
+          <div class="cell">
+            <span class="lbl">Sync</span>
+            <span class="val" id="tSync">—</span>
+          </div>
+
+          <!-- The session accumulating, below the current record. The column
+               is as tall as the canvas box, and a decode's metadata does not
+               fill it; rather than pad the gap, it holds what the operator
+               has actually caught tonight. -->
+          <div class="cell session">
+            <span class="lbl">This session</span>
+            <ul class="sessionlist" id="sessionList" aria-label="Captures this session"></ul>
+            <p class="sessionempty" id="sessionEmpty">Nothing caught yet.</p>
+          </div>
+        </div>
+
+        <!-- the image cell: the row's largest field -->
+        <!-- The waterfall sits directly above the canvas, in the same column
+             and at the same width. It is how the operator confirms they are
+             tuned; the picture below is what that tuning produces. Full-bleed
+             put the frequency axis on a different measure from the image it
+             describes, and broke the only column the layout has. -->
+        <div class="cell imagecell">
+          <div class="fall">
+            <div class="scale" aria-hidden="true">
+              <span>300</span><span>1200</span><span>1900</span><span>2300</span><span>3000 Hz</span>
+            </div>
+            <canvas id="fall" height="120" aria-label="Audio spectrum, 300 to 3000 hertz"></canvas>
+          </div>
+
+          <div class="frame">
+            <canvas id="canvas" width="320" height="256" role="img"
+                    aria-label="Decode canvas. No image received yet."></canvas>
+            <span class="pct" id="pct" hidden>0%</span>
+            <span class="scaleNote" id="scaleNote" hidden></span>
+            <span class="idle-note" id="idleNote">Press Listen to begin</span>
+          </div>
+        </div>
+
+        <!-- RIGHT COLUMN: everything the operator touches.
+             The three live controls sit above the actions because gain and
+             squelch auto-detection fails 30-40% and 20% of the time
+             (frontend-spec.md 20.3), and SSTV is one-shot: a wrong gain at
+             second 20 of a 110-second decode must be fixable while the image
+             is still arriving. Everything set once and forgotten is in the
+             settings sheet instead. -->
+        <aside class="opcol" aria-label="Controls">
+          <div class="live" role="group" aria-label="Live signal controls">
+            <div class="livectl">
+              <span class="lbl">Gain</span>
+              <div class="row">
+                <input type="number" id="cGain" value="112" min="0" max="200"
+                       aria-label="Gain, percent">
+                <span class="unit">%</span>
+                <button type="button" class="revert" id="rGain" hidden>auto</button>
+              </div>
+              <div class="meter"><i id="mRms"></i></div>
+            </div>
+
+            <div class="livectl">
+              <span class="lbl">Squelch</span>
+              <div class="row">
+                <input type="number" id="cSquelch" value="-41" min="-60" max="0"
+                       aria-label="Squelch threshold, decibels">
+                <span class="unit">dB</span>
+                <button type="button" class="revert" id="rSquelch" hidden>auto</button>
+              </div>
+            </div>
+
+            <div class="livectl">
+              <span class="lbl">AFC</span>
+              <div class="segset" id="cAfc" role="group" aria-label="Automatic frequency control range">
+                <button type="button" data-afc="Off">Off</button>
+                <button type="button" data-afc="±50">±50</button>
+                <button type="button" data-afc="±100" aria-pressed="true">±100</button>
+                <button type="button" data-afc="±200">±200</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="acts">
+            <button class="btn" data-primary id="listenBtn" type="button">
+              <span id="listenLabel">Listen</span><kbd>F5</kbd>
+            </button>
+            <button class="btn" id="syncBtn" type="button" disabled>
+              <span>Manual sync</span><kbd>Space</kbd>
+            </button>
+            <button class="btn" id="sampleBtn" type="button">
+              <span>Sample decode</span><kbd>F9</kbd>
+            </button>
+          </div>
+        </aside>
+      </div>
+
+      <!-- The tray is now one line. The seven-row control table is gone: the
+           three controls that fail often enough to need live access moved to
+           the right column, and everything set once and forgotten moved to
+           the settings sheet. What remains is the choice the operator makes
+           per signal — which mode to decode, and which input to listen on. -->
+      <div class="tray">
+        <div class="trayitem">
+          <span class="lbl">SSTV mode</span>
+          <div class="segset" id="cMode" role="group" aria-label="SSTV mode">
+            <button type="button" data-mode="Auto" aria-pressed="true">Auto</button>
+            <button type="button" data-mode="Scottie S1">Scottie S1</button>
+            <button type="button" data-mode="Martin M1">Martin M1</button>
+            <button type="button" data-mode="Robot 36">Robot 36</button>
+          </div>
+        </div>
+
+        <div class="trayitem">
+          <span class="lbl">Input</span>
+          <div class="segset" id="cInput" role="group" aria-label="Input device">
+            <button type="button" data-input="Digirig" aria-pressed="true">Digirig</button>
+            <button type="button" data-input="SignaLink">SignaLink</button>
+            <button type="button" data-input="Built-in">Built-in</button>
+          </div>
+        </div>
+
+        <div class="trayitem trayend">
+          <span class="lbl">Conditions</span>
+          <div class="segset" id="cCond" role="group" aria-label="Operating conditions">
+            <button type="button" data-cond="standard" aria-pressed="true">Standard</button>
+            <button type="button" data-cond="night">Night</button>
+            <button type="button" data-cond="sun">Sunlight</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- --------------------------- TRANSMIT ---------------------------
+         Same shape as Capture: the record on the left, the picture in the
+         middle at the same fixed box, everything the operator touches on the
+         right. TX has no live-signal controls — nothing to correct mid-send —
+         so the right column is drive plus the two actions. -->
+    <section class="view txview" data-view="transmit" aria-label="Transmit">
+      <div class="arrival">
+        <div class="fields">
+          <div class="cell"><span class="lbl">Mode</span><span class="val" id="txMode" data-conf="certain">Scottie S1</span></div>
+          <div class="cell"><span class="lbl">Duration</span><span class="val" id="txDur" data-conf="certain">110 s</span></div>
+          <div class="cell"><span class="lbl">PTT</span><span class="val" id="txPtt" data-conf="certain">Serial RTS</span></div>
+          <div class="cell"><span class="lbl">Station ID</span><span class="val" data-conf="certain">FSKID + overlay</span></div>
+          <div class="cell"><span class="lbl">Pre / post</span><span class="val" data-conf="certain">500 / 200 ms</span></div>
+          <div class="cell"><span class="lbl">State</span><span class="val" id="txState" data-conf="unknown">Ready</span></div>
+
+          <div class="cell session">
+            <span class="lbl">Choose image</span>
+            <div class="txgrid" id="txGrid"><!-- built by app.js --></div>
+          </div>
+        </div>
+
+        <div class="cell imagecell">
+          <div class="frame">
+            <canvas id="txCanvas" width="640" height="512" role="img" aria-label="Transmit image preview"></canvas>
+            <span class="overlay-note" id="txOverlay">W0XYZ</span>
+          </div>
+        </div>
+
+        <aside class="opcol" aria-label="Transmit controls">
+          <div class="live" role="group" aria-label="Transmit level">
+            <div class="livectl">
+              <span class="lbl">Drive</span>
+              <div class="row">
+                <input type="number" id="cDrive" value="85" min="0" max="100"
+                       aria-label="Transmit drive level, percent">
+                <span class="unit">%</span>
+              </div>
+            </div>
+            <div class="livectl">
+              <span class="lbl">FSKID</span>
+              <div class="segset" id="cFskid" role="group" aria-label="FSK station identification">
+                <button type="button" data-fskid="On" aria-pressed="true">On</button>
+                <button type="button" data-fskid="Off">Off</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="acts">
+            <button class="btn" data-primary id="txBtn" type="button"><span>Transmit</span><kbd>F6</kbd></button>
+            <button class="btn" data-danger id="txAbort" type="button" disabled><span>Abort</span><kbd>Esc</kbd></button>
+          </div>
+        </aside>
+      </div>
+
+      <div class="tray">
+        <div class="trayitem">
+          <span class="lbl">SSTV mode</span>
+          <div class="segset" id="cTxMode" role="group" aria-label="Transmit SSTV mode">
+            <button type="button" data-txmode="Scottie S1" aria-pressed="true">Scottie S1</button>
+            <button type="button" data-txmode="Martin M1">Martin M1</button>
+            <button type="button" data-txmode="Robot 36">Robot 36</button>
+          </div>
+        </div>
+
+        <div class="trayitem">
+          <span class="lbl">Output</span>
+          <div class="segset" id="cTxOut" role="group" aria-label="Output device">
+            <button type="button" data-txout="Digirig" aria-pressed="true">Digirig</button>
+            <button type="button" data-txout="SignaLink">SignaLink</button>
+            <button type="button" data-txout="Built-in">Built-in</button>
+          </div>
+        </div>
+
+        <div class="trayitem trayend">
+          <span class="lbl">PTT</span>
+          <div class="segset" id="cTxPtt" role="group" aria-label="PTT method">
+            <button type="button" data-txptt="Serial RTS" aria-pressed="true">Serial RTS</button>
+            <button type="button" data-txptt="Serial DTR">Serial DTR</button>
+            <button type="button" data-txptt="VOX">VOX</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ------------------------------ LOG -----------------------------
+         The gate board, sized to the same shell as everything else. Columns
+         are fixed so the tabular figures stay aligned; the body scrolls
+         internally, which is the one region permitted to (a session runs for
+         hours and the shell itself still never scrolls). -->
+    <section class="view logview" data-view="log" aria-label="Log">
+      <div class="section-head">
+        <span class="lbl">Received images — this session</span>
+        <span class="lbl" id="logCount">0 entries</span>
+      </div>
+      <div class="board">
+        <table>
+          <caption class="sr">Session log. Newest first.</caption>
+          <thead>
+            <tr>
+              <th scope="col">#</th><th scope="col">Time UTC</th><th scope="col">Mode</th>
+              <th scope="col">Callsign</th><th scope="col">SNR</th><th scope="col">Lines</th>
+              <th scope="col">Source</th><th scope="col">Image</th>
+            </tr>
+          </thead>
+          <tbody id="logBody"></tbody>
+        </table>
+        <div class="emptyboard" id="logEmpty">
+          <strong>No captures yet.</strong>
+          <span class="dim">Decodes land here as they complete. Try a sample decode to see how it works.</span>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- ========================== FIRST RUN ========================== -->
+  <div class="sheet" id="firstRun" role="dialog" aria-modal="true" aria-labelledby="frTitle" hidden>
+    <div class="pass">
+      <div class="body">
+        <h2 id="frTitle">Hey! I'm SSTeVe.</h2>
+        <p>I can help you receive and transmit SSTV images. Want to decode something?
+           You can start with your radio, or try a sample signal first — it runs through
+           the same pipeline a real signal does.</p>
+        <div class="acts">
+          <button class="btn" data-primary id="frSample" type="button"><span>Try a sample decode</span><kbd>F9</kbd></button>
+          <button class="btn" id="frDevices" type="button"><span>Set up devices</span></button>
+          <button class="btn" id="frClose" type="button"><span>Skip</span></button>
+        </div>
+      </div>
+      <div class="stub">
+        <div><span class="lbl">Station</span><div class="val">W0XYZ</div></div>
+        <div><span class="lbl">Band</span><div class="val">20 m</div></div>
+        <div><span class="lbl">Calling</span><div class="val">14.230</div></div>
+        <div><span class="lbl">Mode</span><div class="val">USB</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================== SETTINGS ==========================
+       Set-once controls only. Gain, squelch, and AFC are deliberately NOT
+       here: they fail 30-40% / 20% of the time (frontend-spec.md 20.3) and
+       SSTV is one-shot, so they live in the Capture right column where they
+       can be corrected while an image is still arriving. A modal is the right
+       shape for everything else, which is configured at the start of a
+       session and then left alone. -->
+  <div class="sheet" id="settings" role="dialog" aria-modal="true" aria-labelledby="setTitle" hidden>
+    <div class="panel">
+      <div class="panelhead">
+        <h2 id="setTitle">Settings</h2>
+        <button class="iconbtn" id="setClose" type="button" aria-label="Close settings">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="M5 5l14 14M19 5L5 19"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="panelbody">
+        <section class="setgroup">
+          <h3>Audio</h3>
+          <table class="settable">
+            <tbody id="setAudio"></tbody>
+          </table>
+        </section>
+
+        <section class="setgroup">
+          <h3>PTT &amp; station</h3>
+          <table class="settable">
+            <tbody id="setPtt"></tbody>
+          </table>
+        </section>
+      </div>
+
+      <div class="panelfoot">
+        <span class="dim">Gain, squelch, and AFC stay on the Capture screen — you'll need them mid-decode.</span>
+        <button class="btn" data-primary id="setDone" type="button"><span>Done</span><kbd>Esc</kbd></button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status" hidden>
+    <span class="what" id="toastWhat"></span>
+    <span class="next" id="toastNext"></span>
+  </div>
+
+  <p class="sr" role="status" aria-live="polite" id="live"></p>
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>

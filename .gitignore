@@ -132,3 +132,6 @@ sstv_core/.venv/
 
 # Alembic
 alembic/versions/*.pyc
+
+# Playwright MCP session output
+.playwright-mcp/
