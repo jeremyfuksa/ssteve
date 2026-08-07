@@ -115,9 +115,10 @@ standard and checkable without users.
 Two things a neighboring SSTV application could not truthfully copy:
 
 1. **A genuinely headless, API-first core.** The DSP engine is UI-agnostic and complete
-   on its own: REST + WebSocket contract, a CLI, and 452 passing tests. Any interface
-   is a client. Incumbent SSTV applications are monolithic desktop binaries where the
-   UI and the decoder are the same program.
+   on its own: REST + WebSocket contract, a CLI, and 452 passing tests — though see
+   §Evidence for what those tests do *not* cover. Any interface is a client. Incumbent
+   SSTV applications are monolithic desktop binaries where the UI and the decoder are
+   the same program.
 2. **Feedback designed into the signal path, not bolted onto the chrome.** Stereo
    sonification lets an operator tune by ear — panning a pilot tone by slant error,
    chiming on lock. That is a DSP feature, not an ARIA audit: it works because the
@@ -298,6 +299,38 @@ Modes are named as operators name them: Scottie S1, Martin M1, Robot 36.
 - **Watcher default directory** — with `image_save_directory` unset, the library watcher
   does not start. Whether it should default to `~/sstv_images` is an open product call.
 - **Beta date** — the January 2026 target lapsed; no new date is set.
+- **Timing-based slant correction — a candidate differentiator, not yet measured.**
+  Found 2026-08-07. Two slant systems exist and neither is what it appears:
+
+  - `decode/hough_slant_corrector.py` is the one that runs, wired at
+    `rx_manager.py:371`. It executes at Phase 5 (*save*), on the finished bitmap: it
+    infers a dominant angle from image content and rotates. **It has no tests.**
+  - `accessibility/slant_detector.py` measures drift from sync-pulse timing and reports
+    `drift_pixels_per_line` with a confidence figure. **It has no callers** — only its
+    `SlantErrorData` dataclass is used, borrowed by Hough to report results.
+  - The raw material is already in the decode path: `decode_stream()` receives
+    `sync_positions: list[int]` and computes line boundaries directly from consecutive
+    positions with no drift model (`scottie_decoder.py:287-297`).
+
+  **The hypothesis:** slant is a timing defect, not a geometric one — the transmitter's
+  clock and the receiver's disagree, so each scanline starts fractionally late and the
+  error accumulates. Correcting from the timing measurement means the error never
+  happens: no rotation, no resampling, and it works identically on a picture of a fence
+  and a picture of fog, because it never looks at the picture. Hough infers the
+  consequence after the fact, which is weakest exactly where photographs are least
+  structured (faces, foliage, sky) and can lock onto genuine diagonals in the subject.
+
+  **Why it could matter:** MMSSTV's slant handling is a manual slider the operator
+  nudges. "Straight pictures automatically, including on content where other decoders
+  fail" is a claim visible in a side-by-side screenshot, and it serves every operator
+  rather than a niche.
+
+  **Why it is listed as undecided rather than scoped:** it is a DSP theory that has not
+  been measured. This repo's history is a catalogue of confident unmeasured claims, and
+  this must not become another. Sequence agreed 2026-08-07: build the decode-quality
+  harness, baseline the current Hough path (including whether it ever *worsens* an
+  image), and only then prototype timing-based correction and compare on the same
+  corpus.
 
 ### Scope
 
@@ -398,12 +431,22 @@ overlay, PD/Wraase modes.
 
 - **Working backend** — 452 passing tests, zero exclusions; ruff and mypy clean and
   CI-gated. Runnable now: `cd sstv_core && uv run sstv-server` (127.0.0.1:8000).
+  **Caveat, found 2026-08-07: none of those tests measure decode quality.** The
+  integration tests assert HTTP status codes and session state (`201`, `200`, state in
+  `[...]`); not one compares a decoded pixel to an expected image. The `reference_images`
+  fixture in `tests/integration/test_decode_e2e.py` is defined and never used for
+  comparison. "452 passing" means the plumbing works, not that pictures come out right.
 - **API contract** — `docs/core/backend-spec.md` and `docs/core/openapi.json`
   (regenerate via `sstv_core/scripts/export_api_docs.py`). FastAPI also serves live
   interactive docs at `/docs` when the server is running.
-- **Reference audio and images** — `sstv_core/tests/reference/{audio,images}/`. Real
-  SSTV signals for the sample-decode onboarding flow and for UI development without a
-  radio attached.
+- **Reference audio and images** — `sstv_core/tests/reference/{audio,images}/`. Thirteen
+  real SSTV recordings with paired expected images across three sources: ARISS (real
+  satellite passes, noisy), Essex Ham (Martin M2 / Scottie S2), and MMSSTV (five Scottie
+  S1 files whose `*_expected.jpg` images are **ground truth from the incumbent
+  decoder**). Used today for the sample-decode onboarding flow and for UI development
+  without a radio attached. **Not yet used to verify a single decode** — this corpus is
+  the foundation for the decode-quality harness, and the reason a Hough-vs-timing
+  comparison can be settled by measurement rather than argument.
 - **Documented failure rates** for gain, squelch, and AFC auto-detection
   (`frontend-spec.md` §20.3) — from domain-expert review, not measured in the field.
 - **A running prototype and its design record** — `prototype/` plus `DESIGN.md`, with
