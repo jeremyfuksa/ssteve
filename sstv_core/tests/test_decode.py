@@ -456,3 +456,66 @@ class TestModeTimings:
             + r.samples_per_chroma_scan
         )
         assert robot_used <= r.total_line_samples
+
+
+class TestChannelWindow:
+    """Slicing a channel out of a scanline that may be slightly short."""
+
+    def test_takes_what_is_present_when_the_line_is_short(self):
+        """A line a few samples short must still yield its channel.
+
+        Regression test for whole-channel loss. Decoders guarded windows with
+        `if end <= len(line)` and substituted zeros otherwise. Line lengths
+        come from measured sync spacing and are routinely a few samples under
+        nominal, so a three-sample shortfall zeroed an entire colour channel.
+        """
+        import numpy as np
+
+        from sstv_core.decode.demodulator import channel_window
+
+        line = np.ones(997, dtype=np.float32)
+
+        window = channel_window(line, 500, 1000)
+
+        assert len(window) == 497, "should return the 497 samples that exist"
+        assert np.all(window == 1.0)
+
+    def test_returns_the_full_window_when_present(self):
+        import numpy as np
+
+        from sstv_core.decode.demodulator import channel_window
+
+        line = np.arange(1000, dtype=np.float32)
+        window = channel_window(line, 100, 200)
+
+        assert len(window) == 100
+        assert window[0] == 100.0
+
+    def test_gives_up_when_too_little_is_present(self):
+        """A genuinely truncated line must not invent a channel."""
+        import numpy as np
+
+        from sstv_core.decode.demodulator import channel_window
+
+        line = np.ones(510, dtype=np.float32)
+
+        # Only 10 of 500 requested samples exist.
+        assert len(channel_window(line, 500, 1000)) == 0
+
+    def test_missing_channel_demodulates_to_neutral_not_black(self):
+        """An absent channel must read as mid-scale.
+
+        Zero is fully saturated for a colour-difference channel, so returning
+        black would paint a vivid cast across the picture. Mid-scale reads as
+        "no information", which is the truth.
+        """
+        import numpy as np
+
+        from sstv_core.decode.demodulator import demodulate_channel
+
+        pixels = demodulate_channel(
+            np.zeros(0, dtype=np.float32), 22050, 320, 1500.0, 2300.0
+        )
+
+        assert len(pixels) == 320
+        assert np.all(pixels == 128)

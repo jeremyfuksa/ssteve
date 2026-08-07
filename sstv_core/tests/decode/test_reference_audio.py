@@ -256,13 +256,9 @@ class TestRobot36OffAirRecordings:
     def test_luminance_carries_real_image_structure(self):
         """The Y channel must contain a picture.
 
-        Deliberately luminance-only: colour reconstruction is currently
-        wrong. Measured on these recordings the U and V buffers average
-        about 22 where neutral is 128, which drives red and blue down and
-        green up through the BT.601 matrix and casts the whole image green.
-        The chroma window is being sampled from the wrong offset within the
-        line. Recorded as a known defect rather than asserted as correct --
-        see the colour test below, which is skipped for the same reason.
+        Luminance and chroma are checked separately so a failure says which
+        half broke: colour was lost entirely for a while (see the colour test
+        below) while luminance stayed correct throughout.
         """
         audio, rate = self._load("01_pt7apm.wav")
 
@@ -285,13 +281,18 @@ class TestRobot36OffAirRecordings:
             "for a photograph"
         )
 
-    @pytest.mark.skip(
-        reason="known defect: chroma is sampled from the wrong offset within "
-               "the line, so U and V average ~22 instead of ~128 and every "
-               "decode comes out green. Enable when fixed."
-    )
     def test_colour_is_reconstructed_correctly(self):
-        """Decoded colour should be broadly neutral across a photograph."""
+        """Decoded colour must be broadly neutral across a photograph.
+
+        Regression test for a whole-channel loss. Each decoder guarded its
+        channel windows with `if end <= len(line)` and substituted zeros
+        otherwise. Line lengths come from measured sync spacing, so a line is
+        routinely a few samples shorter than nominal -- here 1650 against a
+        computed 1653 -- and that three-sample shortfall zeroed the entire
+        chroma channel. U and V went to 0 instead of the neutral 128, which
+        through BT.601 drives red and blue down and green up: every decode
+        came out vividly green. See `demodulator.channel_window`.
+        """
         audio, rate = self._load("01_pt7apm.wav")
 
         config = Robot36Config(sample_rate=rate)

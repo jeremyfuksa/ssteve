@@ -104,6 +104,49 @@ def frequencies_to_luma(
     return np.clip(normalized * 255.0, 0.0, 255.0).astype(np.uint8)
 
 
+def channel_window(
+    line_samples: np.ndarray,
+    start: int,
+    end: int,
+    *,
+    min_fraction: float = 0.5,
+) -> np.ndarray:
+    """Slice one channel's samples out of a scanline, tolerating a short line.
+
+    Args:
+        line_samples: Audio for the whole scanline.
+        start: First sample of this channel.
+        end: One past the last sample of this channel.
+        min_fraction: Least fraction of the window that must be present for
+            the slice to be considered usable.
+
+    Returns:
+        The available samples, or an empty array when too little is present.
+
+    Line boundaries come from measured sync spacing, so a scanline is
+    routinely a few samples shorter than the nominal geometry -- transmitter
+    and receiver clock mismatch alone accounts for it. Decoders previously
+    guarded each channel with `if end <= len(line)` and substituted zeros
+    otherwise, which turned a three-sample shortfall into a wholly zeroed
+    colour channel. In Robot 36 that drove U and V to 0 rather than the
+    neutral 128 and cast every decode green.
+
+    Taking the available samples is right because the demodulator resamples
+    to the output width anyway: a channel missing its last 0.2% produces a
+    pixel row stretched by 0.2%, which is invisible. Returning empty below
+    `min_fraction` keeps a genuinely truncated line from inventing detail.
+
+    """
+    if start >= len(line_samples):
+        return np.zeros(0, dtype=line_samples.dtype)
+
+    available = line_samples[start:min(end, len(line_samples))]
+    if len(available) < (end - start) * min_fraction:
+        return np.zeros(0, dtype=line_samples.dtype)
+
+    return available
+
+
 def demodulate_channel(
     samples: np.ndarray,
     sample_rate: int,
@@ -130,7 +173,11 @@ def demodulate_channel(
 
     """
     if len(samples) == 0:
-        return np.zeros(width, dtype=np.uint8)
+        # Mid-scale, not zero. For a colour-difference channel zero is fully
+        # saturated, so a missing channel would paint a vivid cast across the
+        # image; mid-scale is neutral and reads as "no information", which is
+        # the truth. For luminance it is mid-grey, which is equally honest.
+        return np.full(width, 128, dtype=np.uint8)
 
     freqs = instantaneous_frequency(samples, sample_rate)
 

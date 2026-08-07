@@ -19,7 +19,13 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from sstv_core.decode.demodulator import demodulate_channel, instantaneous_frequency
+from sstv_core.decode.demodulator import (
+    channel_window as _window,
+)
+from sstv_core.decode.demodulator import (
+    demodulate_channel,
+    instantaneous_frequency,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -252,17 +258,16 @@ class Robot36Decoder:
         chroma_start = y_end + 2 * cfg.samples_per_porch
         chroma_end = chroma_start + cfg.samples_per_chroma_scan
 
-        # Extract and decode channels
-        y_samples = (
-            line_samples[y_start:y_end]
-            if y_end <= len(line_samples)
-            else np.zeros(cfg.samples_per_y_scan)
-        )
-        chroma_samples = (
-            line_samples[chroma_start:chroma_end]
-            if chroma_end <= len(line_samples)
-            else np.zeros(cfg.samples_per_chroma_scan)
-        )
+        # Take whatever of each window is actually present rather than
+        # discarding the channel when it overruns. Line lengths come from
+        # measured sync spacing and are routinely a few samples short of the
+        # nominal figure -- clock mismatch alone accounts for it. The previous
+        # all-or-nothing guard turned a 3-sample shortfall into a wholly zero
+        # chroma channel, which drove U and V to 0 instead of the neutral 128
+        # and cast every decode green. A slightly short channel decodes fine;
+        # the demodulator resamples to `width` regardless.
+        y_samples = _window(line_samples, y_start, y_end)
+        chroma_samples = _window(line_samples, chroma_start, chroma_end)
 
         y_channel = self._decode_channel(y_samples, cfg.width)
         chroma = self._decode_channel(chroma_samples, cfg.width)

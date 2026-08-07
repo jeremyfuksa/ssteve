@@ -18,7 +18,13 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from sstv_core.decode.demodulator import demodulate_channel, instantaneous_frequency
+from sstv_core.decode.demodulator import (
+    channel_window as _window,
+)
+from sstv_core.decode.demodulator import (
+    demodulate_channel,
+    instantaneous_frequency,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -220,22 +226,11 @@ class MartinM1Decoder:
         red_start = offset
         red_end = red_start + samples_per_color
 
-        # Extract and decode each channel
-        green_samples = (
-            line_samples[green_start:green_end]
-            if green_end <= len(line_samples)
-            else np.zeros(samples_per_color)
-        )
-        blue_samples = (
-            line_samples[blue_start:blue_end]
-            if blue_end <= len(line_samples)
-            else np.zeros(samples_per_color)
-        )
-        red_samples = (
-            line_samples[red_start:red_end]
-            if red_end <= len(line_samples)
-            else np.zeros(samples_per_color)
-        )
+        # Take whatever of each window is present; see channel_window for why
+        # an all-or-nothing guard silently destroyed channels on short lines.
+        green_samples = _window(line_samples, green_start, green_end)
+        blue_samples = _window(line_samples, blue_start, blue_end)
+        red_samples = _window(line_samples, red_start, red_end)
 
         green = self._decode_color_channel(green_samples)
         blue = self._decode_color_channel(blue_samples)
