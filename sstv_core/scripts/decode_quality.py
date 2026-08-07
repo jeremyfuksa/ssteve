@@ -260,12 +260,14 @@ def discover_cases() -> list[Case]:
         mode = "MartinM1" if "martin" in wav.stem else "ScottieS1"
         cases.append(Case(wav.stem, "essexham", wav, expected, mode))
 
-    # ARISS: real satellite passes, noisy. Scottie S1 / PD120 in practice;
-    # only the S1 files have a wired decoder today.
-    for wav in sorted((audio_root / "ariss").glob("*.wav")):
-        expected = image_root / "ariss" / f"{wav.stem}.jpg"
-        if expected.exists():
-            cases.append(Case(wav.stem, "ariss", wav, expected, "ScottieS1"))
+    # ARISS: real ISS passes. Measured sync spacing is 500-505ms, which is
+    # PD120 (508.48ms) -- the mode ARISS actually transmits -- not Scottie S1
+    # (428.22ms). SSTeVe has no PD decoder, so these were previously scored by
+    # decoding PD120 audio with a Scottie decoder, which produced meaningless
+    # SSIM figures around 0.01-0.10 that read as poor decode quality rather
+    # than as a missing mode. Skipped until a PD decoder exists; see
+    # PRODUCT.md, where PD modes are post-MVP.
+    _ = image_root  # ARISS cases intentionally not built
 
     return cases
 
