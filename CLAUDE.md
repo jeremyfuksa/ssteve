@@ -88,14 +88,19 @@ A December 2025 multi-perspective review of the UI settled these points (the rev
 - "Operating Conditions" modes (Standard / Night Vision / Sunlight) are operational features, not aesthetics.
 - The 8-control vs 15-control density debate is unresolved pending user testing; the tension between simplicity and operational flexibility is intentional.
 
-Design targets four archetypes: Makers (scriptable/headless), Activators (POTA/SOTA field ops), Preppers ("just works"), Old Guard (MMSSTV migrants).
+Design targets **operating situations**, not user archetypes: at-the-desk monitoring, field ops, degraded signal, receive-only (SDR/SpyServer), eyes-free, and scripted/headless. The four archetypes the specs still name (Makers, Activators, Preppers, Old Guard) were unsourced spec inheritance and were replaced on 2026-08-07 — see `PRODUCT.md` "Users". Do not restore them.
 
-**The visual world is an open decision.** Two contradictory palette/typography specs
-existed in this repo; neither was ever implemented, and both were removed on
-2026-08-05 (`docs/design/DESIGN_RATIONALE.md` deleted; the visual sections of
-`frontend-spec.md` §7.1/§19.6/§20.4–20.5 and `backend-spec.md` §7.1 stripped). Do not
-resurrect them from git history and do not treat any surviving color reference as
-binding. Interaction decisions survived and still apply; see `PRODUCT.md`.
+**The visual world has a leading proposal, not a commitment.** `DESIGN.md` documents a
+visual system proven in a working prototype at `prototype/` — read it before any UI
+work. It is measured and cited but unshipped: `sstv_desktop/` is still empty and the
+prototype is unwired to the backend. Note `DESIGN.md` describes an earlier revision
+than the current prototype in one respect, flagged in its own §1.
+
+Two contradictory palette/typography specs predated it; neither was ever implemented,
+and both were removed on 2026-08-05 (`docs/design/DESIGN_RATIONALE.md` deleted; the
+visual sections of `frontend-spec.md` §7.1/§19.6/§20.4–20.5 and `backend-spec.md` §7.1
+stripped). Do not resurrect them from git history and do not treat any surviving color
+reference as binding.
 
 ## Definition of Done
 
@@ -108,10 +113,16 @@ Work is done when, from `sstv_core/`:
 ## Docs to Reference
 
 - `PRODUCT.md` — durable product truth: users, operating context, interaction
-  requirements, open decisions, and what must not be fabricated. Read before any UI work.
-- `docs/core/backend-spec.md` — backend architecture and REST/WebSocket API contract
+  requirements, scope, open decisions, and what must not be fabricated. **Authoritative
+  where it conflicts with anything in `docs/core/`.** Read before any UI work.
+- `DESIGN.md` — the visual system, proven in `prototype/`. Read alongside `PRODUCT.md`
+  before UI work.
+- `docs/core/backend-spec.md` — backend architecture and REST/WebSocket API contract.
+  The API contract is current; its product framing is not (see the header note in the
+  file).
 - `docs/core/frontend-spec.md` — UI **interaction** spec (state machines, component
-  contracts, API mappings, viewport budget). Visual prescription was removed 2026-08-05.
+  contracts, API mappings, viewport budget). Visual prescription was removed 2026-08-05;
+  its product framing is superseded (see the header note in the file).
 - `docs/core/openapi.json` — exported OpenAPI schema
 - `docs/BETA_LAUNCH_PLAN.md` — beta roadmap and priorities
 - `docs/status/` — phase summaries and `PROJECT_STATUS.md` (what works / what doesn't)
