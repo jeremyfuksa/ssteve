@@ -38,8 +38,8 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from sstv_core.decode.hough_slant_corrector import HoughSlantCorrector  # noqa: E402
-from sstv_core.decode.martin_decoder import MartinM1Decoder  # noqa: E402
-from sstv_core.decode.scottie_decoder import ScottieS1Decoder  # noqa: E402
+from sstv_core.decode.martin_decoder import MartinM1Config, MartinM1Decoder  # noqa: E402
+from sstv_core.decode.scottie_decoder import ScottieS1Config, ScottieS1Decoder  # noqa: E402
 from sstv_core.decode.sync_detector import SyncPulseDetector  # noqa: E402
 
 REFERENCE_ROOT = Path(__file__).parent.parent / "tests" / "reference"
@@ -138,9 +138,9 @@ def load_wav(path: Path) -> tuple[np.ndarray, int]:
     return data, rate
 
 
-DECODERS: dict[str, Any] = {
-    "ScottieS1": ScottieS1Decoder,
-    "MartinM1": MartinM1Decoder,
+DECODERS: dict[str, tuple[Any, Any]] = {
+    "ScottieS1": (ScottieS1Decoder, ScottieS1Config),
+    "MartinM1": (MartinM1Decoder, MartinM1Config),
 }
 
 
@@ -156,10 +156,21 @@ def decode_file(audio_path: Path, mode: str) -> tuple[np.ndarray | None, dict[st
         "duration_s": round(len(audio) / rate, 2),
     }
 
+    entry = DECODERS.get(mode)
+    if entry is None:
+        diagnostics["error"] = f"no decoder wired for mode {mode}"
+        return None, diagnostics
+    decoder_cls, config_cls = entry
+    # The file's own rate, not the 48000 default: every timing property
+    # derives from it.
+    config = config_cls(sample_rate=rate)
+
     detector = SyncPulseDetector(sample_rate=rate)
     detector.detect_in_buffer(audio)
-    sync_positions = detector.get_sync_positions()
+    line_ms = config.total_line_samples * 1000.0 / rate
+    sync_positions = detector.get_sync_positions(line_duration_ms=line_ms)
     diagnostics["sync_pulses"] = len(sync_positions)
+    diagnostics["sync_pulses_raw"] = len(detector._sync_pulses)
 
     if not sync_positions:
         diagnostics["error"] = "no sync pulses detected"
@@ -178,12 +189,7 @@ def decode_file(audio_path: Path, mode: str) -> tuple[np.ndarray | None, dict[st
             slope = float(np.polyfit(x, intervals, 1)[0])
             diagnostics["sync_interval_drift_slope"] = round(slope, 5)
 
-    decoder_cls = DECODERS.get(mode)
-    if decoder_cls is None:
-        diagnostics["error"] = f"no decoder wired for mode {mode}"
-        return None, diagnostics
-
-    decoder = decoder_cls()
+    decoder = decoder_cls(config)
 
     def chunks() -> Any:
         yield audio
@@ -227,11 +233,17 @@ def discover_cases() -> list[Case]:
         if expected.exists():
             cases.append(Case(wav.stem, "mmsstv", wav, expected, "ScottieS1"))
 
-    # Essex Ham: mode is in the filename.
+    # Essex Ham: the filenames say scottie2/martin2, i.e. Scottie S2 and
+    # Martin M2 -- neither has a decoder in this repo. Decoding them with S1/M1
+    # timing reads the wrong span per colour channel, so blue and red fall off
+    # the end of the line and the decoder's zero-fill fallback makes the image
+    # green. Skipped rather than scored misleadingly.
     for wav in sorted((audio_root / "essexham").glob("*.wav")):
         expected = image_root / "essexham" / f"{wav.stem}.png"
         if not expected.exists():
             continue
+        if "2" in wav.stem.rsplit("_", 1)[-1]:
+            continue  # S2/M2: no decoder wired
         mode = "MartinM1" if "martin" in wav.stem else "ScottieS1"
         cases.append(Case(wav.stem, "essexham", wav, expected, mode))
 

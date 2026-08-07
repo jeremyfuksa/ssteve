@@ -301,3 +301,65 @@ class TestRobot36Decoder:
         rgb = decoder._yuv_to_rgb(y, u, v)
         # Should be approximately black
         assert np.all(rgb <= 5)
+
+
+class TestDemodulator:
+    """The FM demodulator that recovers brightness from audio frequency."""
+
+    def test_recovers_frequency_accurately(self):
+        """Frequency error must be negligible across the video band."""
+        import numpy as np
+
+        from sstv_core.decode.demodulator import instantaneous_frequency
+
+        for rate in (11025, 22050, 48000):
+            for expected_hz in (1500.0, 1900.0, 2300.0):
+                t = np.arange(int(rate * 0.05)) / rate
+                signal = np.sin(2 * np.pi * expected_hz * t).astype(np.float32)
+
+                freqs = instantaneous_frequency(signal, rate)
+                # Ignore edges, where the Hilbert transform has transients.
+                interior = freqs[len(freqs) // 5:-len(freqs) // 5]
+
+                error = abs(float(np.median(interior)) - expected_hz)
+                assert error < 1.0, f"{rate}Hz/{expected_hz}Hz: off by {error:.2f} Hz"
+
+    def test_resolves_a_full_grey_ramp(self):
+        """A black-to-white sweep must produce a full range of grey levels.
+
+        Regression test for zero-crossing demodulation, which quantised the
+        1500-2300 Hz video band to whole-sample periods and could represent
+        only 1-3 distinct frequencies depending on sample rate. Decoded images
+        came out flat grey.
+        """
+        import numpy as np
+
+        from sstv_core.decode.demodulator import demodulate_channel
+
+        for rate in (11025, 22050, 48000):
+            duration = 0.1
+            t = np.arange(int(rate * duration)) / rate
+            sweep = 1500.0 + (2300.0 - 1500.0) * t / duration
+            signal = np.sin(2 * np.pi * np.cumsum(sweep) / rate).astype(np.float32)
+
+            pixels = demodulate_channel(signal, rate, 320, 1500.0, 2300.0)
+
+            assert len(np.unique(pixels)) > 200, (
+                f"{rate}Hz: only {len(np.unique(pixels))} grey levels"
+            )
+            # The ramp must actually run dark-to-light. The first and last few
+            # pixels carry Hilbert edge transients, so judge just inside them.
+            assert pixels[5] < 70, f"{rate}Hz: sweep should start dark"
+            assert pixels[-5] > 185, f"{rate}Hz: sweep should end light"
+            assert int(pixels[-5]) - int(pixels[5]) > 150, "ramp should span the range"
+
+    def test_silence_does_not_produce_noise(self):
+        """A silent channel must not emit invented brightness."""
+        import numpy as np
+
+        from sstv_core.decode.demodulator import demodulate_channel
+
+        silence = np.zeros(2205, dtype=np.float32)
+        pixels = demodulate_channel(silence, 22050, 320, 1500.0, 2300.0)
+
+        assert len(np.unique(pixels)) == 1

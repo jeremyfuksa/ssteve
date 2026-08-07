@@ -29,9 +29,9 @@ from sstv_core.audio.stream_manager import AudioStreamManager
 from sstv_core.decode.correlation_vis_detector import CorrelationVISDetector
 from sstv_core.decode.hough_slant_corrector import HoughSlantCorrector
 from sstv_core.decode.image_saver import ImageSaver
-from sstv_core.decode.martin_decoder import MartinM1Decoder
-from sstv_core.decode.robot_decoder import Robot36Decoder
-from sstv_core.decode.scottie_decoder import ScottieS1Decoder
+from sstv_core.decode.martin_decoder import MartinM1Config, MartinM1Decoder
+from sstv_core.decode.robot_decoder import Robot36Config, Robot36Decoder
+from sstv_core.decode.scottie_decoder import ScottieS1Config, ScottieS1Decoder
 from sstv_core.decode.sync_detector import SyncPulseDetector
 
 logger = logging.getLogger(__name__)
@@ -265,15 +265,25 @@ class RXManager:
             self._state = RXState.DECODING
             logger.info("Starting decode with %s", detected_mode)
 
+            # Shortest gap accepted between line starts, from the selected
+            # mode's own line time. See SyncPulseDetector.LINE_SPACING_TOLERANCE.
+            min_line_samples = int(
+                decoder.config.total_line_samples * SyncPulseDetector.LINE_SPACING_TOLERANCE
+            )
+
             # Detect sync pulses
             sync_detector = SyncPulseDetector(sample_rate=self._sample_rate)
-            sync_positions = [
-                pulse.position_samples
-                for pulse in sync_detector.process_samples(
-                    vis_tail,
-                    position=stream_position - len(vis_tail),
-                )
-            ]
+            sync_positions: list[int] = []
+            for pulse in sync_detector.process_samples(
+                vis_tail,
+                position=stream_position - len(vis_tail),
+            ):
+                if (
+                    sync_positions
+                    and pulse.position_samples - sync_positions[-1] < min_line_samples
+                ):
+                    continue
+                sync_positions.append(pulse.position_samples)
             stream_audio = vis_tail.copy()
             stream_base_position = stream_position - len(vis_tail)
             line_number = 0
@@ -300,9 +310,17 @@ class RXManager:
                 )
                 if new_syncs:
                     last_sync_time = time.monotonic()
-                    sync_positions.extend(
-                        pulse.position_samples for pulse in new_syncs
-                    )
+                    # Drop pulses arriving well inside the current line: those
+                    # are picture content that momentarily looked like 1200 Hz,
+                    # and treating them as line starts tears the image. The
+                    # mode is known here, so the real line time is too.
+                    for pulse in new_syncs:
+                        if (
+                            sync_positions
+                            and pulse.position_samples - sync_positions[-1] < min_line_samples
+                        ):
+                            continue
+                        sync_positions.append(pulse.position_samples)
 
                 # Decode every complete frame currently buffered.
                 while len(sync_positions) >= 2 and line_number < total_lines:
@@ -433,15 +451,23 @@ class RXManager:
         return str(mode)
 
     def _get_decoder(self, mode: str):
-        """Get decoder instance for mode."""
+        """Get decoder instance for mode, configured for the stream's rate.
+
+        The sample rate must be passed explicitly: decoder configs default to
+        48000 Hz, and every timing property (samples per line, per sync, per
+        colour channel) derives from it. A decoder left at the default while
+        the stream runs at 22050 reads four times too much audio per line and
+        decodes nothing usable.
+        """
         mode_lower = mode.lower().replace(" ", "").replace("_", "")
+        rate = self._sample_rate
 
         if mode_lower == "scotties1":
-            return ScottieS1Decoder()
+            return ScottieS1Decoder(ScottieS1Config(sample_rate=rate))
         elif mode_lower == "martinm1":
-            return MartinM1Decoder()
+            return MartinM1Decoder(MartinM1Config(sample_rate=rate))
         elif mode_lower == "robot36":
-            return Robot36Decoder()
+            return Robot36Decoder(Robot36Config(sample_rate=rate))
         else:
             return None
 

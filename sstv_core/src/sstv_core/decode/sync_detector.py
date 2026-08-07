@@ -102,6 +102,15 @@ class SyncPulseDetector:
     # transmissions.
     MIN_BLOCK_ENERGY = 0.005
 
+    # Fraction of the expected line interval a pulse must clear to be treated
+    # as a genuine line start. Picture content can momentarily resemble
+    # 1200 Hz -- a dark region sits near 1500 Hz and noise does the rest --
+    # producing spurious pulses mid-line that split scanlines and tear the
+    # image. Measured on the reference corpus, real line starts cluster within
+    # a few percent of the mode's line time while spurious ones scatter well
+    # below it, so 0.8 separates them with margin.
+    LINE_SPACING_TOLERANCE = 0.8
+
     # Retained for callers that reference it; no longer used for detection.
     DETECTION_THRESHOLD = 0.6
 
@@ -248,9 +257,54 @@ class SyncPulseDetector:
                       best_mode, best_confidence * 100)
         return None
 
-    def get_sync_positions(self) -> list[int]:
-        """Get all detected sync pulse positions."""
-        return [p.position_samples for p in self._sync_pulses]
+    def get_sync_positions(self, line_duration_ms: float | None = None) -> list[int]:
+        """Get detected sync pulse positions, one per scanline.
+
+        Args:
+            line_duration_ms: Expected line time for the mode being decoded.
+                When given, pulses closer together than
+                `LINE_SPACING_TOLERANCE` of it are dropped as spurious. When
+                omitted, the spacing is inferred from the pulses themselves.
+
+        Returns:
+            Sample positions of accepted line-start pulses.
+
+        Notes:
+            Raw detections include picture content that momentarily looked like
+        1200 Hz. Left in, those split scanlines: the decoder treats each as a
+        line start and the image tears. Filtering here rather than in
+        `process_samples` is deliberate -- the mode, and therefore the real
+        line time, is not known while blocks are streaming past.
+
+        """
+        positions = [p.position_samples for p in self._sync_pulses]
+        if len(positions) < 3:
+            return positions
+
+        if line_duration_ms is not None:
+            expected = line_duration_ms * self._sample_rate / 1000.0
+        else:
+            # Infer it: real line starts are the dominant interval, and taking
+            # the largest cluster is more robust than the median when spurious
+            # detections outnumber genuine ones.
+            intervals = np.diff(np.array(positions, dtype=np.float64))
+            if len(intervals) == 0:
+                return positions
+            hist, edges = np.histogram(intervals, bins=48)
+            peak = int(np.argmax(hist))
+            expected = float((edges[peak] + edges[peak + 1]) / 2.0)
+
+        if expected <= 0:
+            return positions
+
+        minimum_gap = expected * self.LINE_SPACING_TOLERANCE
+
+        kept = [positions[0]]
+        for pos in positions[1:]:
+            if pos - kept[-1] >= minimum_gap:
+                kept.append(pos)
+
+        return kept
 
     def get_last_sync(self) -> SyncPulseResult | None:
         """Get the most recently detected sync pulse."""

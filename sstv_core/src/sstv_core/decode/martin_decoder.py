@@ -18,6 +18,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from sstv_core.decode.demodulator import demodulate_channel, instantaneous_frequency
+
 logger = logging.getLogger(__name__)
 
 
@@ -154,30 +156,12 @@ class MartinM1Decoder:
         return int(max(0, min(255, normalized * 255)))
 
     def _samples_to_freq(self, samples: np.ndarray) -> np.ndarray:
-        """Estimate instantaneous frequency from samples using zero-crossing.
+        """Estimate instantaneous frequency from samples.
 
-        Note: This is a simple implementation. For production, consider using
-        Hilbert transform or Goertzel filtering for better accuracy.
+        Hilbert transform and phase derivative; see `demodulator` for why the
+        previous zero-crossing estimator could not work.
         """
-        crossings = np.where(np.diff(np.signbit(samples)))[0]
-
-        if len(crossings) < 2:
-            return np.full(len(samples), (self._config.black_freq + self._config.white_freq) / 2)
-
-        # Interpolate frequency between crossings
-        freqs = np.zeros(len(samples))
-        for i in range(len(crossings) - 1):
-            period_samples = (crossings[i + 1] - crossings[i]) * 2
-            freq = self._config.sample_rate / period_samples if period_samples > 0 else 0
-            freqs[crossings[i]:crossings[i + 1]] = freq
-
-        # Fill edges
-        if crossings[0] > 0:
-            freqs[:crossings[0]] = freqs[crossings[0]]
-        if crossings[-1] < len(samples) - 1:
-            freqs[crossings[-1]:] = freqs[crossings[-1] - 1] if crossings[-1] > 0 else 1900
-
-        return freqs
+        return instantaneous_frequency(samples, self._config.sample_rate)
 
     def _decode_color_channel(self, samples: np.ndarray) -> np.ndarray:
         """Decode a single color channel from audio samples.
@@ -189,18 +173,13 @@ class MartinM1Decoder:
             Array of 320 pixel values (0-255)
 
         """
-        # Resample to exactly 320 pixels
-        target_len = self._config.width
-        indices = np.linspace(0, len(samples) - 1, target_len).astype(int)
-
-        # Use simple frequency estimation
-        freqs = self._samples_to_freq(samples)
-
-        # Sample at pixel positions and convert to luminance
-        pixel_freqs = freqs[indices]
-        pixels = np.array([self._freq_to_luma(f) for f in pixel_freqs], dtype=np.uint8)
-
-        return pixels
+        return demodulate_channel(
+            samples,
+            self._config.sample_rate,
+            self._config.width,
+            self._config.black_freq,
+            self._config.white_freq,
+        )
 
     def decode_scanline(self, line_samples: np.ndarray, line_number: int) -> ScanlineData:
         """Decode a single scanline from audio samples.
