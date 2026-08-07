@@ -87,6 +87,83 @@ class TestSyncPulseDetector:
         result = detector.estimate_mode_from_timing()
         assert result is None  # No pulses detected
 
+    def test_detects_a_synthetic_sync_pulse(self):
+        """A 9ms 1200 Hz burst must be detected.
+
+        Regression test for a threshold that no signal could ever cross:
+        DETECTION_THRESHOLD was 0.6 while GoertzelFilter.magnitude() divides
+        by len(samples), capping a pure full-amplitude 1200 Hz tone at ~0.45.
+        Every live decode failed with "No scanline sync received", and the
+        suite passed because nothing asserted a pulse was ever found.
+        """
+        import numpy as np
+
+        from sstv_core.decode.sync_detector import SyncPulseDetector
+
+        rate = 22050
+        detector = SyncPulseDetector(sample_rate=rate)
+
+        def tone(freq: float, ms: float) -> np.ndarray:
+            t = np.arange(int(rate * ms / 1000)) / rate
+            return np.sin(2 * np.pi * freq * t).astype(np.float32)
+
+        # 1900 Hz padding either side of a 9ms Scottie sync pulse.
+        audio = np.concatenate([tone(1900, 40), tone(1200, 9), tone(1900, 40)])
+
+        pulses = detector.detect_in_buffer(audio)
+
+        assert len(pulses) == 1, f"expected exactly one sync pulse, got {len(pulses)}"
+        assert 8.0 <= pulses[0].duration_ms <= 10.0, "9ms pulse should measure ~9ms"
+        # Position lands at the start of the pulse: 40ms of 1900 Hz padding.
+        assert abs(pulses[0].position_samples - int(rate * 0.040)) < rate * 0.002
+
+    def test_sync_detection_is_level_independent(self):
+        """The same pulse must be found at any input level.
+
+        SSTeVe takes audio from USB interfaces, virtual cables, line-out, and
+        SDR demodulation, all at wildly different levels. Detection compares
+        1200 Hz content against the block's own energy so amplitude cancels.
+        """
+        import numpy as np
+
+        from sstv_core.decode.sync_detector import SyncPulseDetector
+
+        rate = 22050
+
+        def build(amplitude: float) -> np.ndarray:
+            def tone(freq: float, ms: float) -> np.ndarray:
+                t = np.arange(int(rate * ms / 1000)) / rate
+                return (amplitude * np.sin(2 * np.pi * freq * t)).astype(np.float32)
+
+            return np.concatenate([tone(1900, 40), tone(1200, 9), tone(1900, 40)])
+
+        for amplitude in (0.05, 0.5, 0.95):
+            detector = SyncPulseDetector(sample_rate=rate)
+            pulses = detector.detect_in_buffer(build(amplitude))
+            assert len(pulses) == 1, f"amplitude {amplitude}: got {len(pulses)} pulses"
+
+    def test_picture_tones_are_not_mistaken_for_sync(self):
+        """Loud 1500-2300 Hz video content must not read as sync.
+
+        A bright image is a loud tone too; detection has to be about spectral
+        shape, not loudness.
+        """
+        import numpy as np
+
+        from sstv_core.decode.sync_detector import SyncPulseDetector
+
+        rate = 22050
+        detector = SyncPulseDetector(sample_rate=rate)
+
+        def tone(freq: float, ms: float) -> np.ndarray:
+            t = np.arange(int(rate * ms / 1000)) / rate
+            return np.sin(2 * np.pi * freq * t).astype(np.float32)
+
+        # Black, mid-grey, and white video tones at full amplitude.
+        audio = np.concatenate([tone(1500, 30), tone(1900, 30), tone(2300, 30)])
+
+        assert detector.detect_in_buffer(audio) == []
+
 
 class TestScottieS1Decoder:
     """Tests for Scottie S1 decoder."""

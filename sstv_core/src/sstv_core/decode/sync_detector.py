@@ -81,6 +81,28 @@ class SyncPulseDetector:
     SYNC_FREQ = 1200.0
     MIN_SYNC_DURATION_MS = 3.0
     MAX_SYNC_DURATION_MS = 15.0
+
+    # Detection is a RATIO of 1200 Hz response to the block's own broadband
+    # energy, not an absolute magnitude. An absolute threshold is a
+    # recording-level test rather than a sync-pulse test: measured across the
+    # reference corpus, per-file median magnitude spans 0.0148-0.0471 purely
+    # because the recordings were made at different levels, and no single
+    # constant separates sync from noise on all of them. The ratio asks "is
+    # this block mostly 1200 Hz?", which is unchanged when the input is
+    # scaled -- necessary because SSTeVe takes audio from USB interfaces,
+    # virtual cables, line-out, and (soon) SDR demodulation at wildly
+    # different levels.
+    #
+    # A pure 1200 Hz tone gives a ratio near 0.65; broadband noise sits well
+    # below 0.2. See scripts/sync_threshold_study.py.
+    SYNC_RATIO_THRESHOLD = 0.40
+
+    # Blocks quieter than this carry no usable signal; testing their spectral
+    # shape produces noise-driven ratios. Guards the silence between
+    # transmissions.
+    MIN_BLOCK_ENERGY = 0.005
+
+    # Retained for callers that reference it; no longer used for detection.
     DETECTION_THRESHOLD = 0.6
 
     # Mode timing database (line_duration_ms, sync_duration_ms)
@@ -136,8 +158,13 @@ class SyncPulseDetector:
             block = samples[offset:offset + self._block_size]
             mag = self._filter.magnitude(block)
 
+            # Ratio of 1200 Hz content to the block's total energy. Both terms
+            # scale linearly with input level, so the ratio does not.
+            energy = float(np.sqrt(np.mean(block.astype(np.float64) ** 2)))
+            ratio = mag / energy if energy > self.MIN_BLOCK_ENERGY else 0.0
+
             current_pos = position + offset
-            is_sync = mag > self.DETECTION_THRESHOLD
+            is_sync = ratio > self.SYNC_RATIO_THRESHOLD
 
             if is_sync and not self._in_sync:
                 # Start of sync pulse
@@ -154,7 +181,10 @@ class SyncPulseDetector:
                     pulse = SyncPulseResult(
                         position_samples=self._sync_start,
                         duration_ms=duration_ms,
-                        confidence=mag,
+                        # The ratio at the pulse's trailing edge: how purely
+                        # 1200 Hz this block was, on a 0-1 scale that means
+                        # the same thing at any input level.
+                        confidence=min(1.0, ratio),
                     )
                     detected.append(pulse)
                     self._sync_pulses.append(pulse)
