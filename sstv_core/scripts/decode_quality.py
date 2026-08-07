@@ -144,7 +144,11 @@ DECODERS: dict[str, tuple[Any, Any]] = {
 }
 
 
-def decode_file(audio_path: Path, mode: str) -> tuple[np.ndarray | None, dict[str, Any]]:
+def decode_file(
+    audio_path: Path,
+    mode: str,
+    sync_strategy: str = "filtered",
+) -> tuple[np.ndarray | None, dict[str, Any]]:
     """Decode one audio file to an RGB image, before any slant correction.
 
     Returns (image, diagnostics). Image is None if the decode produced nothing.
@@ -167,8 +171,17 @@ def decode_file(audio_path: Path, mode: str) -> tuple[np.ndarray | None, dict[st
 
     detector = SyncPulseDetector(sample_rate=rate)
     detector.detect_in_buffer(audio)
-    line_ms = config.total_line_samples * 1000.0 / rate
-    sync_positions = detector.get_sync_positions(line_duration_ms=line_ms)
+
+    if sync_strategy == "grid":
+        sync_positions = detector.get_regularised_positions(
+            line_duration_samples=config.total_line_samples,
+            max_lines=config.height,
+        )
+    else:
+        line_ms = config.total_line_samples * 1000.0 / rate
+        sync_positions = detector.get_sync_positions(line_duration_ms=line_ms)
+
+    diagnostics["sync_strategy"] = sync_strategy
     diagnostics["sync_pulses"] = len(sync_positions)
     diagnostics["sync_pulses_raw"] = len(detector._sync_pulses)
 
@@ -277,9 +290,9 @@ class Result:
     diagnostics: dict[str, Any]
 
 
-def run_case(case: Case, save_dir: Path | None) -> Result:
+def run_case(case: Case, save_dir: Path | None, sync_strategy: str = "filtered") -> Result:
     """Decode one case and score it with and without Hough correction."""
-    image, diagnostics = decode_file(case.audio, case.mode)
+    image, diagnostics = decode_file(case.audio, case.mode, sync_strategy)
 
     if image is None:
         return Result(
@@ -398,6 +411,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--json", action="store_true", help="emit JSON instead of a table")
     parser.add_argument("--save-dir", type=Path, help="write decoded images here")
+    parser.add_argument(
+        "--sync",
+        choices=["filtered", "grid", "both"],
+        default="filtered",
+        help="line-start strategy: raw detections with spacing filter, a fitted "
+             "regular grid, or both compared side by side",
+    )
     args = parser.parse_args()
 
     cases = discover_cases()
@@ -406,7 +426,32 @@ def main() -> int:
         return 1
 
     started = time.time()
-    results = [run_case(c, args.save_dir) for c in cases]
+
+    if args.sync == "both":
+        filtered = [run_case(c, None, "filtered") for c in cases]
+        grid = [run_case(c, None, "grid") for c in cases]
+        elapsed = time.time() - started
+        print()
+        print("=" * 76)
+        print("SYNC STRATEGY COMPARISON -- SSIM per file")
+        print("=" * 76)
+        print(f"{'file':<34} {'filtered':>10} {'grid':>10} {'better':>12}")
+        print("-" * 76)
+        wins = {"filtered": 0, "grid": 0}
+        for f, g in zip(filtered, grid, strict=True):
+            if not (f.ok and g.ok):
+                continue
+            assert f.raw is not None and g.raw is not None
+            fs, gs = f.raw["ssim"], g.raw["ssim"]
+            better = "filtered" if fs > gs else "grid"
+            wins[better] += 1
+            print(f"{f.name[:33]:<34} {fs:>10.4f} {gs:>10.4f} {better:>12}")
+        print("-" * 76)
+        print(f"filtered wins: {wins['filtered']}   grid wins: {wins['grid']}")
+        print(f"({len(cases)} cases x2 in {elapsed:.1f}s)")
+        return 0
+
+    results = [run_case(c, args.save_dir, args.sync) for c in cases]
     elapsed = time.time() - started
 
     if args.json:

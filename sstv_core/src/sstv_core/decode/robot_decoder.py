@@ -33,7 +33,13 @@ class Robot36Config:
     sync_duration_ms: float = 9.0
     porch_duration_ms: float = 3.0
     y_scan_duration_ms: float = 88.0
-    chroma_scan_duration_ms: float = 88.0
+    # Chroma is SUBSAMPLED: Robot 36 sends full-rate luminance and a
+    # half-width colour-difference channel, alternating R-Y and B-Y between
+    # lines. 88ms here (a copy of the Y duration) made the line 194ms against
+    # a spec of 150ms -- a 29% error that misaligns every channel offset. The
+    # correct figure is 44ms, and `SyncPulseDetector.MODE_TIMINGS` in this
+    # same package already carried the right total.
+    chroma_scan_duration_ms: float = 44.0
     black_freq: float = 1500.0
     white_freq: float = 2300.0
     sync_freq: float = 1200.0
@@ -57,8 +63,22 @@ class Robot36Config:
 
     @property
     def total_line_samples(self) -> int:
-        # Sync + porch + Y + chroma + porch
-        return int(self.sample_rate * 194.0 / 1000)
+        """Samples in one scanline: sync + porch + Y + 2 porches + chroma.
+
+        Robot 36 carries a separation porch and a chroma porch between
+        luminance and colour, which is why the porch term appears three times
+        in total. Sums to the specified 150ms at the defaults. Derived from
+        the duration fields rather than hardcoded, so the parts cannot
+        silently disagree with the total.
+        """
+        line_ms = (
+            self.sync_duration_ms
+            + self.porch_duration_ms
+            + self.y_scan_duration_ms
+            + 2 * self.porch_duration_ms
+            + self.chroma_scan_duration_ms
+        )
+        return int(self.sample_rate * line_ms / 1000)
 
 
 @dataclass
@@ -222,13 +242,14 @@ class Robot36Decoder:
         """
         cfg = self._config
 
-        # Calculate offsets for Y and chroma channels
-        # Structure: sync + porch + Y + chroma + porch
-        offset = cfg.samples_per_sync + cfg.samples_per_porch
-        y_start = offset
+        # Structure: sync + porch + Y + porch + porch + chroma. The two porches
+        # between luminance and chroma are the separation and chroma porches;
+        # omitting them shifted the colour window early and bled the tail of Y
+        # into it.
+        y_start = cfg.samples_per_sync + cfg.samples_per_porch
         y_end = y_start + cfg.samples_per_y_scan
 
-        chroma_start = y_end
+        chroma_start = y_end + 2 * cfg.samples_per_porch
         chroma_end = chroma_start + cfg.samples_per_chroma_scan
 
         # Extract and decode channels

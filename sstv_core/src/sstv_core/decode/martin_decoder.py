@@ -51,8 +51,18 @@ class MartinM1Config:
 
     @property
     def total_line_samples(self) -> int:
-        # Sync + separator + green + separator + blue + separator + red
-        return int(self.sample_rate * 446.45 / 1000)
+        """Samples in one scanline: sync + 4 separators + 3 colour scans.
+
+        Four separators, not three: one follows the sync pulse and one follows
+        each colour channel. Sums to the specified 446.446ms at the defaults.
+        Derived rather than hardcoded so the parts cannot drift from the total.
+        """
+        line_ms = (
+            self.sync_duration_ms
+            + 4 * self.separator_duration_ms
+            + 3 * self.color_scan_duration_ms
+        )
+        return int(self.sample_rate * line_ms / 1000)
 
 
 @dataclass

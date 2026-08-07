@@ -363,3 +363,94 @@ class TestDemodulator:
         pixels = demodulate_channel(silence, 22050, 320, 1500.0, 2300.0)
 
         assert len(np.unique(pixels)) == 1
+
+
+class TestModeTimings:
+    """Line timings must match the published SSTV specifications.
+
+    Every channel offset in a decoder derives from these durations, so an
+    error here misaligns colour and geometry on every line. Robot 36 shipped
+    with an implied 194ms line against a spec of 150ms -- chroma duration was
+    a copy of the luminance duration rather than the subsampled half -- and
+    nothing caught it because no test compared a config against the standard.
+    """
+
+    SPEC_LINE_MS = {
+        "ScottieS1": 428.22,
+        "MartinM1": 446.446,
+        "Robot36": 150.0,
+    }
+
+    def test_line_durations_match_spec(self):
+        from sstv_core.decode.martin_decoder import MartinM1Config
+        from sstv_core.decode.robot_decoder import Robot36Config
+        from sstv_core.decode.scottie_decoder import ScottieS1Config
+
+        rate = 48000
+        configs = {
+            "ScottieS1": ScottieS1Config(sample_rate=rate),
+            "MartinM1": MartinM1Config(sample_rate=rate),
+            "Robot36": Robot36Config(sample_rate=rate),
+        }
+
+        for name, config in configs.items():
+            actual_ms = config.total_line_samples * 1000.0 / rate
+            expected_ms = self.SPEC_LINE_MS[name]
+            error_pct = abs(actual_ms - expected_ms) / expected_ms * 100
+
+            assert error_pct < 0.1, (
+                f"{name}: line is {actual_ms:.3f}ms, spec says {expected_ms}ms "
+                f"({error_pct:.2f}% off)"
+            )
+
+    def test_agrees_with_sync_detector_timing_table(self):
+        """The decoders and SyncPulseDetector.MODE_TIMINGS must not disagree.
+
+        The timing table already held the correct Robot 36 line time while the
+        decoder config implied something 29% different.
+        """
+        from sstv_core.decode.martin_decoder import MartinM1Config
+        from sstv_core.decode.robot_decoder import Robot36Config
+        from sstv_core.decode.scottie_decoder import ScottieS1Config
+        from sstv_core.decode.sync_detector import SyncPulseDetector
+
+        rate = 48000
+        configs = {
+            "ScottieS1": ScottieS1Config(sample_rate=rate),
+            "MartinM1": MartinM1Config(sample_rate=rate),
+            "Robot36": Robot36Config(sample_rate=rate),
+        }
+
+        for name, config in configs.items():
+            table_ms, _ = SyncPulseDetector.MODE_TIMINGS[name]
+            actual_ms = config.total_line_samples * 1000.0 / rate
+            assert abs(actual_ms - table_ms) / table_ms < 0.001, (
+                f"{name}: decoder says {actual_ms:.3f}ms, "
+                f"MODE_TIMINGS says {table_ms}ms"
+            )
+
+    def test_channel_windows_fit_inside_the_line(self):
+        """No colour channel may extend past the end of its scanline.
+
+        The decoders silently substitute zeros when a channel window overruns,
+        which turns a timing error into a plausible-looking green or dark
+        image rather than an error.
+        """
+        from sstv_core.decode.robot_decoder import Robot36Config
+        from sstv_core.decode.scottie_decoder import ScottieS1Config
+
+        rate = 48000
+
+        s = ScottieS1Config(sample_rate=rate)
+        scottie_sep = int(rate * s.separator_duration_ms / 1000)
+        scottie_used = 3 * scottie_sep + 3 * s.samples_per_color_line
+        assert scottie_used <= s.total_line_samples
+
+        r = Robot36Config(sample_rate=rate)
+        robot_used = (
+            r.samples_per_sync
+            + 3 * r.samples_per_porch
+            + r.samples_per_y_scan
+            + r.samples_per_chroma_scan
+        )
+        assert robot_used <= r.total_line_samples

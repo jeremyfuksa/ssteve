@@ -46,8 +46,18 @@ class ScottieS1Config:
 
     @property
     def total_line_samples(self) -> int:
-        # Sync + separator + green + separator + blue + separator + red
-        return int(self.sample_rate * 428.22 / 1000)
+        """Samples in one scanline: 3 separators + 3 colour scans + 1 sync.
+
+        The sync sits mid-line, between blue and red, which is why it is
+        counted here rather than at the head. Sums to the specified 428.22ms
+        at the defaults; derived so the parts cannot drift from the total.
+        """
+        line_ms = (
+            3 * self.separator_duration_ms
+            + 3 * self.color_scan_duration_ms
+            + self.sync_duration_ms
+        )
+        return int(self.sample_rate * line_ms / 1000)
 
 
 @dataclass
@@ -191,8 +201,15 @@ class ScottieS1Decoder:
         samples_per_sep = int(cfg.sample_rate * cfg.separator_duration_ms / 1000)
         samples_per_color = cfg.samples_per_color_line
 
-        # Calculate offsets for each color channel
-        # Structure: sep + green + sep + blue + sync_sep + red
+        # Structure within a line, measured from the end of the sync pulse:
+        #   sep + green + sep + blue + sep + red
+        #
+        # Scottie's sync sits between blue and red in the transmitted stream,
+        # but `decode_stream` slices each line starting just after a detected
+        # sync, so by the time samples arrive here the sync has already been
+        # consumed and red follows blue across a plain separator. Verified
+        # against the reference corpus: adding the sync duration here shifts
+        # red by one channel and turns the image cyan.
         green_start = samples_per_sep
         green_end = green_start + samples_per_color
 
