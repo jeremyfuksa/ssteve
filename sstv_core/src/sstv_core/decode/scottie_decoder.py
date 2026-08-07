@@ -17,6 +17,14 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from sstv_core.decode.demodulator import (
+    channel_window as _window,
+)
+from sstv_core.decode.demodulator import (
+    demodulate_channel,
+    instantaneous_frequency,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -44,8 +52,18 @@ class ScottieS1Config:
 
     @property
     def total_line_samples(self) -> int:
-        # Sync + separator + green + separator + blue + separator + red
-        return int(self.sample_rate * 428.22 / 1000)
+        """Samples in one scanline: 3 separators + 3 colour scans + 1 sync.
+
+        The sync sits mid-line, between blue and red, which is why it is
+        counted here rather than at the head. Sums to the specified 428.22ms
+        at the defaults; derived so the parts cannot drift from the total.
+        """
+        line_ms = (
+            3 * self.separator_duration_ms
+            + 3 * self.color_scan_duration_ms
+            + self.sync_duration_ms
+        )
+        return int(self.sample_rate * line_ms / 1000)
 
 
 @dataclass
@@ -149,28 +167,12 @@ class ScottieS1Decoder:
         return int(max(0, min(255, normalized * 255)))
 
     def _samples_to_freq(self, samples: np.ndarray) -> np.ndarray:
-        """Estimate instantaneous frequency from samples using zero-crossing."""
-        # Simple zero-crossing frequency estimation
-        # For better quality, use Hilbert transform or phase derivative
-        crossings = np.where(np.diff(np.signbit(samples)))[0]
+        """Estimate instantaneous frequency from samples.
 
-        if len(crossings) < 2:
-            return np.full(len(samples), (self._config.black_freq + self._config.white_freq) / 2)
-
-        # Interpolate frequency between crossings
-        freqs = np.zeros(len(samples))
-        for i in range(len(crossings) - 1):
-            period_samples = (crossings[i + 1] - crossings[i]) * 2
-            freq = self._config.sample_rate / period_samples if period_samples > 0 else 0
-            freqs[crossings[i]:crossings[i + 1]] = freq
-
-        # Fill edges
-        if crossings[0] > 0:
-            freqs[:crossings[0]] = freqs[crossings[0]]
-        if crossings[-1] < len(samples) - 1:
-            freqs[crossings[-1]:] = freqs[crossings[-1] - 1] if crossings[-1] > 0 else 1900
-
-        return freqs
+        Hilbert transform and phase derivative; see `demodulator` for why the
+        previous zero-crossing estimator could not work.
+        """
+        return instantaneous_frequency(samples, self._config.sample_rate)
 
     def _decode_color_channel(self, samples: np.ndarray) -> np.ndarray:
         """Decode a single color channel from audio samples.
@@ -182,18 +184,13 @@ class ScottieS1Decoder:
             Array of 320 pixel values (0-255)
 
         """
-        # Resample to exactly 320 pixels
-        target_len = self._config.width
-        indices = np.linspace(0, len(samples) - 1, target_len).astype(int)
-
-        # Use simple frequency estimation
-        freqs = self._samples_to_freq(samples)
-
-        # Sample at pixel positions and convert to luminance
-        pixel_freqs = freqs[indices]
-        pixels = np.array([self._freq_to_luma(f) for f in pixel_freqs], dtype=np.uint8)
-
-        return pixels
+        return demodulate_channel(
+            samples,
+            self._config.sample_rate,
+            self._config.width,
+            self._config.black_freq,
+            self._config.white_freq,
+        )
 
     def decode_scanline(self, line_samples: np.ndarray, line_number: int) -> ScanlineData:
         """Decode a single scanline from audio samples.
@@ -210,33 +207,31 @@ class ScottieS1Decoder:
         samples_per_sep = int(cfg.sample_rate * cfg.separator_duration_ms / 1000)
         samples_per_color = cfg.samples_per_color_line
 
-        # Calculate offsets for each color channel
-        # Structure: sep + green + sep + blue + sync_sep + red
-        green_start = samples_per_sep
+        # Scottie transmits a line as: sep + GREEN + sep + BLUE + SYNC + RED,
+        # so the sync pulse ends a line rather than starting one. `decode_stream`
+        # slices from just after a detected sync, which means the buffer that
+        # arrives here begins with that line's RED channel and continues into
+        # the next line's green and blue:
+        #
+        #   red + sep + green + sep + blue
+        #
+        # Reading it as sep+green+sep+blue+sep+red -- the natural-looking
+        # order -- rotates every channel by one. Caught by round-tripping a
+        # solid red image, which decoded as solid green.
+        red_start = 0
+        red_end = red_start + samples_per_color
+
+        green_start = red_end + samples_per_sep
         green_end = green_start + samples_per_color
 
         blue_start = green_end + samples_per_sep
         blue_end = blue_start + samples_per_color
 
-        red_start = blue_end + samples_per_sep
-        red_end = red_start + samples_per_color
-
-        # Extract and decode each channel
-        green_samples = (
-            line_samples[green_start:green_end]
-            if green_end <= len(line_samples)
-            else np.zeros(samples_per_color)
-        )
-        blue_samples = (
-            line_samples[blue_start:blue_end]
-            if blue_end <= len(line_samples)
-            else np.zeros(samples_per_color)
-        )
-        red_samples = (
-            line_samples[red_start:red_end]
-            if red_end <= len(line_samples)
-            else np.zeros(samples_per_color)
-        )
+        # Take whatever of each window is present; see channel_window for why
+        # an all-or-nothing guard silently destroyed channels on short lines.
+        green_samples = _window(line_samples, green_start, green_end)
+        blue_samples = _window(line_samples, blue_start, blue_end)
+        red_samples = _window(line_samples, red_start, red_end)
 
         green = self._decode_color_channel(green_samples)
         blue = self._decode_color_channel(blue_samples)

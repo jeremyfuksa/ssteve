@@ -29,9 +29,9 @@ from sstv_core.audio.stream_manager import AudioStreamManager
 from sstv_core.decode.correlation_vis_detector import CorrelationVISDetector
 from sstv_core.decode.hough_slant_corrector import HoughSlantCorrector
 from sstv_core.decode.image_saver import ImageSaver
-from sstv_core.decode.martin_decoder import MartinM1Decoder
-from sstv_core.decode.robot_decoder import Robot36Decoder
-from sstv_core.decode.scottie_decoder import ScottieS1Decoder
+from sstv_core.decode.martin_decoder import MartinM1Config, MartinM1Decoder
+from sstv_core.decode.robot_decoder import Robot36Config, Robot36Decoder
+from sstv_core.decode.scottie_decoder import ScottieS1Config, ScottieS1Decoder
 from sstv_core.decode.sync_detector import SyncPulseDetector
 
 logger = logging.getLogger(__name__)
@@ -87,6 +87,7 @@ class RXManager:
         stream_manager: AudioStreamManager,
         sample_rate: int = 48000,
         save_directory: Path | None = None,
+        slant_correction: bool = False,
     ):
         self._stream_manager = stream_manager
         self._sample_rate = sample_rate
@@ -102,8 +103,10 @@ class RXManager:
         # New: Correlation VIS detector (replaces Goertzel)
         self._correlation_vis = CorrelationVISDetector()
 
-        # New: Hough slant corrector for post-decode
+        # Hough slant corrector, opt-in. See the decision recorded at the call
+        # site in `receive` for the measurements behind the default.
         self._hough_corrector = HoughSlantCorrector()
+        self._slant_correction_enabled = slant_correction
 
     @property
     def state(self) -> RXState:
@@ -265,15 +268,25 @@ class RXManager:
             self._state = RXState.DECODING
             logger.info("Starting decode with %s", detected_mode)
 
+            # Shortest gap accepted between line starts, from the selected
+            # mode's own line time. See SyncPulseDetector.LINE_SPACING_TOLERANCE.
+            min_line_samples = int(
+                decoder.config.total_line_samples * SyncPulseDetector.LINE_SPACING_TOLERANCE
+            )
+
             # Detect sync pulses
             sync_detector = SyncPulseDetector(sample_rate=self._sample_rate)
-            sync_positions = [
-                pulse.position_samples
-                for pulse in sync_detector.process_samples(
-                    vis_tail,
-                    position=stream_position - len(vis_tail),
-                )
-            ]
+            sync_positions: list[int] = []
+            for pulse in sync_detector.process_samples(
+                vis_tail,
+                position=stream_position - len(vis_tail),
+            ):
+                if (
+                    sync_positions
+                    and pulse.position_samples - sync_positions[-1] < min_line_samples
+                ):
+                    continue
+                sync_positions.append(pulse.position_samples)
             stream_audio = vis_tail.copy()
             stream_base_position = stream_position - len(vis_tail)
             line_number = 0
@@ -300,9 +313,17 @@ class RXManager:
                 )
                 if new_syncs:
                     last_sync_time = time.monotonic()
-                    sync_positions.extend(
-                        pulse.position_samples for pulse in new_syncs
-                    )
+                    # Drop pulses arriving well inside the current line: those
+                    # are picture content that momentarily looked like 1200 Hz,
+                    # and treating them as line starts tears the image. The
+                    # mode is known here, so the real line time is too.
+                    for pulse in new_syncs:
+                        if (
+                            sync_positions
+                            and pulse.position_samples - sync_positions[-1] < min_line_samples
+                        ):
+                            continue
+                        sync_positions.append(pulse.position_samples)
 
                 # Decode every complete frame currently buffered.
                 while len(sync_positions) >= 2 and line_number < total_lines:
@@ -366,21 +387,33 @@ class RXManager:
 
                 image = decoder.get_image()
                 if image is not None:
-                    # NEW: Apply Hough slant correction
-                    logger.info("Applying Hough slant correction...")
-                    slant_result = self._hough_corrector.correct_slant(image)
-
-                    # Log correction results
-                    if slant_result.slant_angle_degrees != 0:
-                        logger.info(
-                            "Slant corrected: %.2f° (confidence: %.2f, lines: %d)",
-                            slant_result.slant_angle_degrees,
-                            slant_result.confidence,
-                            slant_result.num_lines_detected,
-                        )
-
-                    # Use corrected image if slant was detected
-                    corrected_image = slant_result.corrected_image
+                    # Hough slant correction is OFF by default. Measured on the
+                    # reference corpus with its confidence gate removed, it
+                    # lowered SSIM on 5 of 9 files and helped 1, by large
+                    # margins: winter_creek 0.499 -> 0.225, operator_shack
+                    # 0.343 -> 0.077. It infers a rotation angle from image
+                    # content and reports -13 to -15 degrees on pictures that
+                    # are not slanted, then resamples away detail the radio
+                    # actually delivered.
+                    #
+                    # With the shipped 0.7 confidence gate it is inert on every
+                    # reference file anyway (confidences measure 0.00-0.45), so
+                    # this changes no behaviour today -- it makes the default
+                    # honest and stops a latent regression if that gate is ever
+                    # lowered. See PRODUCT.md "Explicitly undecided" for the
+                    # timing-based alternative.
+                    corrected_image = image
+                    if self._slant_correction_enabled:
+                        logger.info("Applying Hough slant correction...")
+                        slant_result = self._hough_corrector.correct_slant(image)
+                        if slant_result.slant_angle_degrees != 0:
+                            logger.info(
+                                "Slant corrected: %.2f° (confidence: %.2f, lines: %d)",
+                                slant_result.slant_angle_degrees,
+                                slant_result.confidence,
+                                slant_result.num_lines_detected,
+                            )
+                        corrected_image = slant_result.corrected_image
 
                     saved_path = self._image_saver.save_image(
                         image_array=corrected_image,
@@ -433,15 +466,23 @@ class RXManager:
         return str(mode)
 
     def _get_decoder(self, mode: str):
-        """Get decoder instance for mode."""
+        """Get decoder instance for mode, configured for the stream's rate.
+
+        The sample rate must be passed explicitly: decoder configs default to
+        48000 Hz, and every timing property (samples per line, per sync, per
+        colour channel) derives from it. A decoder left at the default while
+        the stream runs at 22050 reads four times too much audio per line and
+        decodes nothing usable.
+        """
         mode_lower = mode.lower().replace(" ", "").replace("_", "")
+        rate = self._sample_rate
 
         if mode_lower == "scotties1":
-            return ScottieS1Decoder()
+            return ScottieS1Decoder(ScottieS1Config(sample_rate=rate))
         elif mode_lower == "martinm1":
-            return MartinM1Decoder()
+            return MartinM1Decoder(MartinM1Config(sample_rate=rate))
         elif mode_lower == "robot36":
-            return Robot36Decoder()
+            return Robot36Decoder(Robot36Config(sample_rate=rate))
         else:
             return None
 

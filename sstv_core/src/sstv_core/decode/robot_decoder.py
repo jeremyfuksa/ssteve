@@ -19,6 +19,14 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from sstv_core.decode.demodulator import (
+    channel_window as _window,
+)
+from sstv_core.decode.demodulator import (
+    demodulate_channel,
+    instantaneous_frequency,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -31,7 +39,13 @@ class Robot36Config:
     sync_duration_ms: float = 9.0
     porch_duration_ms: float = 3.0
     y_scan_duration_ms: float = 88.0
-    chroma_scan_duration_ms: float = 88.0
+    # Chroma is SUBSAMPLED: Robot 36 sends full-rate luminance and a
+    # half-width colour-difference channel, alternating R-Y and B-Y between
+    # lines. 88ms here (a copy of the Y duration) made the line 194ms against
+    # a spec of 150ms -- a 29% error that misaligns every channel offset. The
+    # correct figure is 44ms, and `SyncPulseDetector.MODE_TIMINGS` in this
+    # same package already carried the right total.
+    chroma_scan_duration_ms: float = 44.0
     black_freq: float = 1500.0
     white_freq: float = 2300.0
     sync_freq: float = 1200.0
@@ -55,8 +69,22 @@ class Robot36Config:
 
     @property
     def total_line_samples(self) -> int:
-        # Sync + porch + Y + chroma + porch
-        return int(self.sample_rate * 194.0 / 1000)
+        """Samples in one scanline: sync + porch + Y + 2 porches + chroma.
+
+        Robot 36 carries a separation porch and a chroma porch between
+        luminance and colour, which is why the porch term appears three times
+        in total. Sums to the specified 150ms at the defaults. Derived from
+        the duration fields rather than hardcoded, so the parts cannot
+        silently disagree with the total.
+        """
+        line_ms = (
+            self.sync_duration_ms
+            + self.porch_duration_ms
+            + self.y_scan_duration_ms
+            + 2 * self.porch_duration_ms
+            + self.chroma_scan_duration_ms
+        )
+        return int(self.sample_rate * line_ms / 1000)
 
 
 @dataclass
@@ -150,25 +178,12 @@ class Robot36Decoder:
         return int(max(0, min(255, normalized * 255)))
 
     def _samples_to_freq(self, samples: np.ndarray) -> np.ndarray:
-        """Estimate instantaneous frequency from samples using zero-crossing."""
-        crossings = np.where(np.diff(np.signbit(samples)))[0]
+        """Estimate instantaneous frequency from samples.
 
-        if len(crossings) < 2:
-            return np.full(len(samples), (self._config.black_freq + self._config.white_freq) / 2)
-
-        freqs = np.zeros(len(samples))
-        for i in range(len(crossings) - 1):
-            period_samples = (crossings[i + 1] - crossings[i]) * 2
-            freq = self._config.sample_rate / period_samples if period_samples > 0 else 0
-            freqs[crossings[i]:crossings[i + 1]] = freq
-
-        # Fill edges
-        if crossings[0] > 0:
-            freqs[:crossings[0]] = freqs[crossings[0]]
-        if crossings[-1] < len(samples) - 1:
-            freqs[crossings[-1]:] = freqs[crossings[-1] - 1] if crossings[-1] > 0 else 1900
-
-        return freqs
+        Hilbert transform and phase derivative; see `demodulator` for why the
+        previous zero-crossing estimator could not work.
+        """
+        return instantaneous_frequency(samples, self._config.sample_rate)
 
     def _decode_channel(self, samples: np.ndarray, target_len: int = 320) -> np.ndarray:
         """Decode a single channel from audio samples.
@@ -181,11 +196,13 @@ class Robot36Decoder:
             Array of pixel values (0-255)
 
         """
-        indices = np.linspace(0, len(samples) - 1, target_len).astype(int)
-        freqs = self._samples_to_freq(samples)
-        pixel_freqs = freqs[indices]
-        pixels = np.array([self._freq_to_luma(f) for f in pixel_freqs], dtype=np.uint8)
-        return pixels
+        return demodulate_channel(
+            samples,
+            self._config.sample_rate,
+            target_len,
+            self._config.black_freq,
+            self._config.white_freq,
+        )
 
     def _yuv_to_rgb(self, y: np.ndarray, u: np.ndarray, v: np.ndarray) -> np.ndarray:
         """Convert YUV to RGB using ITU-R BT.601 standard.
@@ -231,26 +248,26 @@ class Robot36Decoder:
         """
         cfg = self._config
 
-        # Calculate offsets for Y and chroma channels
-        # Structure: sync + porch + Y + chroma + porch
-        offset = cfg.samples_per_sync + cfg.samples_per_porch
-        y_start = offset
+        # Structure: sync + porch + Y + porch + porch + chroma. The two porches
+        # between luminance and chroma are the separation and chroma porches;
+        # omitting them shifted the colour window early and bled the tail of Y
+        # into it.
+        y_start = cfg.samples_per_sync + cfg.samples_per_porch
         y_end = y_start + cfg.samples_per_y_scan
 
-        chroma_start = y_end
+        chroma_start = y_end + 2 * cfg.samples_per_porch
         chroma_end = chroma_start + cfg.samples_per_chroma_scan
 
-        # Extract and decode channels
-        y_samples = (
-            line_samples[y_start:y_end]
-            if y_end <= len(line_samples)
-            else np.zeros(cfg.samples_per_y_scan)
-        )
-        chroma_samples = (
-            line_samples[chroma_start:chroma_end]
-            if chroma_end <= len(line_samples)
-            else np.zeros(cfg.samples_per_chroma_scan)
-        )
+        # Take whatever of each window is actually present rather than
+        # discarding the channel when it overruns. Line lengths come from
+        # measured sync spacing and are routinely a few samples short of the
+        # nominal figure -- clock mismatch alone accounts for it. The previous
+        # all-or-nothing guard turned a 3-sample shortfall into a wholly zero
+        # chroma channel, which drove U and V to 0 instead of the neutral 128
+        # and cast every decode green. A slightly short channel decodes fine;
+        # the demodulator resamples to `width` regardless.
+        y_samples = _window(line_samples, y_start, y_end)
+        chroma_samples = _window(line_samples, chroma_start, chroma_end)
 
         y_channel = self._decode_channel(y_samples, cfg.width)
         chroma = self._decode_channel(chroma_samples, cfg.width)

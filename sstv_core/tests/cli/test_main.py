@@ -18,12 +18,23 @@ class TestArgumentParser:
         with pytest.raises(SystemExit):
             parser.parse_args([])
 
-    def test_decode_command_requires_device(self):
-        """Decode command requires --device."""
+    def test_decode_command_accepts_a_file_instead_of_a_device(self):
+        """--device is no longer required at parse time.
+
+        `decode --file recording.wav` is a valid invocation, so the source is
+        checked in cmd_decode rather than by argparse: it needs one of
+        --device or --file, and reports which is missing. See
+        tests/test_cli_decode.py.
+        """
         parser = create_parser()
 
-        with pytest.raises(SystemExit):
-            parser.parse_args(["decode"])
+        args = parser.parse_args(["decode", "--file", "recording.wav"])
+        assert args.file == "recording.wav"
+        assert args.device is None
+
+        # A bare `decode` now parses; cmd_decode rejects it at runtime.
+        bare = parser.parse_args(["decode"])
+        assert bare.device is None and bare.file is None
 
     def test_decode_command_with_device(self):
         """Decode command parses with device."""

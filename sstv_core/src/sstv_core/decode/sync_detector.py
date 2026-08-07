@@ -81,6 +81,37 @@ class SyncPulseDetector:
     SYNC_FREQ = 1200.0
     MIN_SYNC_DURATION_MS = 3.0
     MAX_SYNC_DURATION_MS = 15.0
+
+    # Detection is a RATIO of 1200 Hz response to the block's own broadband
+    # energy, not an absolute magnitude. An absolute threshold is a
+    # recording-level test rather than a sync-pulse test: measured across the
+    # reference corpus, per-file median magnitude spans 0.0148-0.0471 purely
+    # because the recordings were made at different levels, and no single
+    # constant separates sync from noise on all of them. The ratio asks "is
+    # this block mostly 1200 Hz?", which is unchanged when the input is
+    # scaled -- necessary because SSTeVe takes audio from USB interfaces,
+    # virtual cables, line-out, and (soon) SDR demodulation at wildly
+    # different levels.
+    #
+    # A pure 1200 Hz tone gives a ratio near 0.65; broadband noise sits well
+    # below 0.2. See scripts/sync_threshold_study.py.
+    SYNC_RATIO_THRESHOLD = 0.40
+
+    # Blocks quieter than this carry no usable signal; testing their spectral
+    # shape produces noise-driven ratios. Guards the silence between
+    # transmissions.
+    MIN_BLOCK_ENERGY = 0.005
+
+    # Fraction of the expected line interval a pulse must clear to be treated
+    # as a genuine line start. Picture content can momentarily resemble
+    # 1200 Hz -- a dark region sits near 1500 Hz and noise does the rest --
+    # producing spurious pulses mid-line that split scanlines and tear the
+    # image. Measured on the reference corpus, real line starts cluster within
+    # a few percent of the mode's line time while spurious ones scatter well
+    # below it, so 0.8 separates them with margin.
+    LINE_SPACING_TOLERANCE = 0.8
+
+    # Retained for callers that reference it; no longer used for detection.
     DETECTION_THRESHOLD = 0.6
 
     # Mode timing database (line_duration_ms, sync_duration_ms)
@@ -94,10 +125,20 @@ class SyncPulseDetector:
         "Robot72": (300.0, 9.0),
     }
 
+    # Goertzel block length. 1ms holds barely one cycle of 1200 Hz, too few to
+    # resolve it from the video band: measured at 48kHz, a pure 1500 Hz tone
+    # (black) scored 0.539 on the 1200 Hz filter against a 0.40 threshold, so
+    # dark picture content read as continuous sync and the detector found 32
+    # line starts in a 256-line image. At 2ms the same tone scores 0.000.
+    #
+    # 2ms is also the longest block that still fits inside the shortest sync
+    # pulse SSTeVe decodes (Martin M1, 4.862ms), leaving room to measure the
+    # pulse's duration rather than merely notice it.
+    BLOCK_DURATION_MS = 2.0
+
     def __init__(self, sample_rate: int = 48000) -> None:
         self._sample_rate = sample_rate
-        # Use small block for precise timing (1ms)
-        self._block_size = int(sample_rate / 1000)
+        self._block_size = max(4, int(sample_rate * self.BLOCK_DURATION_MS / 1000))
         self._filter = GoertzelFilter(self.SYNC_FREQ, sample_rate, self._block_size)
 
         self._in_sync = False
@@ -136,25 +177,46 @@ class SyncPulseDetector:
             block = samples[offset:offset + self._block_size]
             mag = self._filter.magnitude(block)
 
+            # Ratio of 1200 Hz content to the block's total energy. Both terms
+            # scale linearly with input level, so the ratio does not.
+            energy = float(np.sqrt(np.mean(block.astype(np.float64) ** 2)))
+            ratio = mag / energy if energy > self.MIN_BLOCK_ENERGY else 0.0
+
             current_pos = position + offset
-            is_sync = mag > self.DETECTION_THRESHOLD
+            is_sync = ratio > self.SYNC_RATIO_THRESHOLD
 
             if is_sync and not self._in_sync:
-                # Start of sync pulse
+                # Start of sync pulse. Detection is block-quantised: this is
+                # the start of the block in which the pulse was first seen, so
+                # the true edge lies somewhere inside it and averages half a
+                # block later. Correcting for that removes a systematic bias
+                # that otherwise shifts every scanline left by the same amount.
+                #
+                # Measured by sweeping the offset across the five Scottie
+                # reference files: mean SSIM peaks at +0.91ms against a 2ms
+                # block, and the correction improves all five (0.366 -> 0.422).
                 self._in_sync = True
-                self._sync_start = current_pos
+                self._sync_start = current_pos + self._block_size // 2
 
             elif not is_sync and self._in_sync:
-                # End of sync pulse
+                # End of sync pulse, corrected by the same half block as the
+                # leading edge: the pulse ended somewhere inside the block that
+                # first read as not-sync. Both edges must carry the shift or
+                # the measured duration is biased, and mode detection reads
+                # that duration to tell Scottie (9ms) from Martin (4.862ms).
                 self._in_sync = False
-                duration_samples = current_pos - self._sync_start
+                sync_end = current_pos + self._block_size // 2
+                duration_samples = sync_end - self._sync_start
                 duration_ms = duration_samples * 1000.0 / self._sample_rate
 
                 if self.MIN_SYNC_DURATION_MS <= duration_ms <= self.MAX_SYNC_DURATION_MS:
                     pulse = SyncPulseResult(
                         position_samples=self._sync_start,
                         duration_ms=duration_ms,
-                        confidence=mag,
+                        # The ratio at the pulse's trailing edge: how purely
+                        # 1200 Hz this block was, on a 0-1 scale that means
+                        # the same thing at any input level.
+                        confidence=min(1.0, ratio),
                     )
                     detected.append(pulse)
                     self._sync_pulses.append(pulse)
@@ -166,7 +228,7 @@ class SyncPulseDetector:
                         )
                         self._inter_pulse_times.append(inter_time_ms)
 
-                    self._last_sync_end = current_pos
+                    self._last_sync_end = sync_end
 
             offset += self._block_size
 
@@ -218,9 +280,54 @@ class SyncPulseDetector:
                       best_mode, best_confidence * 100)
         return None
 
-    def get_sync_positions(self) -> list[int]:
-        """Get all detected sync pulse positions."""
-        return [p.position_samples for p in self._sync_pulses]
+    def get_sync_positions(self, line_duration_ms: float | None = None) -> list[int]:
+        """Get detected sync pulse positions, one per scanline.
+
+        Args:
+            line_duration_ms: Expected line time for the mode being decoded.
+                When given, pulses closer together than
+                `LINE_SPACING_TOLERANCE` of it are dropped as spurious. When
+                omitted, the spacing is inferred from the pulses themselves.
+
+        Returns:
+            Sample positions of accepted line-start pulses.
+
+        Notes:
+            Raw detections include picture content that momentarily looked like
+        1200 Hz. Left in, those split scanlines: the decoder treats each as a
+        line start and the image tears. Filtering here rather than in
+        `process_samples` is deliberate -- the mode, and therefore the real
+        line time, is not known while blocks are streaming past.
+
+        """
+        positions = [p.position_samples for p in self._sync_pulses]
+        if len(positions) < 3:
+            return positions
+
+        if line_duration_ms is not None:
+            expected = line_duration_ms * self._sample_rate / 1000.0
+        else:
+            # Infer it: real line starts are the dominant interval, and taking
+            # the largest cluster is more robust than the median when spurious
+            # detections outnumber genuine ones.
+            intervals = np.diff(np.array(positions, dtype=np.float64))
+            if len(intervals) == 0:
+                return positions
+            hist, edges = np.histogram(intervals, bins=48)
+            peak = int(np.argmax(hist))
+            expected = float((edges[peak] + edges[peak + 1]) / 2.0)
+
+        if expected <= 0:
+            return positions
+
+        minimum_gap = expected * self.LINE_SPACING_TOLERANCE
+
+        kept = [positions[0]]
+        for pos in positions[1:]:
+            if pos - kept[-1] >= minimum_gap:
+                kept.append(pos)
+
+        return kept
 
     def get_last_sync(self) -> SyncPulseResult | None:
         """Get the most recently detected sync pulse."""

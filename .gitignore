@@ -135,3 +135,8 @@ alembic/versions/*.pyc
 
 # Playwright MCP session output
 .playwright-mcp/
+
+# Third-party reference audio, downloaded on demand by
+# sstv_core/scripts/fetch_reference_audio.py. Never committed: these are
+# other people's recordings under their own licences.
+sstv_core/tests/reference/audio/_cache/

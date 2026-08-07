@@ -94,6 +94,13 @@ def cmd_decode(args: argparse.Namespace) -> int:
     """
     from sstv_core.audio.device_manager import AudioDeviceManager
 
+    if args.file:
+        return _decode_file(args)
+
+    if not args.device:
+        log_event("error", message="I need either --device or --file to decode")
+        return 1
+
     log_event("decode_start", mode=args.mode, device=args.device)
 
     # Get audio devices
@@ -131,26 +138,140 @@ def cmd_decode(args: argparse.Namespace) -> int:
 
     log_event("device_selected", device_id=selected_device.id, device_name=selected_device.name)
 
-    # TODO: Implement actual decode logic with StreamManager
-    # For now, just demonstrate event logging
-    log_event("listening", mode=args.mode, timeout_sec=args.timeout)
+    # Live decode from a device is not wired up in the CLI yet. This used to
+    # emit fabricated vis_detected, scanline_update, and decode_complete
+    # events naming a file that was never written -- which in --json mode told
+    # a screen-reader user that a decode had succeeded when nothing had
+    # happened. Failing plainly is the only honest option until the
+    # StreamManager path is connected.
+    log_event(
+        "error",
+        message="I can't decode from a live device yet -- that isn't wired up.",
+        suggested_action=(
+            "Decode a recording instead: "
+            "python -m sstv_core.cli.main decode --file audio.wav"
+        ),
+    )
+    return 2
 
-    # Simulate VIS detection
-    log_event("vis_detected", mode=args.mode, confidence=0.98)
 
-    # Simulate scanline updates
-    for line in range(0, 256, 32):
-        progress = (line / 256) * 100
+def _decode_file(args: argparse.Namespace) -> int:
+    """Decode an SSTV image from a WAV file.
+
+    Args:
+        args: Parsed command-line arguments; `args.file` is the input path.
+
+    Returns:
+        Exit code (0 = success)
+
+    """
+    import wave
+    from pathlib import Path
+
+    import numpy as np
+
+    from sstv_core.decode.martin_decoder import MartinM1Config, MartinM1Decoder
+    from sstv_core.decode.robot_decoder import Robot36Config, Robot36Decoder
+    from sstv_core.decode.scottie_decoder import ScottieS1Config, ScottieS1Decoder
+    from sstv_core.decode.sync_detector import SyncPulseDetector
+
+    decoders = {
+        "scotties1": (ScottieS1Decoder, ScottieS1Config, 428.22),
+        "martinm1": (MartinM1Decoder, MartinM1Config, 446.446),
+        "robot36": (Robot36Decoder, Robot36Config, 150.0),
+    }
+
+    path = Path(args.file)
+    if not path.exists():
+        log_event("error", message=f"I couldn't find {path}")
+        return 1
+
+    mode_key = (args.mode or "ScottieS1").lower().replace(" ", "").replace("_", "")
+    entry = decoders.get(mode_key)
+    if entry is None:
         log_event(
-            "scanline_update",
-            line=line,
-            total=256,
-            progress=round(progress, 1),
+            "error",
+            message=f"I don't have a decoder for '{args.mode}'.",
+            suggested_action=f"Try one of: {', '.join(sorted(decoders))}",
         )
+        return 1
+    decoder_cls, config_cls, line_ms = entry
 
-    # Placeholder path in a simulated event - no file is written.
-    log_event("decode_complete", lines=256, output_path="/tmp/decoded.jpg")  # noqa: S108
+    log_event("decode_start", mode=args.mode or "ScottieS1", file=str(path))
 
+    try:
+        with wave.open(str(path), "rb") as handle:
+            channels = handle.getnchannels()
+            width = handle.getsampwidth()
+            rate = handle.getframerate()
+            frames = handle.readframes(handle.getnframes())
+    except (wave.Error, OSError) as exc:
+        log_event(
+            "error",
+            message=f"I couldn't read {path.name} as a WAV file.",
+            detail=str(exc),
+        )
+        return 1
+
+    if width != 2:
+        log_event(
+            "error",
+            message=f"I can only read 16-bit WAV files; {path.name} is {width * 8}-bit.",
+        )
+        return 1
+
+    audio = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
+    if channels > 1:
+        audio = audio.reshape(-1, channels).mean(axis=1)
+
+    log_event("audio_loaded", sample_rate=rate, duration_sec=round(len(audio) / rate, 2))
+
+    detector = SyncPulseDetector(sample_rate=rate)
+    detector.detect_in_buffer(audio)
+    positions = detector.get_sync_positions(line_duration_ms=line_ms)
+
+    if not positions:
+        log_event(
+            "error",
+            message="I couldn't find any sync pulses in that audio.",
+            suggested_action=(
+                "Check the file really contains an SSTV transmission, and that "
+                "--mode matches how it was sent."
+            ),
+        )
+        return 1
+
+    log_event("sync_detected", line_starts=len(positions))
+
+    config = config_cls(sample_rate=rate)
+    decoder = decoder_cls(config)
+
+    lines = 0
+    for _ in decoder.decode_stream(iter([audio]), positions):
+        lines += 1
+        if lines % 32 == 0:
+            log_event(
+                "scanline_update",
+                line=lines,
+                total=config.height,
+                progress=round(lines / config.height * 100, 1),
+            )
+
+    image = decoder.get_image()
+    if image is None or lines == 0:
+        log_event("error", message="I decoded no scanlines from that audio.")
+        return 1
+
+    output = Path(args.output) if args.output else path.with_suffix(".png")
+    try:
+        import cv2
+
+        cv2.imwrite(str(output), cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
+    except ImportError:
+        log_event("error", message="I need opencv-python installed to save the image.")
+        return 1
+
+    log_event("decode_complete", lines=lines, output_path=str(output))
     return 0
 
 
@@ -326,8 +447,15 @@ Examples:
     decode_parser.add_argument(
         "--device",
         type=str,
-        required=True,
-        help="Audio input device ID (use list-devices to see options)",
+        default=None,
+        help="Audio input device ID (use list-devices to see options). "
+        "Required unless --file is given.",
+    )
+    decode_parser.add_argument(
+        "--file",
+        type=str,
+        default=None,
+        help="Decode a WAV file instead of listening to a device",
     )
     decode_parser.add_argument(
         "--timeout",
