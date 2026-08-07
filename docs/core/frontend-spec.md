@@ -18,13 +18,26 @@ blueprint** for the SSTeVe desktop UI (React/Tauri).
 
 > **Scope note (2026-08-05).** This spec previously carried a palette, typography, and
 > design-token system that contradicted a second, equally unimplemented spec. Neither
-> was ever built — no UI code exists in this repository. All visual prescription has
-> been removed so a future visual direction can be chosen deliberately rather than
-> inherited by accident. **PRODUCT.md records the visual world as an open decision.**
+> was ever built. All visual prescription has been removed so a future visual direction
+> can be chosen deliberately rather than inherited by accident.
 >
 > What remains here is behavior: state machines, component contracts, API mappings,
 > error and empty states, accessibility criteria, and the viewport/no-scroll
 > constraint. Those are real decisions and still apply.
+>
+> **Update (2026-08-07).** Two things changed since the note above:
+>
+> 1. **A visual proposal now exists** — `DESIGN.md`, proven in a working prototype at
+>    `prototype/`. The visual world is no longer an open decision in the sense this note
+>    described; it is a leading, unshipped candidate.
+> 2. **The user archetypes this spec references are retired.** Makers, Activators,
+>    Preppers, and Old Guard were unsourced spec inheritance, replaced by operating
+>    situations in `PRODUCT.md` "Users". Wherever this document justifies a design
+>    choice *by archetype* — notably the Auto/Manual split in §20 — that justification
+>    no longer stands. The underlying tension (novice simplicity vs. operational
+>    flexibility) is real and remains explicitly undecided.
+>
+> `PRODUCT.md` is authoritative wherever it conflicts with this document.
 
 ---
 
@@ -93,7 +106,7 @@ The first-run experience should feel like a helpful friend showing you how thing
 
 ## SSTeVe SSTV Platform - Build-Ready Blueprint
 
-Build a modular SSTV platform with a headless Python core engine exposing a REST API and WebSocket interface, paired with a lightweight React/Tauri desktop UI. Serve multiple user archetypes (Makers, Activators, Preppers, Old Guard) through strategic feature choices: PTT control for field ops, stereo sonification for blind operators, and SSTeVe's friendly & nerdy brand voice. Smart automation removes friction without brittle complexity. Gamification and AI extras are explicitly deferred beyond the MVP.
+Build a modular SSTV platform with a headless Python core engine exposing a REST API and WebSocket interface, paired with a lightweight React/Tauri desktop UI. Serve the operating situations in `PRODUCT.md` "Users" through strategic feature choices: PTT control for field ops, stereo sonification for eyes-free operation, and SSTeVe's friendly & nerdy brand voice. Smart automation removes friction without brittle complexity. Gamification and AI extras are explicitly deferred beyond the MVP. (Archetype framing retired 2026-08-07.)
 
 ---
 
@@ -421,7 +434,7 @@ In December 2025, four specialized agents conducted a comprehensive evaluation o
 
 #### Auto Mode (Simplified - 8 Essential Controls)
 
-**Target Users:** Makers (want simplicity), Preppers (want "just works"), Novice operators
+**Target Situations:** at-the-desk monitoring, receive-only, first-run. *(Was justified by the Makers/Preppers archetypes; retired 2026-08-07. The split itself remains undecided — see the header note and `PRODUCT.md` §Explicitly undecided.)*
 
 **Primary Interface Elements:**
 1. Input Device dropdown (with "Auto-detect" option if feasible)
@@ -456,7 +469,7 @@ In December 2025, four specialized agents conducted a comprehensive evaluation o
 
 #### Manual Mode (Expert-Friendly - 12-15 Visible Controls)
 
-**Target Users:** Activators (field ops with variable conditions), Old Guard (MMSSTV migrants), Experienced operators
+**Target Situations:** degraded signal, field ops. *(Was justified by the Activators/Old Guard archetypes; retired 2026-08-07. The split itself remains undecided — see the header note and `PRODUCT.md` §Explicitly undecided.)*
 
 **Primary Interface Elements:**
 1. Input Device dropdown

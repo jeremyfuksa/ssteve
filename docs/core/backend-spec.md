@@ -15,14 +15,26 @@ This document defines the backend architecture, REST/WebSocket API, Python core 
 **For frontend/UI specifications, see:** `frontend-spec.md`
 
 ---
-Summary:: Modern, modular SSTV platform with headless Python core and web-based desktop UI (Tauri), centered on reliable RX/TX, accessibility (stereo sonification), and smart automation that removes friction. SSTeVe is your friendly nerdy assistant for SSTV - helpful, capable, and approachable through messaging, not gimmicks.
-Next:: Build Option C hybrid (Auto + Manual modes), conduct user testing with 20 participants, ship validated approach
-Context:: Revised architecture serving Makers, Activators, Preppers, and Old Guard ham operators with API-first design and progressive disclosure based on extensive UX research.
+
+> **Status note (2026-08-07). `PRODUCT.md` is authoritative where it conflicts with this document.**
+>
+> The **API contract, schema, and DSP detail in this file remain current** — they describe shipped, tested code. The **product framing does not**, and is retained only as history:
+>
+> - **User archetypes (Makers, Activators, Preppers, Old Guard) are retired.** They were inherited from the original spec with no research behind them and were replaced by operating situations on 2026-08-07. Every reference below is stale.
+> - **There was never any UX research.** The phrase "extensive UX research" below was false when written; `PRODUCT.md` §Evidence records that no user testing, telemetry, or beta testing has ever been conducted. The "20 participants" test was never run.
+> - **Smart Reply is cut** — built but not shipped, and no UI surface will be built for it.
+> - **Native SDR support (local devices and SpyServer) is now v1 scope**, not the "future" work this document lists. It moves the RF boundary: on the SDR path SSTeVe owns tuning and demodulation.
+> - **Decode records need provenance.** QSO / reception report / remote reception report are three distinct types, and ADIF export must hard-block remote receptions. The `QSO` schema below can represent only the first.
+
+---
+Summary:: Modern, modular SSTV platform with headless Python core and web-based desktop UI (Tauri), centered on reliable RX/TX, eyes-free operation (stereo sonification), and smart automation that removes friction. SSTeVe is your friendly nerdy assistant for SSTV - helpful, capable, and approachable through messaging, not gimmicks.
+Next:: [SUPERSEDED — see status note above] Build Option C hybrid (Auto + Manual modes), conduct user testing with 20 participants, ship validated approach
+Context:: [SUPERSEDED — see status note above] Revised architecture serving Makers, Activators, Preppers, and Old Guard ham operators with API-first design and progressive disclosure.
 
 ## SSTeVe SSTV Platform - Build-Ready Blueprint
 
 ### Project Abstract
-Build a modular SSTV platform with a headless Python core engine exposing a REST API and WebSocket interface, paired with a lightweight React/Tauri desktop UI. Serve multiple user archetypes (Makers, Activators, Preppers, Old Guard) through smart automation that removes friction: Smart Reply for instant acknowledgments, Smart Mode Detection when VIS fails, Signal Quality Pre-Flight to prevent wasted decodes, and friendly messaging that makes SSTV approachable without dumbing it down.
+Build a modular SSTV platform with a headless Python core engine exposing a REST API and WebSocket interface, paired with a lightweight React/Tauri desktop UI. Smart automation removes friction: Smart Mode Detection when VIS fails, Signal Quality Pre-Flight to prevent wasted decodes, and friendly messaging that makes SSTV approachable without dumbing it down. (Archetype framing retired 2026-08-07; Smart Reply cut — see status note above.)
 
 **Timeline:** 12 weeks for desktop MVP + accessibility + brand integration. Optional mobile prototype adds 6 weeks.
 
@@ -1576,7 +1588,7 @@ Screen reader announcements should be factual and direct, not conversational. Fr
 - [ ] Achievement or proficiency markers (minimal, opt-in)
 - [ ] Plugin architecture for custom modes
 - [ ] Community image sharing
-- [ ] SDR control integration
+- [ ] ~~SDR control integration~~ — **promoted to v1 scope 2026-08-07.** Native SDR support, local devices and SpyServer both. See `PRODUCT.md` §Scope.
 - [ ] Advanced DSP (noise reduction, AGC)
 
 ### 7.4 Won't Have (MVP)
@@ -1591,18 +1603,25 @@ Screen reader announcements should be factual and direct, not conversational. Fr
 - [ ] Gamification (achievements, badges, leaderboards, stats dashboards)
   - **Rationale:** Taking work out of SSTV makes it fun, not adding game mechanics. Focus on friction removal through smart automation instead.
 
-### 7.5 UX Alignment (Personas + First Wins)
+### 7.5 UX Alignment (Operating Situations + First Wins)
 
-- **Maker (Spectrum Hacker):** Scriptable/headless decode and transmit smoke tests with sample audio; REST/CLI parity; stable API for automation.
-- **Activator (Gamified Adventurer):** Offline-first capture/log queue with burst sync/export; fast image TX/RX flows; minimal setup in the field.
-- **Prepper (Resilient Pragmatist):** Low-friction onboarding; reliable PTT and device handling; “good enough” defaults to receive and log without configuration burden.
-- **Old Guard:** Compatible filenames/import; predictable desktop controls; optional branding kept light.
+*Rewritten 2026-08-07: the persona framing was retired, but these acceptance scenarios were worth keeping. Restated against the operating situations in `PRODUCT.md` "Users".*
 
-**First Win Tests (per persona):**
-- Maker: Run sample audio decode via CLI/API headless; confirm image saved + status events.
-- Activator: Capture RX/TX in offline mode; queue logs; perform burst sync/export when back online.
-- Prepper: Fresh install → choose device → receive and save an image without extra config; PTT keys reliably.
-- Old Guard: Import MMSSTV library; verify filenames and gallery usability with standard desktop controls.
+- **At the desk, monitoring:** reliable device selection and defaults good enough to receive and save an image without configuration burden.
+- **Field ops:** offline-first capture/log queue with burst sync/export; fast TX/RX flows; minimal setup.
+- **Degraded signal:** auto-detection sets defaults and reports confidence; gain/squelch/AFC overrides reachable without leaving the primary interface.
+- **Receive-only (SDR/SpyServer):** no audio-routing chain to assemble; transmit surfaces absent rather than disabled.
+- **Eyes-free:** sonification and `--json` CLI output usable without the screen.
+- **Scripted/headless:** REST/CLI parity and a stable API for automation.
+
+**First Win Tests (per situation):**
+- At the desk: fresh install → choose device → receive and save an image without extra config; PTT keys reliably.
+- Field ops: capture RX/TX offline; queue logs; burst sync/export when back online.
+- Degraded signal: force a VIS failure; confirm the mode-detection fallback surfaces a confidence figure and a manual path.
+- Receive-only: connect an SDR or SpyServer, click a band frequency, decode — with no virtual audio cable anywhere in the flow.
+- Eyes-free: complete a decode using sonification and screen-reader output only.
+- Scripted: run sample audio decode via CLI/API headless; confirm image saved + status events.
+- Migration (feature, not situation): import an MMSSTV library; verify filenames and metadata survive.
 
 ---
 
@@ -1981,12 +2000,7 @@ sequenceDiagram
   - [ ] Image library directory configuration in Settings
   - [ ] WebSocket events for live gallery updates
 
-- [ ] **6.8 Emergency Transmit Dialog (Prepper Workflow)**
-  - [ ] Build high-contrast emergency UI
-  - [ ] Generate emergency composite (GPS + callsign + timestamp)
-  - [ ] Long-press confirmation (3s hold to prevent accidents)
-  - [ ] Use Robot 36 (fastest mode)
-  - [ ] Keyboard shortcut: F12
+- ~~**6.8 Emergency Transmit Dialog (Prepper Workflow)**~~ — **cut 2026-08-07.** Never built. Its only justification was the Prepper archetype, which was retired; and SSTV is a poor emergency mode regardless (it needs a licensed counterpart, a known frequency, and a matching mode to work at all). Voice and digital text modes beat sending a picture in any real emergency.
 
 ### **Phase 7: Accessibility Enhancements (Weeks 9-10)**
 
@@ -2848,9 +2862,11 @@ sudo usermod -a -G dialout $USER
 - QRZ.com download page
 - ARRL software directory listing
 
-**Beta Testing:**
+**Beta Testing** *(aspirational — none of this is arranged. No beta exists, no
+volunteers have been recruited, and there is no NFB partnership; the line below
+previously implied one. `PRODUCT.md` §Evidence records what is actually absent.)*:
 - 20-30 volunteers from r/amateurradio
-- 5 blind operators (NFB partnership)
+- Operators testing the eyes-free path with real assistive technology
 - 10 POTA/SOTA activators
 - Feedback via GitHub Issues + Discord
 
@@ -2881,7 +2897,7 @@ sudo usermod -a -G dialout $USER
 **v1.2 (6 months):**
 - Plugin architecture
 - Community image sharing
-- SDR control integration
+- ~~SDR control integration~~ — promoted to v1 scope 2026-08-07 (see `PRODUCT.md` §Scope)
 
 **v2.0 (12 months):**
 - Mobile app (iOS, Android)
@@ -2915,30 +2931,19 @@ sudo usermod -a -G dialout $USER
 
 ### 16.2 User Metrics (Post-Beta)
 
-**Maker Archetype:**
-- 50+ GitHub stars
-- 5+ community plugins/scripts
-- 10+ pull requests from community
+**Removed 2026-08-07.** This section listed per-archetype targets (GitHub stars, community plugins, "mobile app downloaded by 100+ activators", "emergency mode used in disaster drills") for archetypes that were retired, against a distribution channel that does not exist. There is no beta, no user base, no telemetry, and no mobile app — `PRODUCT.md` §Evidence records what is actually absent, and inventing targets against it is how the earlier fabrications entered this repo.
 
-**Activator Archetype:**
-- 10+ POTA/SOTA field reports
-- Mobile app downloaded by 100+ activators
-
-**Prepper Archetype:**
-- 20+ users report "easier than MMSSTV"
-- Emergency mode used in disaster drills
-
-**Old Guard:**
-- 30+ users migrate from MMSSTV
-- Positive reviews on QRZ forums
+The one honest success measure is in `PRODUCT.md` §Product Purpose: *an operator completing a decode they would otherwise have lost.*
 
 ### 16.3 Strategic Metrics
 
-**Differentiation:**
-- Feature parity with MMSSTV: ✓
-- API for extensibility: ✓
-- Mobile support: ✓ (optional)
-- Accessibility: ✓ (unique selling point)
+**Differentiation** (corrected 2026-08-07 — the previous checkmarks asserted shipped capability that does not exist):
+
+- Feature parity with MMSSTV: **not yet** — no UI is built.
+- API for extensibility: **yes** — REST/WebSocket contract shipped and tested. Treated as infrastructure, not as a market claim.
+- Mobile support: **no, and out of scope.** `PRODUCT.md` requirement 11 states there are no layouts below 1280px.
+- Eyes-free operation: **partial** — sonification and `--json` CLI shipped; never tested with real assistive technology.
+- A point of view: **the actual differentiator.** See `PRODUCT.md` §Positioning and `DESIGN.md`.
 
 **Community:**
 - 100+ Discord/Reddit members
@@ -2969,7 +2974,7 @@ sudo usermod -a -G dialout $USER
 | Risk | Likelihood | Impact | Mitigation |
 |------|------------|--------|------------|
 | Community prefers desktop over mobile | Medium | Low | Desktop is MVP, mobile is optional (no sunk cost) |
-| API not sufficient for "Maker" archetype | Low | High | Involve makers in beta, iterate on API design based on feedback |
+| ~~API not sufficient for "Maker" archetype~~ — retired 2026-08-07; the API is infrastructure, not an audience commitment | — | — | — |
 | Accessibility features underutilized | Medium | Low | Value is in inclusion, not usage volume; good PR for ham community |
 | MMSSTV users don't migrate | Medium | Medium | Provide MMSSTV import tool, compatibility mode, migration guide |
 | Regulatory issues (encryption, export) | Low | Medium | SSTV is unencrypted, no export controls; consult legal if API extended |

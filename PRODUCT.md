@@ -69,10 +69,10 @@ poor emergency-comms mode, and the archetype's actual ask — good defaults, no
 configuration — is table stakes for everyone. Replaced with situations 2026-08-07. Do
 not restore them from git history.*
 
-Non-visual operation is the one situation with product investment already shipped: the
-core carries stereo sonification for tuning by ear (`accessibility/audio_guidance.py`)
-and a `--json` CLI mode built for screen readers. Existing investment, not an
-aspiration — though see Accessibility & Inclusion for what remains untested.
+Eyes-free is the one situation with product investment already shipped: the core
+carries stereo sonification for tuning by ear (`accessibility/audio_guidance.py`) and a
+`--json` CLI mode built for screen readers. Existing investment, not an aspiration —
+though see Accessibility & Inclusion for what remains untested.
 
 ## Product Purpose
 
@@ -115,7 +115,7 @@ standard and checkable without users.
 Two things a neighboring SSTV application could not truthfully copy:
 
 1. **A genuinely headless, API-first core.** The DSP engine is UI-agnostic and complete
-   on its own: REST + WebSocket contract, a CLI, and 444 passing tests. Any interface
+   on its own: REST + WebSocket contract, a CLI, and 452 passing tests. Any interface
    is a client. Incumbent SSTV applications are monolithic desktop binaries where the
    UI and the decoder are the same program.
 2. **Feedback designed into the signal path, not bolted onto the chrome.** Stereo
@@ -396,7 +396,7 @@ overlay, PD/Wraase modes.
 
 ## Evidence on Hand
 
-- **Working backend** — 444 passing tests, zero exclusions; ruff and mypy clean and
+- **Working backend** — 452 passing tests, zero exclusions; ruff and mypy clean and
   CI-gated. Runnable now: `cd sstv_core && uv run sstv-server` (127.0.0.1:8000).
 - **API contract** — `docs/core/backend-spec.md` and `docs/core/openapi.json`
   (regenerate via `sstv_core/scripts/export_api_docs.py`). FastAPI also serves live

@@ -24,6 +24,25 @@ were deleted on 2026-08-05 (`CLAUDE.md`, `PRODUCT.md` "Brand Commitments").
 Treat this as a reference for what the prototype does, and as a proposal for the real
 UI — not as a record of shipped work.
 
+> **Staleness note (2026-08-07).** This document describes the prototype as of roughly
+> v5. The prototype has since moved to v10 and one structural change is not reflected
+> below: **`.ctable`, the four-column control table documented in §6, no longer exists
+> in `prototype/index.html`.** Controls now live in a right-hand rail (gain, squelch,
+> AFC, and the primary actions), and the fields column gained a `.session` cell listing
+> the captures accumulating this session. See `prototype/shots/v8-restructured.png`
+> through `v10-session.png`.
+>
+> The rest of the document — tokens, type, the confidence grammar, signal rendering,
+> canvas sizing, motion, accessibility, and §10 — was verified against the current
+> files and still holds. §6's `.arrival`, `.board`, `.fall`, `.btn`, `.segset`,
+> `.pass`, and `.toast` entries remain accurate; only `.ctable` is gone.
+>
+> The AUTO/SET column contract that `.ctable` carried was the clearest expression of
+> `PRODUCT.md` interaction requirement 3 (auto-detection sets defaults, it does not
+> replace control). Whatever replaces it must still show what the machine derived and
+> what the operator overrode, both at once. Do not treat the right rail as a decision
+> on control density — `PRODUCT.md` still records that as explicitly undecided.
+
 ## 2. The world
 
 A decode is a table row being typeset in real time, not a progress bar filling. The
@@ -630,6 +649,23 @@ entirely in bar height and the printed 1200 Hz rule.
 
 **Not covered by the prototype.** Transmit confirmation (`PRODUCT.md` requirement 7 —
 the prototype's Transmit button keys immediately with no confirmation step), the QSO
-tab, image import, smart replies, sonification controls, and the "motion sensitivity
-and focus visibility are user-configurable" requirement (requirement 9 — the prototype
-reads the OS preference but exposes no in-app setting).
+tab, image import, sonification controls, and the "motion sensitivity and focus
+visibility are user-configurable" requirement (requirement 9 — the prototype reads the
+OS preference but exposes no in-app setting). Smart replies were on this list and are
+now **cut from scope** (`PRODUCT.md` §Scope, 2026-08-07).
+
+**Two 2026-08-07 product decisions the visual system has not yet answered.**
+
+1. **Record provenance** (`PRODUCT.md` interaction requirement 12). Every decode must
+   show where it was heard — the operator's own antenna, or a remote SpyServer
+   receiver — and the three record types (QSO / reception report / remote reception)
+   must be distinguishable at a glance in the Log and in the record itself. This is a
+   direct problem for the thesis: the `.arrival` row is a record being typeset, and a
+   record that does not say where it came from is incomplete. It likely wants a field
+   in `.fields` and a column on `.board`, but the confidence grammar (§5) may be the
+   better instrument — provenance is a claim about trust, which is what that grammar
+   already encodes. Unresolved.
+2. **SDR as a first-class source.** Native SDR support (local devices and SpyServer) is
+   v1 scope. That implies surfaces the prototype has none of: source selection, server
+   connection state, push-button band frequencies, and honest reporting when a network
+   stream stalls or drops mid-decode. A dropped stream must not read as a weak signal.
