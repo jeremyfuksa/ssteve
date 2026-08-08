@@ -17,7 +17,6 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from sstv_core.api.dsp_manager import dsp_manager
-from sstv_core.api.operation_manager import operation_manager
 from sstv_core.api.session_manager import session_manager
 from sstv_core.api.websocket_manager import websocket_manager
 
@@ -130,7 +129,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         _file_library_watcher.stop()
         logger.info("Stopped file library watcher")
     await session_manager.stop_cleanup_task()
-    await operation_manager.stop_all()
     if _db_engine is not None:
         _db_engine.dispose()
         _db_engine = None
