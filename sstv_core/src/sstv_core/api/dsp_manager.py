@@ -7,6 +7,7 @@ wires progress callbacks to WebSocket events, and handles session state updates.
 
 import asyncio
 import logging
+import time
 from pathlib import Path
 from uuid import UUID
 
@@ -14,7 +15,18 @@ import numpy as np
 from sqlalchemy.orm import Session, sessionmaker
 
 from sstv_core.api.image_ids import db_image_id_to_uuid
-from sstv_core.api.models import DecodeState, TransmitState
+from sstv_core.api.models import (
+    AudioLevelsEvent,
+    DecodeCompleteEvent,
+    DecodeState,
+    ErrorEvent,
+    ScanlineUpdateEvent,
+    SSTVMode,
+    TransmitCompleteEvent,
+    TransmitProgressEvent,
+    TransmitState,
+    VISDetectedEvent,
+)
 from sstv_core.api.session_manager import session_manager
 from sstv_core.api.websocket_manager import websocket_manager
 from sstv_core.audio.device_manager import AudioDeviceManager
@@ -60,6 +72,10 @@ class DSPManager:
 
         # Track image paths for transmit operations (needed for database records)
         self._transmit_image_paths: dict[UUID, Path] = {}
+
+        # Wall-clock start per session, for honest duration_seconds in
+        # completion events (previously hardcoded `timestamp: 0  # TODO`).
+        self._session_started: dict[UUID, float] = {}
 
         logger.info(
             "DSPManager initialized (database: %s)",
@@ -218,6 +234,7 @@ class DSPManager:
 
         rx_mgr.set_progress_callback(on_progress)
         self._rx_managers[session_id] = rx_mgr
+        self._session_started[session_id] = time.time()
 
         # Start decode as background task
         decode_task = asyncio.create_task(
@@ -351,6 +368,7 @@ class DSPManager:
 
         # Store image path for later database record creation
         self._transmit_image_paths[session_id] = Path(image_path)
+        self._session_started[session_id] = time.time()
 
         # Start transmit as background task
         transmit_task = asyncio.create_task(
@@ -400,6 +418,20 @@ class DSPManager:
 
         logger.info("Transmit session %s stopped", session_id)
 
+    @staticmethod
+    def _mode_enum(mode: str | None) -> SSTVMode | None:
+        """Public mode string to enum; None when unknown rather than a guess."""
+        if not mode:
+            return None
+        try:
+            return SSTVMode(mode)
+        except ValueError:
+            return None
+
+    def _session_duration(self, session_id: UUID) -> float:
+        started = self._session_started.get(session_id)
+        return max(0.0, time.time() - started) if started else 0.0
+
     async def _handle_rx_progress(
         self, session_id: UUID, progress: RXProgress
     ) -> None:
@@ -432,14 +464,12 @@ class DSPManager:
 
             await websocket_manager.broadcast(
                 session_id,
-                {
-                    "event": "audio_levels",
-                    "left_db": rms_db,
-                    "right_db": rms_db,  # Mono = same left/right
-                    "peak_db": peak_db,
-                    "is_clipping": audio_levels.is_clipping,
-                    "timestamp": progress.elapsed_sec,
-                },
+                AudioLevelsEvent(
+                    left_db=rms_db,
+                    right_db=rms_db,  # Mono = same left/right
+                    peak_db=peak_db,
+                    is_clipping=bool(audio_levels.is_clipping),
+                ).model_dump(mode="json"),
             )
 
         # Map RX state to API state
@@ -462,15 +492,15 @@ class DSPManager:
 
         # Emit WebSocket events
         if progress.state == RXState.VIS_DETECTED:
-            await websocket_manager.broadcast(
-                session_id,
-                {
-                    "event": "vis_detected",
-                    "mode": progress.mode,
-                    "confidence": progress.mode_confidence,
-                    "timestamp": progress.elapsed_sec,
-                },
-            )
+            mode_enum = self._mode_enum(progress.mode)
+            if mode_enum is not None:
+                await websocket_manager.broadcast(
+                    session_id,
+                    VISDetectedEvent(
+                        mode=mode_enum,
+                        confidence=progress.mode_confidence,
+                    ).model_dump(mode="json"),
+                )
             logger.info(
                 "VIS detected for session %s: %s (%.2f confidence)",
                 session_id,
@@ -483,13 +513,12 @@ class DSPManager:
             if progress.current_line % 5 == 0 or progress.current_line == progress.total_lines:
                 await websocket_manager.broadcast(
                     session_id,
-                    {
-                        "event": "scanline_update",
-                        "line": progress.current_line,
-                        "total": progress.total_lines,
-                        "progress": progress.percent_complete,
-                        "signal_quality": progress.signal_quality,
-                    },
+                    ScanlineUpdateEvent(
+                        scanline_number=progress.current_line,
+                        total_scanlines=max(1, progress.total_lines),
+                        progress_percent=min(100.0, max(0.0, progress.percent_complete)),
+                        signal_quality=min(1.0, max(0.0, progress.signal_quality)),
+                    ).model_dump(mode="json"),
                 )
 
     async def _handle_decode_complete(
@@ -527,14 +556,18 @@ class DSPManager:
                     },
                 )
 
+                session_data = await session_manager.get_decode_session(session_id)
+                mode_str = (
+                    session_data.metadata.get("mode") if session_data else None
+                )
                 await websocket_manager.broadcast(
                     session_id,
-                    {
-                        "event": "decode_complete",
-                        "filepath": str(result),
-                        "image_id": image_id,
-                        "timestamp": 0,  # TODO: Add elapsed time from progress
-                    },
+                    DecodeCompleteEvent(
+                        image_id=UUID(image_id) if image_id else None,
+                        filepath=str(result),
+                        mode=self._mode_enum(mode_str),
+                        duration_seconds=self._session_duration(session_id),
+                    ).model_dump(mode="json"),
                 )
             else:
                 # Decode failed or cancelled
@@ -563,17 +596,17 @@ class DSPManager:
 
             await websocket_manager.broadcast(
                 session_id,
-                {
-                    "event": "error",
-                    "error_code": "DECODE_ERROR",
-                    "message": str(e),
-                },
+                ErrorEvent(
+                    error_code="DECODE_ERROR",
+                    message=str(e),
+                ).model_dump(mode="json"),
             )
 
         finally:
             # Cleanup
             self._rx_managers.pop(session_id, None)
             self._decode_tasks.pop(session_id, None)
+            self._session_started.pop(session_id, None)
             logger.info("Decode resources cleaned up for session %s", session_id)
 
     async def _create_image_record(
@@ -762,12 +795,11 @@ class DSPManager:
         if progress.percent_complete % 10 < 1 or progress.state == TXState.COMPLETE:
             await websocket_manager.broadcast(
                 session_id,
-                {
-                    "event": "tx_progress",
-                    "progress": progress.percent_complete,
-                    "time_remaining_sec": progress.remaining_sec,
-                    "current_scanline": progress.current_line,
-                },
+                TransmitProgressEvent(
+                    progress_percent=min(100.0, max(0.0, progress.percent_complete)),
+                    current_scanline=max(0, progress.current_line),
+                    time_remaining_seconds=max(0.0, progress.remaining_sec),
+                ).model_dump(mode="json"),
             )
 
     async def _handle_transmit_complete(
@@ -804,13 +836,17 @@ class DSPManager:
                     },
                 )
 
+                session_data = await session_manager.get_transmit_session(session_id)
+                mode_str = (
+                    session_data.metadata.get("mode") if session_data else None
+                )
                 await websocket_manager.broadcast(
                     session_id,
-                    {
-                        "event": "tx_complete",
-                        "image_id": image_id,
-                        "timestamp": 0,  # TODO: Add elapsed time
-                    },
+                    TransmitCompleteEvent(
+                        tx_id=session_id,
+                        mode=self._mode_enum(mode_str),
+                        duration_seconds=self._session_duration(session_id),
+                    ).model_dump(mode="json"),
                 )
             else:
                 logger.warning("Transmit failed for session %s", session_id)
@@ -838,11 +874,10 @@ class DSPManager:
 
             await websocket_manager.broadcast(
                 session_id,
-                {
-                    "event": "error",
-                    "error_code": "TRANSMIT_ERROR",
-                    "message": str(e),
-                },
+                ErrorEvent(
+                    error_code="TRANSMIT_ERROR",
+                    message=str(e),
+                ).model_dump(mode="json"),
             )
 
         finally:
@@ -850,6 +885,7 @@ class DSPManager:
             self._tx_managers.pop(session_id, None)
             self._transmit_tasks.pop(session_id, None)
             self._transmit_image_paths.pop(session_id, None)
+            self._session_started.pop(session_id, None)
             logger.info("Transmit resources cleaned up for session %s", session_id)
 
 

@@ -516,41 +516,72 @@ PATCH /config
 
 **Endpoint:** `ws://localhost:8000/api/v1/ws/decode/{session_id}`
 
+Events are keyed on `event_type` and defined by the Pydantic models in
+`sstv_core/api/models.py` (VISDetectedEvent, ScanlineUpdateEvent,
+AudioLevelsEvent, DecodeCompleteEvent, TransmitProgressEvent,
+TransmitCompleteEvent, ErrorEvent) — those models are the contract, and
+the emitter builds every payload from them. (Until 2026-08-07 three
+incompatible shapes coexisted: this spec said `type`, models.py said
+`event_type`, and the emitter used `event` with different fields. A
+per-scanline `rgb_data` field appeared here but was never implemented;
+live preview remains an open item.)
+
 **Event Types:**
 
 ```javascript
-// VIS code detected
+// VIS code detected (vis_code is null when the correlation detector
+// identified the mode without separately decoding the VIS byte)
 {
-  "type": "vis_detected",
+  "event_type": "vis_detected",
   "mode": "ScottieS1",
   "confidence": 0.98,
-  "timestamp": "2025-12-02T14:30:23Z"
+  "vis_code": null,
+  "timestamp": "2026-08-07T14:30:23Z"
 }
 
-// Scanline decoded
+// Scanline decoded (signal_quality is the decoder's 0-1 estimate;
+// snr_db/frequency_offset_hz are null until the engine truly measures them)
 {
-  "type": "scanline_update",
-  "line": 128,
-  "total": 256,
-  "progress": 50,
-  "rgb_data": "base64-encoded-scanline",
-  "signal_quality": 0.87
+  "event_type": "scanline_update",
+  "scanline_number": 128,
+  "total_scanlines": 256,
+  "progress_percent": 50.0,
+  "signal_quality": 0.87,
+  "snr_db": null,
+  "frequency_offset_hz": null,
+  "timestamp": "2026-08-07T14:30:45Z"
 }
 
-// Decode complete
+// Input level meter (mono source: left == right)
 {
-  "type": "decode_complete",
-  "image_id": 123,
-  "filepath": "/path/to/image.jpg",
-  "rx_quality_score": 0.92
+  "event_type": "audio_levels",
+  "left_db": -18.2,
+  "right_db": -18.2,
+  "peak_db": -9.1,
+  "is_clipping": false,
+  "timestamp": "2026-08-07T14:30:45Z"
+}
+
+// Decode complete (image_id is the public UUID, null when the database
+// is disabled)
+{
+  "event_type": "decode_complete",
+  "image_id": "0b6d9c1e-...",
+  "filepath": "/path/to/image.png",
+  "mode": "ScottieS1",
+  "snr_db": null,
+  "duration_seconds": 112.4,
+  "timestamp": "2026-08-07T14:32:01Z"
 }
 
 // Error occurred
 {
-  "type": "error",
-  "error_code": "DEVICE_FAILURE",
+  "event_type": "error",
+  "error_code": "DECODE_ERROR",
   "message": "Audio input device disconnected",
-  "timestamp": "2025-12-02T14:32:01Z"
+  "recoverable": false,
+  "suggested_action": null,
+  "timestamp": "2026-08-07T14:32:01Z"
 }
 ```
 
@@ -559,17 +590,20 @@ PATCH /config
 ```javascript
 // TX progress
 {
-  "type": "tx_progress",
-  "progress": 67,
-  "time_remaining_sec": 36,
-  "current_scanline": 172
+  "event_type": "tx_progress",
+  "progress_percent": 67.0,
+  "current_scanline": 172,
+  "time_remaining_seconds": 36.0,
+  "timestamp": "2026-08-07T14:34:10Z"
 }
 
 // TX complete
 {
-  "type": "tx_complete",
-  "duration_sec": 110,
-  "timestamp": "2025-12-02T14:35:22Z"
+  "event_type": "transmit_complete",
+  "tx_id": "7f1c2b3a-...",
+  "mode": "ScottieS1",
+  "duration_seconds": 110.2,
+  "timestamp": "2026-08-07T14:35:22Z"
 }
 ```
 

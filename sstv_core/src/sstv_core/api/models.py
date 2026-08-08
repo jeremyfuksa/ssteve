@@ -742,7 +742,10 @@ class VISDetectedEvent(BaseModel):
     event_type: str = "vis_detected"
     mode: SSTVMode
     confidence: float = Field(ge=0.0, le=1.0)
-    vis_code: int = Field(ge=0, le=255)
+    # The correlation detector identifies the mode by envelope matching, so
+    # a raw VIS byte is not always available; None means "mode known, code
+    # not separately decoded".
+    vis_code: int | None = Field(default=None, ge=0, le=255)
     timestamp: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -753,8 +756,35 @@ class ScanlineUpdateEvent(BaseModel):
     scanline_number: int = Field(ge=0)
     total_scanlines: int = Field(ge=1)
     progress_percent: float = Field(ge=0.0, le=100.0)
+    signal_quality: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Decoder's per-line quality estimate (0-1); not a calibrated SNR",
+    )
     snr_db: float | None = None
     frequency_offset_hz: float | None = None
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+
+
+class AudioLevelsEvent(BaseModel):
+    """Live input level meter event (mono source: left == right)."""
+
+    event_type: str = "audio_levels"
+    left_db: float
+    right_db: float
+    peak_db: float
+    is_clipping: bool = False
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+
+
+class TransmitProgressEvent(BaseModel):
+    """Transmission progress event."""
+
+    event_type: str = "tx_progress"
+    progress_percent: float = Field(ge=0.0, le=100.0)
+    current_scanline: int = Field(ge=0)
+    time_remaining_seconds: float = Field(ge=0.0)
     timestamp: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -762,9 +792,15 @@ class DecodeCompleteEvent(BaseModel):
     """Decode complete event."""
 
     event_type: str = "decode_complete"
-    image_id: UUID
-    mode: SSTVMode
-    snr_db: float
+    # None when the database is disabled and no gallery record was created.
+    image_id: UUID | None = None
+    filepath: str | None = None
+    # None only in the degenerate case where session metadata was lost;
+    # normal completions always carry the decoded mode.
+    mode: SSTVMode | None = None
+    # None: the engine does not currently measure calibrated SNR. A number
+    # here must be a measurement, not a guess.
+    snr_db: float | None = None
     duration_seconds: float = Field(ge=0.0)
     timestamp: datetime = Field(default_factory=datetime.utcnow)
 
@@ -774,7 +810,9 @@ class TransmitCompleteEvent(BaseModel):
 
     event_type: str = "transmit_complete"
     tx_id: UUID
-    mode: SSTVMode
+    # None only in the degenerate case where session metadata was lost;
+    # normal completions always carry the transmitted mode.
+    mode: SSTVMode | None = None
     duration_seconds: float = Field(ge=0.0)
     timestamp: datetime = Field(default_factory=datetime.utcnow)
 
