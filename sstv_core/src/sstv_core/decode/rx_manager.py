@@ -92,6 +92,10 @@ class RXManager:
         sample_rate: int = 48000,
         save_directory: Path | None = None,
         slant_correction: bool = False,
+        auto_afc: bool = True,
+        afc_range_hz: float = 100.0,
+        auto_squelch: bool = False,
+        squelch_threshold_db: float = -40.0,
     ):
         self._stream_manager = stream_manager
         self._sample_rate = sample_rate
@@ -120,6 +124,17 @@ class RXManager:
         # Measured decode metrics for the most recent session (Auto-RSV).
         self._metrics: DecodeMetrics | None = None
 
+        # AFC: correct the video frequency mapping by the measured sync
+        # offset. Manual override is auto_afc=False -- auto-only AFC is
+        # dangerous for satellite (Doppler) work, so the switch must exist.
+        self._auto_afc = auto_afc
+        self._afc_range_hz = afc_range_hz
+
+        # Squelch: skip VIS processing while input sits below the
+        # threshold. auto_squelch=False = wide open (manual override).
+        self._auto_squelch = auto_squelch
+        self._squelch_threshold_db = squelch_threshold_db
+
     @property
     def state(self) -> RXState:
         return self._state
@@ -135,6 +150,36 @@ class RXManager:
     def set_progress_callback(self, callback: Callable[[RXProgress], None]) -> None:
         """Set callback for progress updates."""
         self._progress_callback = callback
+
+    def _measure_pulse_offset(
+        self,
+        stream_audio: np.ndarray,
+        stream_base_position: int,
+        pulse: Any,
+    ) -> float | None:
+        """Measured frequency of one sync pulse minus nominal 1200 Hz.
+
+        Uses the Hilbert instantaneous-frequency estimator over the pulse
+        interior (edges trimmed -- they blend into video). Returns None
+        when the pulse is not fully buffered or the estimate is wild.
+        """
+        from sstv_core.decode.demodulator import instantaneous_frequency
+
+        start = pulse.position_samples - stream_base_position
+        length = int(pulse.duration_ms * self._sample_rate / 1000.0)
+        if start < 0 or length < 8 or start + length > len(stream_audio):
+            return None
+        trim = max(1, length // 5)
+        window = stream_audio[start + trim : start + length - trim]
+        if len(window) < 4:
+            return None
+        freqs = instantaneous_frequency(window, self._sample_rate)
+        measured = float(np.median(freqs))
+        offset = measured - 1200.0
+        # A sync estimate outside +-300 Hz is video bleed, not an offset.
+        if abs(offset) > 300.0:
+            return None
+        return offset
 
     def get_decode_metrics(self) -> DecodeMetrics | None:
         """Measured metrics for the current/most recent decode (Auto-RSV)."""
@@ -252,6 +297,18 @@ class RXManager:
                         chunk_rms = float(np.sqrt(np.mean(samples.astype(np.float64) ** 2)))
                         pre_vis_rms.append(chunk_rms)
 
+                        # Squelch: below the threshold there is no signal to
+                        # correlate against; skip the (expensive) VIS work
+                        # but keep the chunk counted in the noise floor.
+                        if self._auto_squelch:
+                            rms_db = (
+                                20.0 * float(np.log10(chunk_rms))
+                                if chunk_rms > 0
+                                else -120.0
+                            )
+                            if rms_db < self._squelch_threshold_db:
+                                continue
+
                         # The correlation detector bandpasses internally
                         # (CorrelationVISConfig.enable_pre_filter), so feed it
                         # raw samples. Filtering here too cascaded two
@@ -320,6 +377,8 @@ class RXManager:
             sync_detector = SyncPulseDetector(sample_rate=self._sample_rate)
             sync_positions: list[int] = []
             sync_intervals_ms: list[float] = []
+            afc_samples_hz: list[float] = []
+            afc_locked = False
             for pulse in sync_detector.process_samples(
                 vis_tail,
                 position=stream_position - len(vis_tail),
@@ -398,6 +457,32 @@ class RXManager:
                             )
                             sync_intervals_ms.append(interval_ms)
                         sync_positions.append(pulse.position_samples)
+
+                        # AFC: the sync pulse is a known 1200 Hz reference,
+                        # so its measured frequency IS the receiver's offset.
+                        if not afc_locked:
+                            offset = self._measure_pulse_offset(
+                                stream_audio, stream_base_position, pulse
+                            )
+                            if offset is not None:
+                                afc_samples_hz.append(offset)
+
+                # Lock AFC once three pulses agree; correct the decoder's
+                # video mapping by the median offset, clamped to the
+                # configured range. auto_afc=False leaves the mapping alone
+                # (Doppler/satellite work needs the manual override).
+                if not afc_locked and len(afc_samples_hz) >= 3:
+                    afc_locked = True
+                    measured = float(np.median(afc_samples_hz))
+                    clamped = max(-self._afc_range_hz, min(self._afc_range_hz, measured))
+                    self._metrics.afc_correction_hz = clamped
+                    if self._auto_afc and abs(clamped) >= 5.0:
+                        decoder.config.black_freq += clamped
+                        decoder.config.white_freq += clamped
+                        logger.info(
+                            "AFC: correcting video mapping by %+.1f Hz "
+                            "(measured %+.1f)", clamped, measured
+                        )
 
                 # Decode every complete frame currently buffered.
                 while len(sync_positions) >= 2 and line_number < total_lines:
