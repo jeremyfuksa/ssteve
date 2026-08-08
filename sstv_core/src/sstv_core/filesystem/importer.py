@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -99,7 +99,8 @@ def parse_image_metadata(filepath: Path) -> dict[str, Any]:
             logger.debug("Using file mtime as timestamp: %s", metadata["timestamp"])
         except OSError as e:
             logger.warning("Failed to get file mtime for %s: %s", filepath, e)
-            metadata["timestamp"] = datetime.utcnow()
+            # Naive UTC, matching the database timestamp convention.
+            metadata["timestamp"] = datetime.now(timezone.utc).replace(tzinfo=None)
 
     return metadata
 

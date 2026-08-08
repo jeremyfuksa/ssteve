@@ -12,7 +12,7 @@ All timestamps use UTC. Image data stored as files, not blobs.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -114,7 +114,7 @@ class SSTVImage(Base):
     timestamp: Mapped[datetime] = mapped_column(
         DateTime,
         nullable=False,
-        default=datetime.utcnow,
+        default=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
     )
 
     # SSTV mode (e.g., "ScottieS1", "MartinM1", "Robot36")
@@ -284,7 +284,7 @@ class QSO(Base):
     start_time: Mapped[datetime] = mapped_column(
         DateTime,
         nullable=False,
-        default=datetime.utcnow,
+        default=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
     )
     end_time: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 

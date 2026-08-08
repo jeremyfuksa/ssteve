@@ -9,7 +9,7 @@ Ref: backend-spec.md §6.3 (Smart QSO Logging)
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
@@ -301,7 +301,7 @@ async def export_adif(
         )
 
         # Generate filename
-        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         filename = f"ssteve_qsos_{timestamp}.adi"
 
         return Response(

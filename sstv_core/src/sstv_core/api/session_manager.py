@@ -6,7 +6,7 @@ after 5 minutes of inactivity.
 """
 
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from uuid import UUID, uuid4
 
@@ -20,18 +20,18 @@ class SessionData:
         self.session_id = session_id
         self.session_type = session_type  # "decode" or "transmit"
         self.state: str = "pending"
-        self.created_at = datetime.utcnow()
-        self.last_activity = datetime.utcnow()
+        self.created_at = datetime.now(timezone.utc)
+        self.last_activity = datetime.now(timezone.utc)
         self.metadata: dict = {}
 
     def update_activity(self) -> None:
         """Update last activity timestamp."""
-        self.last_activity = datetime.utcnow()
+        self.last_activity = datetime.now(timezone.utc)
 
     def is_expired(self, timeout_minutes: int = 5) -> bool:
         """Check if session has expired due to inactivity."""
         expiry_time = self.last_activity + timedelta(minutes=timeout_minutes)
-        return datetime.utcnow() > expiry_time
+        return datetime.now(timezone.utc) > expiry_time
 
     def is_terminal_state(self) -> bool:
         """Check if session is in a terminal state."""

@@ -19,7 +19,7 @@ import logging
 import os
 import threading
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -408,7 +408,7 @@ class ImageLibraryWatcher:
                             "filepath": str(filepath),
                             "image_id": image.id,
                             "metadata": image.to_dict(),
-                            "timestamp": datetime.utcnow().isoformat(),
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
                         }
                     )
         except Exception as e:
@@ -454,7 +454,7 @@ class ImageLibraryWatcher:
                             "filepath": str(filepath),
                             "image_id": image.id,
                             "metadata": image.to_dict(),
-                            "timestamp": datetime.utcnow().isoformat(),
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
                         }
                     )
         except Exception as e:
@@ -479,7 +479,7 @@ class ImageLibraryWatcher:
                         {
                             "event": "image_deleted",
                             "filepath": str(filepath),
-                            "timestamp": datetime.utcnow().isoformat(),
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
                         }
                     )
         except Exception as e:
@@ -509,7 +509,7 @@ class ImageLibraryWatcher:
                             "new_filepath": str(dest_path),
                             "image_id": image.id,
                             "metadata": image.to_dict(),
-                            "timestamp": datetime.utcnow().isoformat(),
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
                         }
                     )
         except Exception as e:
