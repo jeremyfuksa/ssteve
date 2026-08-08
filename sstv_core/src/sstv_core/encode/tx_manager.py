@@ -157,11 +157,15 @@ class TXManager:
             image = result.image
             logger.info("Image preprocessed: %s", result.final_size)
 
-            # Phase 2: Generate audio
+            # Phase 2: Generate audio. The manager assembles its own VIS
+            # header (it needs the segment separately for playback-offset
+            # math), so the encoder must NOT prepend another one --
+            # encode_image defaults include_vis=True, and until 2026-08-07
+            # every transmission carried a double VIS header.
             vis_gen = VISGenerator(sample_rate=self._sample_rate)
             vis_audio = vis_gen.generate(mode)
 
-            image_audio = encoder.encode_image(image)
+            image_audio = encoder.encode_image(image, include_vis=False)
 
             # Combine VIS + image audio
             if self._ptt.method == PTTMethod.VOX:
@@ -247,6 +251,13 @@ class TXManager:
                     f"Transmitting line {current_line + 1}/{total_lines}",
                 )
 
+            if self._cancel_requested:
+                # Cooperative cancel mid-transmission: unkey and report
+                # failure. Falling through here used to unkey but then mark
+                # the aborted transmission COMPLETE.
+                await self._cleanup()
+                return False
+
             # Phase 5: Unkey radio
             self._state = TXState.UNKEYING
             self._emit_progress(
@@ -274,6 +285,15 @@ class TXManager:
             )
             logger.info("Transmission complete in %.1f seconds", elapsed)
             return True
+
+        except asyncio.CancelledError:
+            # A hard task.cancel() raises here from whatever await was
+            # pending. Without this handler the radio stayed keyed and the
+            # output stream stayed open -- a dead-key on a live transmitter.
+            logger.info("Transmission cancelled; unkeying radio")
+            self._state = TXState.ERROR
+            await self._cleanup()
+            raise
 
         except Exception as e:
             logger.error("Transmission error: %s", e)

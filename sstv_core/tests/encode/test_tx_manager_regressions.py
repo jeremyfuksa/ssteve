@@ -41,7 +41,7 @@ async def test_transmit_streams_the_complete_waveform(monkeypatch) -> None:
 
     encoder = SimpleNamespace(
         config=SimpleNamespace(width=2, height=2),
-        encode_image=lambda image: np.arange(600, dtype=np.float32),
+        encode_image=lambda image, include_vis=True: np.arange(600, dtype=np.float32),
     )
     monkeypatch.setattr(manager, "_get_encoder", lambda mode: encoder)
     monkeypatch.setattr(
