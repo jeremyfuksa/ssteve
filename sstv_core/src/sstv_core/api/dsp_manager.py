@@ -14,6 +14,7 @@ from uuid import UUID
 import numpy as np
 from sqlalchemy.orm import Session, sessionmaker
 
+from sstv_core.accessibility.guidance_player import GuidancePlayer
 from sstv_core.api.image_ids import db_image_id_to_uuid
 from sstv_core.api.models import (
     AudioLevelsEvent,
@@ -79,6 +80,9 @@ class DSPManager:
         # completion events (previously hardcoded `timestamp: 0  # TODO`).
         self._session_started: dict[UUID, float] = {}
 
+        # Accessibility guidance player per decode session (absent = disabled).
+        self._guidance_players: dict[UUID, GuidancePlayer] = {}
+
         logger.info(
             "DSPManager initialized (database: %s)",
             "enabled" if db_session_factory else "disabled",
@@ -123,6 +127,32 @@ class DSPManager:
             return None
         audio = rx_mgr.get_recent_audio()
         return audio if len(audio) else None
+
+    async def _build_guidance_player(self) -> "GuidancePlayer | None":
+        """Guidance playback for this decode, when enabled in config.
+
+        Eyes-free operation (PRODUCT.md) hangs off this: the operator hears
+        the lock chime when VIS is found and a double chime on completion.
+        """
+        session_factory = self._db_session_factory
+        if session_factory is None:
+            return None
+
+        def read() -> "GuidancePlayer | None":
+            from sstv_core.config.manager import ConfigManager
+
+            with session_factory() as db_session:
+                guidance_config = ConfigManager(db_session).get_guidance_config()
+            if not guidance_config.enabled:
+                return None
+            return GuidancePlayer(guidance_config)
+
+        loop = asyncio.get_event_loop()
+        try:
+            return await loop.run_in_executor(None, read)
+        except Exception as exc:
+            logger.warning("Guidance unavailable: %s", exc)
+            return None
 
     async def _read_decode_config(self) -> dict:
         """Read AFC/squelch settings; documented defaults without a DB."""
@@ -256,6 +286,9 @@ class DSPManager:
         # knobs were stored and served by /config but consumed by nothing
         # until 2026-08-08.
         decode_config = await self._read_decode_config()
+        guidance_player = await self._build_guidance_player()
+        if guidance_player is not None:
+            self._guidance_players[session_id] = guidance_player
         rx_mgr = RXManager(
             stream_manager=self._stream_manager,
             sample_rate=48000,
@@ -540,6 +573,9 @@ class DSPManager:
 
         # Emit WebSocket events
         if progress.state == RXState.VIS_DETECTED:
+            player = self._guidance_players.get(session_id)
+            if player is not None:
+                player.play_lock_chime()
             mode_enum = self._mode_enum(progress.mode)
             if mode_enum is not None:
                 await websocket_manager.broadcast(
@@ -588,6 +624,9 @@ class DSPManager:
             if result:
                 # Decode succeeded
                 logger.info("Decode succeeded: %s", result)
+                player = self._guidance_players.get(session_id)
+                if player is not None:
+                    player.play_complete_chime()
 
                 # Create database record if database is enabled
                 image_id = None
@@ -661,6 +700,7 @@ class DSPManager:
             self._rx_managers.pop(session_id, None)
             self._decode_tasks.pop(session_id, None)
             self._session_started.pop(session_id, None)
+            self._guidance_players.pop(session_id, None)
             logger.info("Decode resources cleaned up for session %s", session_id)
 
     async def _create_image_record(
