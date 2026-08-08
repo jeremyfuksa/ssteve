@@ -11,6 +11,7 @@ All timestamps use UTC. Image data stored as files, not blobs.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -46,6 +47,8 @@ if TYPE_CHECKING:
 # Base Class
 # =============================================================================
 
+
+logger = logging.getLogger(__name__)
 
 class Base(DeclarativeBase):
     """Base class for all SQLAlchemy models."""
@@ -559,9 +562,51 @@ def init_database(
     """
     engine = create_db_engine(db_path, echo=echo)
     Base.metadata.create_all(engine)
+    _stamp_alembic_head(engine)
 
     session_factory = create_session_factory(engine)
     return engine, session_factory
+
+
+def _stamp_alembic_head(engine: Engine) -> None:
+    """Record the current Alembic head on a create_all database.
+
+    The app initializes its schema with create_all, which never wrote
+    alembic_version -- so `alembic upgrade head` on any real install died
+    on "table configurations already exists". Stamping makes upgrades a
+    no-op on a fresh schema and a real migration path later.
+    """
+    try:
+        from alembic.config import Config
+        from alembic.script import ScriptDirectory
+        from sqlalchemy import text
+
+        migrations = Path(__file__).resolve().parent / "migrations"
+        config = Config()
+        config.set_main_option("script_location", str(migrations))
+        head = ScriptDirectory.from_config(config).get_current_head()
+        if head is None:
+            return
+
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "CREATE TABLE IF NOT EXISTS alembic_version "
+                    "(version_num VARCHAR(32) NOT NULL, "
+                    "CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num))"
+                )
+            )
+            existing = connection.execute(
+                text("SELECT version_num FROM alembic_version")
+            ).fetchall()
+            if not existing:
+                connection.execute(
+                    text("INSERT INTO alembic_version (version_num) VALUES (:v)"),
+                    {"v": head},
+                )
+                logger.info("Stamped alembic_version at head %s", head)
+    except Exception as e:  # pragma: no cover - alembic missing or unreadable
+        logger.warning("Could not stamp alembic version: %s", e)
 
 
 def get_or_create_config(session: Session) -> Configuration:

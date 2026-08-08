@@ -4,10 +4,30 @@ This file provides mocks for audio hardware dependencies to allow tests
 to run in CI environments without actual audio devices.
 """
 
+import os
 import sys
+import tempfile
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
+
+# Isolate the app database BEFORE any SSTeVe modules are imported. The API
+# initializes its DB lazily from SSTVE_DB_PATH with a ~/.ssteve/ssteve.db
+# default -- until 2026-08-07 the route tests hit (and reset!) the
+# developer's real database on every `pytest` run.
+_TEST_DB_DIR = tempfile.mkdtemp(prefix="ssteve-test-db-")
+os.environ["SSTVE_DB_PATH"] = str(Path(_TEST_DB_DIR) / "test.db")
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _assert_db_isolated():
+    """Guarantee no test run can touch ~/.ssteve."""
+    configured = os.environ.get("SSTVE_DB_PATH", "")
+    assert configured, "SSTVE_DB_PATH must be set for the test session"
+    assert str(Path.home() / ".ssteve") not in configured
+    yield
+
 
 # Mock sounddevice BEFORE any SSTeVe modules are imported
 # This prevents PortAudio library errors in CI environments
