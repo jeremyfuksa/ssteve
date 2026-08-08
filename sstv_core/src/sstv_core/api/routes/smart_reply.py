@@ -23,6 +23,10 @@ from ...smart_features.field_populator import (
     validate_smart_reply_fields,
     )
 from ...smart_features.template_engine import TemplateEngine
+from ..dsp_manager import dsp_manager
+from ..image_lookup import resolve_image_uuid
+from ..models import TransmitState
+from ..session_manager import session_manager
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/smart_reply", tags=["smart_reply"])
@@ -79,7 +83,9 @@ class TemplateInfo(BaseModel):
 class GenerateSmartReplyRequest(BaseModel):
     """Request to generate Smart Reply preview."""
 
-    image_id: int = Field(..., description="Received image to reply to")
+    image_id: UUID = Field(
+        ..., description="Received image to reply to (public UUID)"
+    )
     template_id: str = Field(default="qsl_card", description="Template to use")
     field_overrides: dict[str, Any] | None = Field(
         default=None,
@@ -188,11 +194,18 @@ async def generate_smart_reply(
         HTTPException: If image not found, template missing, or callsign required
 
     """
+    db_image = resolve_image_uuid(db, request.image_id)
+    if db_image is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Can't find image {request.image_id}",
+        )
+
     try:
         # Populate fields from image metadata
         field_values = populate_smart_reply_fields(
             session=db,
-            image_id=request.image_id,
+            image_id=db_image.id,
             overrides=request.field_overrides
         )
 
@@ -287,23 +300,57 @@ async def transmit_smart_reply(
             detail="Preview image file not found. Please generate a new preview."
         )
 
+    # A real transmit session through the same half-duplex machinery as
+    # POST /transmit. Until 2026-08-07 this endpoint fabricated a tx_id and
+    # "transmitting" status without touching any hardware; the returned ID
+    # 404'd on /transmit/status.
     try:
-        # TODO: Integrate with actual transmit endpoint
-        # For now, return a mock response
-        tx_id = uuid4()
-
-        logger.info(f"Starting Smart Reply transmission {tx_id} for preview {preview_id}")
-
-        # Clean up preview from cache after starting transmission
-        # (actual file cleanup should happen after TX completes)
-        # _preview_cache.pop(preview_id, None)
-
-        return TransmitSmartReplyResponse(
-            tx_id=tx_id,
-            status="transmitting"
+        session = await session_manager.create_transmit_session(
+            metadata={
+                "image_path": preview_path,
+                "mode": request.mode,
+                "smart_reply_preview_id": str(preview_id),
+            }
+        )
+        await dsp_manager.start_transmit(
+            session_id=session.session_id,
+            image_path=preview_path,
+            mode=request.mode,
+            device_id=request.device_id,
+            vox_enabled=request.ptt_method == "vox",
+            serial_port=None,
         )
 
+        logger.info(
+            "Started Smart Reply transmission %s for preview %s",
+            session.session_id,
+            preview_id,
+        )
+        return TransmitSmartReplyResponse(
+            tx_id=session.session_id,
+            status="transmitting",
+        )
+
+    except ValueError as e:
+        await _fail_session_quietly(locals().get("session"))
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+    except RuntimeError as e:
+        await _fail_session_quietly(locals().get("session"))
+        if "already active" in str(e) or "half-duplex" in str(e):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "error": "SESSION_CONFLICT",
+                    "message": str(e),
+                    "suggested_action": "Stop the active session first",
+                },
+            ) from e
+        raise
     except Exception as e:
+        await _fail_session_quietly(locals().get("session"))
         logger.error(f"Error transmitting Smart Reply: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -359,3 +406,19 @@ def _estimate_tx_duration(mode: str) -> int:
     }
 
     return mode_durations.get(mode, 120)  # Default 2 minutes
+
+
+async def _fail_session_quietly(session: Any) -> None:
+    """Release the half-duplex lock on a just-created transmit session.
+
+    Marks the session FAILED and stops any DSP work; never raises.
+    """
+    if session is None:
+        return
+    try:
+        await session_manager.update_transmit_state(
+            session.session_id, TransmitState.FAILED
+        )
+        await dsp_manager.stop_transmit(session.session_id)
+    except Exception:  # pragma: no cover - best-effort cleanup
+        logger.warning("Could not clean up failed smart-reply session")

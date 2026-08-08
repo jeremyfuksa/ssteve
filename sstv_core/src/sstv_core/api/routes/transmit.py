@@ -8,7 +8,7 @@ Handles:
 
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, status
 
 from sstv_core.api.dsp_manager import dsp_manager
 from sstv_core.api.models import (
@@ -24,7 +24,9 @@ router = APIRouter(prefix="/transmit", tags=["transmit"])
 
 
 @router.post("", response_model=TransmitResponse, status_code=status.HTTP_201_CREATED)
-async def start_transmit(request: TransmitRequest) -> TransmitResponse:
+async def start_transmit(
+    request: TransmitRequest, http_request: Request
+) -> TransmitResponse:
     """Start a new SSTV transmission.
 
     Encodes the image, engages PTT (if configured), and transmits the SSTV signal.
@@ -46,7 +48,6 @@ async def start_transmit(request: TransmitRequest) -> TransmitResponse:
             "image_path": request.image_path,
             "mode": request.mode.value,
             "callsign": request.callsign,
-            "include_vis": request.include_vis,
             "vox_enabled": request.vox_enabled,
         }
 
@@ -60,10 +61,11 @@ async def start_transmit(request: TransmitRequest) -> TransmitResponse:
             device_id=request.device_id,
             vox_enabled=request.vox_enabled,
             serial_port=request.serial_port,
+            callsign=request.callsign,
         )
 
         # Build WebSocket URL
-        ws_url = f"ws://localhost:8000/api/v1/ws/transmit/{session.session_id}"
+        ws_url = _ws_url(http_request, f"/api/v1/ws/transmit/{session.session_id}")
 
         # Estimate transmission duration based on mode
         # TODO: Calculate actual duration from mode timing
@@ -167,11 +169,9 @@ async def get_transmit_status(tx_id: UUID) -> TransmitStatusResponse:
         except ValueError:
             pass
 
-    # If mode couldn't be determined, use a default
-    if mode is None:
-        mode = SSTVMode.MARTIN_M1
-
-    estimated_duration = _estimate_duration(mode)
+    # Unknown mode stays None; fabricating MartinM1 (the old behavior)
+    # told clients something that never happened.
+    estimated_duration = _estimate_duration(mode) if mode else 0.0
 
     return TransmitStatusResponse(
         tx_id=session.session_id,
@@ -256,3 +256,9 @@ def _estimate_duration(mode) -> float:
     }
 
     return durations.get(mode, 60.0)  # Default fallback
+
+
+def _ws_url(request: Request, path: str) -> str:
+    """WebSocket URL for the host the client actually reached us on."""
+    scheme = "wss" if request.url.scheme == "https" else "ws"
+    return f"{scheme}://{request.url.netloc}{path}"

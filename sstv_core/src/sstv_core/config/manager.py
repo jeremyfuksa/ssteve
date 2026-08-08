@@ -116,7 +116,7 @@ class ConfigValidation(BaseModel):
     # TX mode - restricted to known SSTV modes
     default_tx_mode: str = Field(
         default="ScottieS1",
-        pattern=r"^(ScottieS[12]|ScottieDX|MartinM[12]|Robot(36|72)|PD(90|120|160|180|240)|Wraase(SC2-180))$",
+        pattern=r"^(ScottieS[12]|ScottieDX|MartinM[12]|Robot(36|72)|PD(90|120|160|180|240)|WraaseSC2_180)$",
     )
 
     # Storage paths - must be within user directory, no path traversal

@@ -303,7 +303,6 @@ class TestTransmitRequest:
             image_path="/home/admin/sstv_images/test.png",
             mode=SSTVMode.MARTIN_M1,
         )
-        assert req.include_vis is True
         assert req.vox_enabled is False
 
     def test_path_traversal_rejected(self):

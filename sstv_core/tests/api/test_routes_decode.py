@@ -123,8 +123,10 @@ class TestStartDecode:
         data = response.json()
 
         session_id = data["session_id"]
-        expected_url = f"ws://localhost:8000/api/v1/ws/decode/{session_id}"
-        assert data["websocket_url"] == expected_url
+        # The URL is built from the host the client actually reached
+        # (hardcoded localhost:8000 broke remote clients).
+        assert data["websocket_url"].startswith("ws://")
+        assert data["websocket_url"].endswith(f"/api/v1/ws/decode/{session_id}")
 
 
 class TestGetDecodeStatus:

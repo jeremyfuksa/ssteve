@@ -13,6 +13,7 @@ from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
 from sstv_core.api.image_ids import db_image_id_to_uuid
+from sstv_core.api.image_lookup import resolve_image_uuid
 from sstv_core.api.main import get_db_session
 from sstv_core.api.models import ImageListResponse, ImageMetadata, SSTVMode
 
@@ -28,20 +29,19 @@ def _db_image_to_api(db_image) -> ImageMetadata:
     # Determine direction
     direction = "rx" if db_image.is_received else "tx"
 
-    # Parse mode enum
+    # Unknown mode strings stay unknown -- coercing them to MartinM1 (the
+    # old behavior) fabricated data.
     try:
         mode = SSTVMode(db_image.mode)
     except ValueError:
-        mode = SSTVMode.MARTIN_M1  # Default fallback
+        mode = None
 
-    # Get image dimensions from file
-    width = 320
-    height = 256
+    # Dimensions come from the file or not at all.
+    width = height = None
     try:
         with Image.open(db_image.filepath) as img:
             width, height = img.size
     except Exception:
-        # Use default dimensions if the file can't be read
         logger.debug("Couldn't read image dimensions from %s", db_image.filepath)
 
     return ImageMetadata(
@@ -51,8 +51,10 @@ def _db_image_to_api(db_image) -> ImageMetadata:
         direction=direction,
         callsign=db_image.callsign,
         timestamp=db_image.timestamp,
-        snr_db=db_image.rx_quality_score,
-        frequency_offset_hz=db_image.frequency_hz,
+        # rx_snr_db is the dB column; rx_quality_score is a 0-1 number and
+        # was previously served here as dB.
+        snr_db=db_image.rx_snr_db,
+        frequency_hz=db_image.frequency_hz,
         width=width,
         height=height,
     )
@@ -142,15 +144,9 @@ async def get_image(
         404 Not Found: If image doesn't exist
 
     """
-    from sstv_core.database.models import SSTVImage
-
-    # Since UUIDs are deterministic (uuid5), we need to find matching database entry
-    # TODO: Add UUID column to database for efficient lookups
-    all_images = session.query(SSTVImage).all()
-
-    for db_image in all_images:
-        if db_image_id_to_uuid(db_image.id) == image_id:
-            return _db_image_to_api(db_image)
+    db_image = resolve_image_uuid(session, image_id)
+    if db_image is not None:
+        return _db_image_to_api(db_image)
 
     # Not found
     raise HTTPException(

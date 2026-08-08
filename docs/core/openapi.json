@@ -673,9 +673,10 @@
             "title": "Field Overrides"
           },
           "image_id": {
-            "description": "Received image to reply to",
+            "description": "Received image to reply to (public UUID)",
+            "format": "uuid",
             "title": "Image Id",
-            "type": "integer"
+            "type": "string"
           },
           "template_id": {
             "default": "qsl_card",
@@ -804,7 +805,7 @@
             "title": "Filepath",
             "type": "string"
           },
-          "frequency_offset_hz": {
+          "frequency_hz": {
             "anyOf": [
               {
                 "type": "number"
@@ -813,14 +814,21 @@
                 "type": "null"
               }
             ],
-            "description": "Frequency offset (RX only)",
-            "title": "Frequency Offset Hz"
+            "description": "Dial frequency the image was received on (RX only)",
+            "title": "Frequency Hz"
           },
           "height": {
-            "description": "Image height in pixels",
-            "minimum": 1.0,
-            "title": "Height",
-            "type": "integer"
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Image height in pixels (null if file unreadable)",
+            "title": "Height"
           },
           "id": {
             "description": "Unique image identifier",
@@ -829,8 +837,15 @@
             "type": "string"
           },
           "mode": {
-            "$ref": "#/components/schemas/SSTVMode",
-            "description": "SSTV mode used"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SSTVMode"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "SSTV mode used (null when unknown)"
           },
           "snr_db": {
             "anyOf": [
@@ -863,20 +878,24 @@
             "type": "string"
           },
           "width": {
-            "description": "Image width in pixels",
-            "minimum": 1.0,
-            "title": "Width",
-            "type": "integer"
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Image width in pixels (null if file unreadable)",
+            "title": "Width"
           }
         },
         "required": [
           "id",
           "filepath",
-          "mode",
           "direction",
-          "timestamp",
-          "width",
-          "height"
+          "timestamp"
         ],
         "title": "ImageMetadata",
         "type": "object"
@@ -991,9 +1010,10 @@
             "title": "Frequency Hz"
           },
           "image_id": {
-            "description": "Image ID to create QSO from",
+            "description": "Image ID (public UUID) to create QSO from",
+            "format": "uuid",
             "title": "Image Id",
-            "type": "integer"
+            "type": "string"
           },
           "is_sent": {
             "anyOf": [
@@ -1321,7 +1341,8 @@
           },
           "image_ids": {
             "items": {
-              "type": "integer"
+              "format": "uuid",
+              "type": "string"
             },
             "title": "Image Ids",
             "type": "array"
@@ -1555,12 +1576,6 @@
             "title": "Image Path",
             "type": "string"
           },
-          "include_vis": {
-            "default": true,
-            "description": "Include VIS code in transmission",
-            "title": "Include Vis",
-            "type": "boolean"
-          },
           "mode": {
             "$ref": "#/components/schemas/SSTVMode",
             "description": "SSTV mode for transmission"
@@ -1749,7 +1764,14 @@
             "title": "Image Id"
           },
           "mode": {
-            "$ref": "#/components/schemas/SSTVMode"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SSTVMode"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "progress_percent": {
             "default": 0.0,
@@ -1783,7 +1805,6 @@
         "required": [
           "tx_id",
           "state",
-          "mode",
           "estimated_duration_seconds",
           "started_at"
         ],

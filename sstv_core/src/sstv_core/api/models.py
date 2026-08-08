@@ -526,10 +526,9 @@ class TransmitRequest(BaseModel):
         max_length=20,
         description="Operator callsign (overlaid on image)"
     )
-    include_vis: bool = Field(
-        default=True,
-        description="Include VIS code in transmission"
-    )
+    # (include_vis was removed 2026-08-07: it was accepted and ignored --
+    # every transmission includes VIS, as it must for receivers to
+    # auto-detect the mode.)
     vox_enabled: bool = Field(
         default=False,
         description="Use VOX (silence preamble) instead of PTT"
@@ -600,7 +599,9 @@ class TransmitStatusResponse(BaseModel):
 
     tx_id: UUID
     state: TransmitState
-    mode: SSTVMode
+    # None in the degenerate lost-metadata case -- previously fabricated
+    # as MartinM1.
+    mode: SSTVMode | None = None
     progress_percent: float = Field(
         default=0.0,
         ge=0.0,
@@ -649,9 +650,11 @@ class ImageMetadata(BaseModel):
         ...,
         description="Absolute path to image file"
     )
-    mode: SSTVMode = Field(
-        ...,
-        description="SSTV mode used"
+    # None when the stored mode string is not a known SSTVMode (imported
+    # files) -- previously coerced to MartinM1, which was a fabrication.
+    mode: SSTVMode | None = Field(
+        default=None,
+        description="SSTV mode used (null when unknown)"
     )
     direction: str = Field(
         ...,
@@ -670,23 +673,25 @@ class ImageMetadata(BaseModel):
         default=None,
         description="Signal quality (RX only)"
     )
-    frequency_offset_hz: float | None = Field(
+    frequency_hz: float | None = Field(
         default=None,
-        description="Frequency offset (RX only)"
+        description="Dial frequency the image was received on (RX only)"
     )
     thumbnail_path: str | None = Field(
         default=None,
         description="Path to thumbnail image"
     )
-    width: int = Field(
-        ...,
+    # None when the file on disk cannot be read -- previously fabricated
+    # as 320x256.
+    width: int | None = Field(
+        default=None,
         ge=1,
-        description="Image width in pixels"
+        description="Image width in pixels (null if file unreadable)"
     )
-    height: int = Field(
-        ...,
+    height: int | None = Field(
+        default=None,
         ge=1,
-        description="Image height in pixels"
+        description="Image height in pixels (null if file unreadable)"
     )
 
 

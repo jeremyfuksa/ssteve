@@ -11,11 +11,15 @@ Ref: backend-spec.md §6.3 (Smart QSO Logging)
 import logging
 from datetime import datetime
 from typing import Any
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
+
+from sstv_core.api.image_ids import db_image_id_to_uuid
+from sstv_core.api.image_lookup import resolve_image_uuid
 
 from ...database.models import QSO
 from ...smart_features.qso_logger import (
@@ -23,7 +27,7 @@ from ...smart_features.qso_logger import (
     export_qsos_to_adif,
     populate_qso_from_image,
     validate_callsign,
-    )
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/qso", tags=["qso"])
@@ -45,7 +49,9 @@ def get_db() -> Session:
 class LogQSORequest(BaseModel):
     """Request to log a QSO."""
 
-    image_id: int = Field(..., description="Image ID to create QSO from")
+    # The public UUID from /images and decode_complete -- NOT the raw
+    # database key, which no endpoint exposes.
+    image_id: UUID = Field(..., description="Image ID (public UUID) to create QSO from")
     callsign: str | None = Field(None, description="Override callsign")
     mode: str | None = Field(None, description="Override mode")
     frequency_hz: float | None = Field(None, description="Override frequency")
@@ -68,7 +74,7 @@ class QSOResponse(BaseModel):
     report: str | None
     comments: str | None
     is_sent: bool
-    image_ids: list[int] = Field(default_factory=list)
+    image_ids: list[UUID] = Field(default_factory=list)
 
 
 class QSOListResponse(BaseModel):
@@ -116,6 +122,16 @@ async def log_qso(
         HTTPException: If image not found or callsign missing/invalid
 
     """
+    db_image = resolve_image_uuid(db, request.image_id)
+    if db_image is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": "IMAGE_NOT_FOUND",
+                "message": f"Can't find image {request.image_id}",
+            },
+        )
+
     try:
         # Build overrides from request
         overrides: dict[str, Any] = {}
@@ -139,7 +155,7 @@ async def log_qso(
         # Populate QSO fields
         qso_fields = populate_qso_from_image(
             session=db,
-            image_id=request.image_id,
+            image_id=db_image.id,
             overrides=overrides
         )
 
@@ -153,7 +169,7 @@ async def log_qso(
         # Create QSO and link to image
         qso = create_qso_with_image(
             session=db,
-            image_id=request.image_id,
+            image_id=db_image.id,
             qso_fields=qso_fields
         )
 
@@ -170,7 +186,7 @@ async def log_qso(
             report=qso.report,
             comments=qso.comments,
             is_sent=qso.is_sent,
-            image_ids=[request.image_id],
+            image_ids=[request.image_id],  # already the public UUID
         )
 
     except ValueError as e:
@@ -237,7 +253,11 @@ async def list_qsos(
             report=qso.report,
             comments=qso.comments,
             is_sent=qso.is_sent,
-            image_ids=[img.id for img in qso.images] if qso.images else [],
+            image_ids=(
+                [db_image_id_to_uuid(img.id) for img in qso.images]
+                if qso.images
+                else []
+            ),
         )
         for qso in qsos
     ]
@@ -335,7 +355,11 @@ async def get_qso(
         report=qso.report,
         comments=qso.comments,
         is_sent=qso.is_sent,
-        image_ids=[img.id for img in qso.images] if qso.images else [],
+        image_ids=(
+            [db_image_id_to_uuid(img.id) for img in qso.images]
+            if qso.images
+            else []
+        ),
     )
 
 
