@@ -7,11 +7,10 @@ This module provides accessibility features including:
 """
 
 from .audio_guidance import AudioGuidance, GuidanceConfig
-from .slant_detector import SlantDetector, SlantErrorData
+from .slant_detector import SlantErrorData
 
 __all__ = [
     "AudioGuidance",
     "GuidanceConfig",
-    "SlantDetector",
     "SlantErrorData",
 ]

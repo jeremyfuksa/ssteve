@@ -13,7 +13,6 @@ Modules:
 """
 
 __all__ = [
-    "AudioTransmitter",
     "ColorSpace",
     "EncoderProgress",
     "ImagePreprocessor",
@@ -77,9 +76,6 @@ def __getattr__(name: str):
     elif name in ("Robot36Encoder", "Robot36EncoderConfig"):
         from sstv_core.encode.robot_encoder import Robot36Encoder, Robot36EncoderConfig
         return Robot36Encoder if name == "Robot36Encoder" else Robot36EncoderConfig
-    elif name in ("AudioTransmitter", "TransmitProgress"):
-        from sstv_core.encode.audio_transmitter import AudioTransmitter, TransmitProgress
-        return AudioTransmitter if name == "AudioTransmitter" else TransmitProgress
     elif name in ("TXManager", "TXState", "TXProgress"):
         from sstv_core.encode.tx_manager import TXManager, TXProgress, TXState
         mapping = {"TXManager": TXManager, "TXState": TXState, "TXProgress": TXProgress}

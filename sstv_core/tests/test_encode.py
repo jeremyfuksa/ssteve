@@ -124,23 +124,9 @@ class TestScottieS1Encoder:
         assert freq_white == 2300.0
 
 
-class TestAudioTransmitter:
-    """Tests for audio transmitter."""
-
-    def test_transmitter_creation(self):
-        from sstv_core.encode.audio_transmitter import AudioTransmitter
-        tx = AudioTransmitter(sample_rate=48000, block_size=1024)
-        assert tx.sample_rate == 48000
-        assert not tx.is_transmitting
-
-    def test_get_audio_blocks(self):
-        from sstv_core.encode.audio_transmitter import AudioTransmitter
-        tx = AudioTransmitter(block_size=100)
-        audio = np.zeros(250, dtype=np.float32)
-
-        blocks = list(tx.get_audio_blocks(audio))
-        assert len(blocks) == 3  # 250 / 100 = 2.5, rounds up to 3
-        assert all(len(b) == 100 for b in blocks)
+# (TestAudioTransmitter removed 2026-08-08 with the class itself: it was
+# dead code superseded by TXManager's callback path, and would have
+# silently discarded ~100s of a Scottie transmission if ever used.)
 
 
 class TestTXManager:
