@@ -141,17 +141,14 @@ def test_decode_mmsstv_scottie_s1_audio(client, reference_audio):
 
 
 @pytest.mark.integration
-def test_decode_essexham_scottie_s2_audio(client, reference_audio):
-    """Test decoding EssexHAM Scottie S2 reference audio.
+def test_forced_scottie_s2_rejected_no_decoder_exists(client):
+    """ScottieS2 has no decoder, so forcing it must be a 400, not a 201.
 
-    Uses educational reference audio for multi-mode validation.
+    This test used to assert the lie: a forced ScottieS2 session returned
+    201 and then died silently inside the background task. If an S2 decoder
+    is ever implemented, add it to SUPPORTED_DECODE_MODES and repurpose the
+    EssexHAM reference audio for a real decode test.
     """
-    audio_file = reference_audio / "essexham" / "essexham_01_scottie2.wav"
-
-    if not audio_file.exists():
-        pytest.skip(f"Reference audio not found: {audio_file}")
-
-    # Start decode session
     response = client.post(
         "/api/v1/decode/start",
         json={
@@ -162,16 +159,8 @@ def test_decode_essexham_scottie_s2_audio(client, reference_audio):
         },
     )
 
-    assert response.status_code == 201
-    session_id = response.json()["session_id"]
-
-    # Verify session created
-    status = client.get(f"/api/v1/decode/status/{session_id}")
-    assert status.status_code == 200
-    assert status.json()["mode"] == "ScottieS2"
-
-    # Cleanup
-    client.post(f"/api/v1/decode/stop/{session_id}")
+    assert response.status_code == 400
+    assert response.json()["detail"]["error"] == "UNSUPPORTED_MODE"
 
 
 @pytest.mark.integration

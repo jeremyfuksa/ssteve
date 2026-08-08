@@ -61,6 +61,98 @@ class DSPManager:
             "enabled" if db_session_factory else "disabled",
         )
 
+    def _resolve_device_index(self, device_id: str | None) -> int | None:
+        """Translate a public device ID into a sounddevice index.
+
+        Device IDs from GET /devices/audio are strings like "ca_USB_Audio"
+        (macOS) or "hw:1,0" (Linux). Until 2026-08-07 this class only
+        accepted bare integers, so every real ID silently fell through to
+        None -- the default device -- and the user's selection was ignored.
+
+        Raises:
+            ValueError: If the ID matches no known device. Silently using
+                the default device instead would transmit through the wrong
+                hardware.
+
+        """
+        if not device_id:
+            return None
+        if device_id.isdigit():
+            return int(device_id)
+        index = self._device_manager.get_device_index(device_id)
+        if index is None:
+            raise ValueError(
+                f"I can't find an audio device with ID '{device_id}'. "
+                "Ask GET /devices/audio for the current list."
+            )
+        return int(index)
+
+    async def _read_ptt_config(self) -> dict:
+        """Read PTT settings from the configuration database.
+
+        Falls back to the documented defaults when no database is wired.
+        Until 2026-08-07 start_transmit never read config at all, so a
+        DTR-keyed rig could never key regardless of what the user saved.
+        """
+        defaults = {
+            "ptt_method": "vox",
+            "ptt_serial_port": None,
+            "ptt_serial_signal": "RTS",
+            "ptt_pre_delay_ms": 500,
+            "ptt_post_delay_ms": 200,
+            "vox_preamble_ms": 500,
+        }
+        session_factory = self._db_session_factory
+        if session_factory is None:
+            return defaults
+
+        def read() -> dict:
+            from sstv_core.config.manager import ConfigManager
+
+            with session_factory() as db_session:
+                config = ConfigManager(db_session)
+                return {
+                    key: config.get(key, default)
+                    for key, default in defaults.items()
+                }
+
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, read)
+
+    def _build_ptt_controller(
+        self,
+        ptt_config: dict,
+        serial_port: str | None,
+        vox_enabled: bool,
+    ) -> PTTController:
+        """Construct a PTTController from request overrides plus saved config.
+
+        Explicit request values (serial_port, vox_enabled) pick the method;
+        everything else -- RTS-vs-DTR signal, delays, VOX preamble length --
+        comes from configuration.
+        """
+        if serial_port:
+            method = PTTMethod.SERIAL
+            port = serial_port
+        elif vox_enabled:
+            method = PTTMethod.VOX
+            port = None
+        else:
+            method = {
+                "serial": PTTMethod.SERIAL,
+                "vox": PTTMethod.VOX,
+            }.get(str(ptt_config["ptt_method"]), PTTMethod.NONE)
+            port = ptt_config["ptt_serial_port"]
+
+        return PTTController(
+            method=method,
+            serial_port=port,
+            serial_signal=str(ptt_config["ptt_serial_signal"]),
+            pre_delay_ms=int(ptt_config["ptt_pre_delay_ms"]),
+            post_delay_ms=int(ptt_config["ptt_post_delay_ms"]),
+            vox_preamble_ms=int(ptt_config["vox_preamble_ms"]),
+        )
+
     async def start_decode(
         self,
         session_id: UUID,
@@ -80,10 +172,10 @@ class DSPManager:
             timeout_seconds: Timeout for VIS detection
             save_image: Whether to save decoded image to disk
             callsign: Optional callsign for filename
-            device_id: Audio input device ID (string integer)
+            device_id: Audio input device ID as returned by GET /devices/audio
 
         Raises:
-            RuntimeError: If audio device not found or unavailable
+            ValueError: If device_id matches no known audio device
 
         """
         logger.info(
@@ -93,6 +185,10 @@ class DSPManager:
             auto_detect,
             device_id,
         )
+
+        # Resolve the device BEFORE creating any state, so an unknown ID
+        # fails the request instead of silently opening the default device.
+        device_index = self._resolve_device_index(device_id)
 
         # Create RX manager
         rx_mgr = RXManager(
@@ -111,9 +207,6 @@ class DSPManager:
 
         rx_mgr.set_progress_callback(on_progress)
         self._rx_managers[session_id] = rx_mgr
-
-        # Parse device ID (None = default device)
-        device_index = int(device_id) if device_id and device_id.isdigit() else None
 
         # Start decode as background task
         decode_task = asyncio.create_task(
@@ -211,16 +304,21 @@ class DSPManager:
                 f"Unsupported transmit mode {mode!r}; implemented modes: {supported}"
             ) from exc
 
-        # Create PTT controller based on configuration
-        if serial_port:
-            ptt = PTTController(method=PTTMethod.SERIAL, serial_port=serial_port)
-            logger.info("Using serial PTT on %s", serial_port)
-        elif vox_enabled:
-            ptt = PTTController(method=PTTMethod.VOX)
-            logger.info("Using VOX PTT")
-        else:
-            ptt = PTTController(method=PTTMethod.NONE)
-            logger.info("No PTT control")
+        # Resolve the device BEFORE creating any state, so an unknown ID
+        # fails the request instead of silently keying the default device.
+        device_index = self._resolve_device_index(device_id)
+
+        # PTT: the request picks the method; RTS-vs-DTR, delays, and VOX
+        # preamble come from saved configuration.
+        ptt_config = await self._read_ptt_config()
+        ptt = self._build_ptt_controller(ptt_config, serial_port, vox_enabled)
+        logger.info(
+            "PTT: method=%s signal=%s pre=%dms post=%dms",
+            ptt.method.name,
+            ptt_config["ptt_serial_signal"],
+            int(ptt_config["ptt_pre_delay_ms"]),
+            int(ptt_config["ptt_post_delay_ms"]),
+        )
 
         # Create TX manager
         tx_mgr = TXManager(
@@ -242,9 +340,6 @@ class DSPManager:
 
         # Store image path for later database record creation
         self._transmit_image_paths[session_id] = Path(image_path)
-
-        # Parse device ID
-        device_index = int(device_id) if device_id and device_id.isdigit() else None
 
         # Start transmit as background task
         transmit_task = asyncio.create_task(

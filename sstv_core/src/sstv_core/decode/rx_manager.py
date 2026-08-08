@@ -453,7 +453,11 @@ class RXManager:
                 None, 0, 0, 0, 0, time.time() - start_time, 0,
                 f"Error: {e}"
             )
-            return None
+            # Re-raise so the caller can tell "failed" from "found nothing".
+            # Swallowing errors here made every failure -- bad device, decode
+            # crash, anything -- present to API clients as a session that
+            # cleanly "stopped" with error: null.
+            raise
 
         finally:
             # Always stop input stream
