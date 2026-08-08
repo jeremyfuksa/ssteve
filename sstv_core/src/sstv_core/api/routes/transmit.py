@@ -77,6 +77,27 @@ async def start_transmit(request: TransmitRequest) -> TransmitResponse:
             started_at=session.created_at,
         )
 
+    except ValueError as e:
+        # Unsupported mode or unknown audio device from dsp_manager. These
+        # used to fall through to a bare 500.
+        if session is not None:
+            await session_manager.update_transmit_state(
+                session.session_id,
+                TransmitState.FAILED,
+                {"error": str(e)},
+            )
+            await dsp_manager.stop_transmit(session.session_id)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "INVALID_REQUEST",
+                "message": str(e),
+                "suggested_action": (
+                    "Check GET /devices/audio for valid device IDs and use an "
+                    "implemented mode (ScottieS1, MartinM1, Robot36)."
+                ),
+            },
+        ) from e
     except RuntimeError as e:
         if session is not None:
             # Mark FAILED first so the half-duplex lock is released even if

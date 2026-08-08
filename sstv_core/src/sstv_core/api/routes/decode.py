@@ -31,6 +31,11 @@ from sstv_core.smart_features.mode_detector import (
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/decode", tags=["decode"])
 
+# Modes with actual decoder implementations. The SSTVMode enum advertises 12
+# modes, but forcing any other one used to 201 and then die silently inside
+# the swallowed background task.
+SUPPORTED_DECODE_MODES = {"ScottieS1", "MartinM1", "Robot36"}
+
 
 @router.post("/detect_mode", response_model=ModeDetectionResponse, status_code=status.HTTP_200_OK)
 async def detect_mode(request: ModeDetectionRequest) -> ModeDetectionResponse:
@@ -210,6 +215,23 @@ async def start_decode(request: DecodeStartRequest) -> DecodeStartResponse:
         409 Conflict: If another decode/transmit session is already active (half-duplex)
 
     """
+    # Gate on the modes that actually have decoders. Without this, a forced
+    # unsupported mode returned 201 and the session silently died inside the
+    # background task.
+    if request.mode and request.mode.value not in SUPPORTED_DECODE_MODES:
+        supported = ", ".join(sorted(SUPPORTED_DECODE_MODES))
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "UNSUPPORTED_MODE",
+                "message": (
+                    f"I can't decode {request.mode.value} yet -- "
+                    f"I only have decoders for {supported}."
+                ),
+                "suggested_action": f"Pick one of: {supported}, or omit mode to auto-detect.",
+            },
+        )
+
     session = None
     try:
         # Create session with request metadata
@@ -244,6 +266,23 @@ async def start_decode(request: DecodeStartRequest) -> DecodeStartResponse:
             started_at=session.created_at,
         )
 
+    except ValueError as e:
+        # Unknown audio device (or other rejected input) from dsp_manager.
+        if session is not None:
+            await session_manager.update_decode_state(
+                session.session_id,
+                DecodeState.FAILED,
+                {"error": str(e)},
+            )
+            await dsp_manager.stop_decode(session.session_id)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "INVALID_REQUEST",
+                "message": str(e),
+                "suggested_action": "Check GET /devices/audio for valid device IDs.",
+            },
+        ) from e
     except RuntimeError as e:
         if session is not None:
             # Mark FAILED first so the half-duplex lock is released even if
