@@ -127,21 +127,80 @@ def cmd_decode(args: argparse.Namespace) -> int:
 
     log_event("device_selected", device_id=selected_device.id, device_name=selected_device.name)
 
-    # Live decode from a device is not wired up in the CLI yet. This used to
-    # emit fabricated vis_detected, scanline_update, and decode_complete
-    # events naming a file that was never written -- which in --json mode told
-    # a screen-reader user that a decode had succeeded when nothing had
-    # happened. Failing plainly is the only honest option until the
-    # StreamManager path is connected.
-    log_event(
-        "error",
-        message="I can't decode from a live device yet -- that isn't wired up.",
-        suggested_action=(
-            "Decode a recording instead: "
-            "python -m sstv_core.cli.main decode --file audio.wav"
-        ),
+    device_index = device_mgr.get_device_index(selected_device.id)
+    return _decode_live(args, device_index)
+
+
+def _decode_live(args: argparse.Namespace, device_index: int | None) -> int:
+    """Decode from a live audio device through the real RX pipeline.
+
+    Same RXManager the API server uses: VIS auto-detect (or forced --mode),
+    bandpass, sync detection, per-mode decode, image save. (Until
+    2026-08-08 the CLI's device path was an honest not-wired-up error; long
+    before that it fabricated success events.)
+    """
+    import asyncio
+    import shutil
+
+    from sstv_core.audio.stream_manager import AudioStreamManager
+    from sstv_core.decode.rx_manager import RXManager
+
+    save_directory = (
+        Path(args.output).resolve().parent if args.output else Path.home() / "sstv_images"
     )
-    return 2
+    rx = RXManager(
+        stream_manager=AudioStreamManager(),
+        save_directory=save_directory,
+    )
+
+    def on_progress(progress) -> None:
+        log_event(
+            "rx_progress",
+            state=progress.state.value,
+            mode=progress.mode,
+            line=progress.current_line,
+            total=progress.total_lines,
+            percent=round(progress.percent_complete, 1),
+        )
+
+    rx.set_progress_callback(on_progress)
+
+    try:
+        result = asyncio.run(
+            rx.receive(
+                input_device_index=device_index,
+                mode=args.mode,
+                timeout_sec=float(args.timeout),
+                save_image=True,
+                callsign=None,
+            )
+        )
+    except KeyboardInterrupt:
+        log_event("decode_stopped", message="Stopped by user.")
+        return 130
+    except Exception as exc:
+        log_event(
+            "error",
+            message="Live decode failed.",
+            detail=str(exc),
+            suggested_action="Check the audio device with list-devices.",
+        )
+        return 1
+
+    if result is None:
+        log_event(
+            "error",
+            message="I didn't hear an SSTV transmission before the timeout.",
+            suggested_action="Check the frequency and input level, or raise --timeout.",
+        )
+        return 2
+
+    output = Path(args.output) if args.output else Path(result)
+    if args.output and Path(result) != output:
+        shutil.move(str(result), str(output))
+
+    log_event("decode_complete", output_path=str(output))
+    return 0
 
 
 def _detect_mode_from_vis(audio: np.ndarray, sample_rate: int) -> str | None:

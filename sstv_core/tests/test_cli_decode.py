@@ -75,13 +75,13 @@ class TestDecodeFromDevice:
     def test_requires_a_device_or_a_file(self):
         assert cmd_decode(make_args()) == 1
 
-    def test_live_decode_reports_that_it_is_not_implemented(self, monkeypatch):
-        """The live path must fail honestly.
+    def test_live_decode_timeout_fails_honestly(self, monkeypatch):
+        """No signal before the timeout must be a nonzero exit, never a
+        fabricated success.
 
-        It previously emitted fabricated vis_detected, scanline_update, and
-        decode_complete events naming a file it never wrote. In --json mode
-        that told a screen-reader user a decode had succeeded when nothing
-        had happened.
+        (History: this path once emitted fake decode_complete events; then
+        it was an honest not-wired-up error; as of 2026-08-08 it runs the
+        real RX pipeline, so the honest failure is the no-signal timeout.)
         """
         from sstv_core.audio import device_manager
 
@@ -95,8 +95,25 @@ class TestDecodeFromDevice:
             def list_all_devices(self):
                 return [FakeDevice()]
 
+            def get_device_index(self, device_id):
+                return 0
+
         monkeypatch.setattr(device_manager, "AudioDeviceManager", FakeManager)
+
+        import sstv_core.decode.rx_manager as rx_module
+
+        class NoSignalRX:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def set_progress_callback(self, cb):
+                pass
+
+            async def receive(self, **kwargs):
+                return None  # VIS timeout: nothing heard
+
+        monkeypatch.setattr(rx_module, "RXManager", NoSignalRX)
 
         code = cmd_decode(make_args(device="fake"))
 
-        assert code == 2, "live decode should report not-implemented, not success"
+        assert code == 2, "no-signal timeout should exit 2, not fake success"

@@ -354,7 +354,21 @@ class Robot36Decoder:
         Returns:
             RGB image as numpy array (height, width, 3) or None if not decoded
 
+        Robot decodes into YUV planes; the RGB buffer is derived. Convert
+        on demand here -- previously only decode_stream() performed the
+        conversion, so any caller driving decode_scanline() directly (the
+        live rx_manager loop) got an all-black image back.
+
         """
+        if (
+            self._y_buffer is not None
+            and self._u_buffer is not None
+            and self._v_buffer is not None
+            and self._lines_decoded > 0
+        ):
+            self._image_buffer = self._yuv_to_rgb(
+                self._y_buffer, self._u_buffer, self._v_buffer
+            )
         return self._image_buffer.copy() if self._image_buffer is not None else None
 
     def get_progress(self) -> DecodeProgress:
