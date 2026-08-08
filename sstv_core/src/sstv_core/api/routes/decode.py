@@ -76,17 +76,22 @@ async def detect_mode(request: ModeDetectionRequest) -> ModeDetectionResponse:
                     },
                 )
 
-            # Get samples from ring buffer
-            # Note: This requires access to the stream manager's buffer
-            # For now, return error asking user to provide audio file
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "error": "SESSION_ANALYSIS_NOT_SUPPORTED",
-                    "message": "Session-based mode detection not yet implemented. "
-                    "Please upload an audio file.",
-                },
-            )
+            # The session's RXManager keeps a rolling raw-audio window for
+            # exactly this. Until 2026-08-08 this branch was a stub that
+            # asked the user to upload a file instead.
+            audio_samples = dsp_manager.get_session_audio(request.session_id)
+            if audio_samples is None or len(audio_samples) < 48000 * 2:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={
+                        "error": "NOT_ENOUGH_AUDIO",
+                        "message": (
+                            "I haven't heard enough audio on that session yet "
+                            "to analyze the timing."
+                        ),
+                        "suggested_action": "Give it a few seconds of signal and try again.",
+                    },
+                )
 
         elif request.audio_file is not None:
             # Analyze audio from file

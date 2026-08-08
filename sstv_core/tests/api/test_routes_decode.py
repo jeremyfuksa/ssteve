@@ -328,8 +328,12 @@ class TestDetectMode:
         assert data["fallback_modes"] == []
         assert "choose the mode manually" in data["suggestion_message"]
 
-    def test_detect_mode_from_session_not_supported(self):
-        """Should return 400 for an existing session (not yet implemented)."""
+    def test_detect_mode_session_without_audio_is_honest_400(self):
+        """A session that hasn't buffered audio yet gets NOT_ENOUGH_AUDIO.
+
+        (Session analysis is implemented as of 2026-08-08; the DSP autouse
+        mock means this session has no real RX manager, which presents the
+        same as a session that hasn't heard anything yet.)"""
         start_resp = client.post("/api/v1/decode/start", json={})
         session_id = start_resp.json()["session_id"]
 
@@ -340,7 +344,7 @@ class TestDetectMode:
 
         assert response.status_code == 400
         data = response.json()
-        assert data["detail"]["error"] == "SESSION_ANALYSIS_NOT_SUPPORTED"
+        assert data["detail"]["error"] == "NOT_ENOUGH_AUDIO"
 
     def test_detect_mode_unknown_session(self):
         """Should return 404 for a nonexistent session."""
