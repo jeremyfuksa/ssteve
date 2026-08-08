@@ -60,15 +60,17 @@ class TestArgumentParser:
 
         assert args.timeout == 600
 
-    def test_encode_command_requires_image_and_device(self):
-        """Encode command requires --image and --device."""
+    def test_encode_command_requires_image(self):
+        """Encode requires --image; the destination (--device/--output) is
+        validated in cmd_encode so the error can name both options."""
         parser = create_parser()
 
         with pytest.raises(SystemExit):
             parser.parse_args(["encode"])
 
-        with pytest.raises(SystemExit):
-            parser.parse_args(["encode", "--image", "test.jpg"])
+        args = parser.parse_args(["encode", "--image", "test.jpg"])
+        assert args.device is None
+        assert args.output is None
 
     def test_encode_command_with_required_args(self):
         """Encode command parses with required arguments."""
