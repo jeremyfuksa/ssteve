@@ -11,7 +11,10 @@ import json
 import logging
 import sys
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -111,30 +114,16 @@ def cmd_decode(args: argparse.Namespace) -> int:
         log_event("error", message="Can't find any audio devices")
         return 1
 
-    # Select device
-    if args.device:
-        selected_device = None
-        for dev in devices:
-            if dev.id == args.device:
-                selected_device = dev
-                break
-
-        if not selected_device:
-            log_event(
-                "error",
-                message=f"Can't find device '{args.device}'",
-                available_devices=[d.id for d in devices],
-            )
-            return 1
-    else:
-        # Use default input device
-        selected_device = next(
-            (d for d in devices if d.is_default and d.is_input),
-            None,
+    # Select device. --device is guaranteed non-empty here: the guard above
+    # already returned when neither --device nor --file was given.
+    selected_device = next((d for d in devices if d.id == args.device), None)
+    if not selected_device:
+        log_event(
+            "error",
+            message=f"Can't find device '{args.device}'",
+            available_devices=[d.id for d in devices],
         )
-        if not selected_device:
-            log_event("error", message="Can't find default input device")
-            return 1
+        return 1
 
     log_event("device_selected", device_id=selected_device.id, device_name=selected_device.name)
 
@@ -153,6 +142,28 @@ def cmd_decode(args: argparse.Namespace) -> int:
         ),
     )
     return 2
+
+
+def _detect_mode_from_vis(audio: np.ndarray, sample_rate: int) -> str | None:
+    """Detect the SSTV mode from the VIS header at the start of a recording.
+
+    Returns the mode name (e.g. "SCOTTIE_S1") or None when no header is
+    found with confidence. Only the opening seconds are searched -- a VIS
+    header lives at the start of a transmission.
+    """
+    from sstv_core.decode.correlation_vis_detector import (
+        CorrelationVISConfig,
+        CorrelationVISDetector,
+    )
+
+    detector = CorrelationVISDetector(CorrelationVISConfig(sample_rate=sample_rate))
+    chunk = 4096
+    search_span = min(len(audio), sample_rate * 5)
+    for start in range(0, search_span, chunk):
+        result = detector.process_samples(audio[start : start + chunk])
+        if result is not None and result.mode is not None:
+            return result.mode.name
+    return None
 
 
 def _decode_file(args: argparse.Namespace) -> int:
@@ -186,19 +197,6 @@ def _decode_file(args: argparse.Namespace) -> int:
         log_event("error", message=f"I couldn't find {path}")
         return 1
 
-    mode_key = (args.mode or "ScottieS1").lower().replace(" ", "").replace("_", "")
-    entry = decoders.get(mode_key)
-    if entry is None:
-        log_event(
-            "error",
-            message=f"I don't have a decoder for '{args.mode}'.",
-            suggested_action=f"Try one of: {', '.join(sorted(decoders))}",
-        )
-        return 1
-    decoder_cls, config_cls, line_ms = entry
-
-    log_event("decode_start", mode=args.mode or "ScottieS1", file=str(path))
-
     try:
         with wave.open(str(path), "rb") as handle:
             channels = handle.getnchannels()
@@ -225,6 +223,38 @@ def _decode_file(args: argparse.Namespace) -> int:
         audio = audio.reshape(-1, channels).mean(axis=1)
 
     log_event("audio_loaded", sample_rate=rate, duration_sec=round(len(audio) / rate, 2))
+
+    if args.mode:
+        mode_name = args.mode
+    else:
+        # No --mode: read the VIS header. Until 2026-08-07 this path
+        # silently decoded everything as ScottieS1 while the help text
+        # promised auto-detection.
+        mode_name = _detect_mode_from_vis(audio, rate)
+        if mode_name is None:
+            log_event(
+                "error",
+                message="I couldn't find a VIS header to auto-detect the mode.",
+                suggested_action=(
+                    "Tell me the mode explicitly, e.g. --mode "
+                    + " or --mode ".join(sorted(decoders))
+                ),
+            )
+            return 2
+        log_event("mode_detected", mode=mode_name, source="vis")
+
+    mode_key = mode_name.lower().replace(" ", "").replace("_", "")
+    entry = decoders.get(mode_key)
+    if entry is None:
+        log_event(
+            "error",
+            message=f"I don't have a decoder for '{mode_name}'.",
+            suggested_action=f"Try one of: {', '.join(sorted(decoders))}",
+        )
+        return 1
+    decoder_cls, config_cls, line_ms = entry
+
+    log_event("decode_start", mode=mode_name, file=str(path))
 
     detector = SyncPulseDetector(sample_rate=rate)
     detector.detect_in_buffer(audio)
@@ -266,7 +296,16 @@ def _decode_file(args: argparse.Namespace) -> int:
     try:
         import cv2
 
-        cv2.imwrite(str(output), cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
+        # imwrite reports failure (bad path, permissions) by returning False,
+        # not by raising. Unchecked, we'd log decode_complete naming a file
+        # that doesn't exist.
+        if not cv2.imwrite(str(output), cv2.cvtColor(image, cv2.COLOR_RGB2BGR)):
+            log_event(
+                "error",
+                message=f"I couldn't write the image to {output}.",
+                suggested_action="Check the path exists and is writable.",
+            )
+            return 1
     except ImportError:
         log_event("error", message="I need opencv-python installed to save the image.")
         return 1
@@ -285,8 +324,6 @@ def cmd_encode(args: argparse.Namespace) -> int:
         Exit code (0 = success)
 
     """
-    from sstv_core.audio.device_manager import AudioDeviceManager
-
     # Validate image path
     image_path = Path(args.image)
     if not image_path.exists():
@@ -297,54 +334,150 @@ def cmd_encode(args: argparse.Namespace) -> int:
         log_event("error", message=f"Not a file: {args.image}")
         return 1
 
-    log_event("encode_start", image=args.image, mode=args.mode)
-
-    # Get audio devices
-    device_mgr = AudioDeviceManager()
-    devices = device_mgr.list_all_devices()
-
-    if not devices:
-        log_event("error", message="Can't find any audio devices")
+    if not args.output and not args.device:
+        log_event(
+            "error",
+            message="I need somewhere to put the audio.",
+            suggested_action="Pass --output out.wav to write a file, or --device to transmit.",
+        )
         return 1
 
-    # Select device
-    if args.device:
-        selected_device = None
-        for dev in devices:
-            if dev.id == args.device:
-                selected_device = dev
-                break
+    encoders = {
+        "scotties1": ("SCOTTIE_S1", "ScottieS1Encoder"),
+        "martinm1": ("MARTIN_M1", "MartinM1Encoder"),
+        "robot36": ("ROBOT_36", "Robot36Encoder"),
+    }
+    mode_key = (args.mode or "ScottieS1").lower().replace(" ", "").replace("_", "")
+    if mode_key not in encoders:
+        log_event(
+            "error",
+            message=f"I don't have an encoder for '{args.mode}'.",
+            suggested_action=f"Try one of: {', '.join(sorted(encoders))}",
+        )
+        return 1
 
-        if not selected_device:
+    from sstv_core.encode.image_preprocessor import ImagePreprocessor, ModeResolution
+    from sstv_core.encode.martin_encoder import MartinM1Encoder
+    from sstv_core.encode.robot_encoder import Robot36Encoder
+    from sstv_core.encode.scottie_encoder import ScottieS1Encoder
+    from sstv_core.encode.vis_generator import SSTVMode
+
+    encoder = {
+        "scotties1": ScottieS1Encoder,
+        "martinm1": MartinM1Encoder,
+        "robot36": Robot36Encoder,
+    }[mode_key]()
+    mode = SSTVMode[encoders[mode_key][0]]
+
+    log_event("encode_start", image=args.image, mode=mode.name)
+
+    if args.callsign:
+        # Overlay isn't implemented yet; saying so beats silently dropping it.
+        log_event(
+            "warning",
+            message=f"I can't overlay '{args.callsign}' on the image yet -- sending without it.",
+        )
+
+    resolution = ModeResolution(
+        width=encoder.config.width,
+        height=encoder.config.height,
+        aspect_ratio=encoder.config.width / encoder.config.height,
+    )
+    try:
+        result = ImagePreprocessor(target_resolution=resolution).process(image_path)
+    except Exception as exc:  # any load failure gets the same honest report
+        log_event(
+            "error",
+            message=f"I couldn't load {image_path.name} as an image.",
+            detail=str(exc),
+        )
+        return 1
+
+    log_event(
+        "image_loaded",
+        width=encoder.config.width,
+        height=encoder.config.height,
+        mode=mode.name,
+    )
+
+    if args.output:
+        import wave
+
+        import numpy as np
+
+        audio = encoder.encode_image(result.image, include_vis=True)
+        duration = len(audio) / encoder.config.sample_rate
+        pcm = (np.clip(audio, -1.0, 1.0) * 32767).astype(np.int16)
+        try:
+            with wave.open(args.output, "wb") as handle:
+                handle.setnchannels(1)
+                handle.setsampwidth(2)
+                handle.setframerate(encoder.config.sample_rate)
+                handle.writeframes(pcm.tobytes())
+        except OSError as exc:
             log_event(
                 "error",
-                message=f"Can't find device '{args.device}'",
-                available_devices=[d.id for d in devices],
+                message=f"I couldn't write {args.output}.",
+                detail=str(exc),
             )
             return 1
-    else:
-        # Use default output device
-        selected_device = next(
-            (d for d in devices if d.is_default and d.is_output),
-            None,
+        log_event(
+            "encode_complete",
+            output_path=args.output,
+            duration_sec=round(duration, 1),
         )
-        if not selected_device:
-            log_event("error", message="Can't find default output device")
-            return 1
+        return 0
 
-    log_event("device_selected", device_id=selected_device.id, device_name=selected_device.name)
+    return _transmit_to_device(args, result.image, mode)
 
-    # TODO: Implement actual encode logic
-    # For now, demonstrate event logging
-    log_event("image_loaded", width=320, height=256, mode=args.mode)
-    log_event("encoding", estimated_duration_sec=114)
 
-    # Simulate encoding progress
-    for progress in range(0, 101, 10):
-        log_event("encode_progress", progress=progress)
+def _transmit_to_device(args: argparse.Namespace, image: np.ndarray, mode: Any) -> int:
+    """Transmit a preprocessed image through a real audio device.
 
-    log_event("transmit_complete", duration_sec=114)
+    Uses the same TXManager the API server uses: VOX PTT by default, real
+    output stream, real completion status.
+    """
+    import asyncio
 
+    from sstv_core.audio.device_manager import AudioDeviceManager
+    from sstv_core.audio.ptt_controller import PTTController, PTTMethod
+    from sstv_core.audio.stream_manager import AudioStreamManager
+    from sstv_core.encode.tx_manager import TXManager
+
+    device_mgr = AudioDeviceManager()
+    devices = device_mgr.list_all_devices()
+    selected = next((d for d in devices if d.id == args.device), None)
+    if selected is None:
+        log_event(
+            "error",
+            message=f"Can't find device '{args.device}'",
+            available_devices=[d.id for d in devices],
+        )
+        return 1
+    device_index = device_mgr.get_device_index(selected.id)
+    log_event("device_selected", device_id=selected.id, device_name=selected.name)
+
+    tx = TXManager(
+        stream_manager=AudioStreamManager(),
+        ptt_controller=PTTController(method=PTTMethod.VOX),
+    )
+
+    def on_progress(progress) -> None:
+        log_event("tx_progress", **progress.to_dict())
+
+    tx.set_progress_callback(on_progress)
+
+    try:
+        ok = asyncio.run(tx.transmit(image, mode=mode, output_device_index=device_index))
+    except Exception as exc:  # report any transmit failure honestly
+        log_event("error", message="Transmission failed.", detail=str(exc))
+        return 1
+
+    if not ok:
+        log_event("error", message="Transmission did not complete.")
+        return 1
+
+    log_event("transmit_complete")
     return 0
 
 
@@ -487,8 +620,14 @@ Examples:
     encode_parser.add_argument(
         "--device",
         type=str,
-        required=True,
-        help="Audio output device ID (use list-devices to see options)",
+        default=None,
+        help="Audio output device ID to transmit through (use list-devices to see options)",
+    )
+    encode_parser.add_argument(
+        "--output",
+        type=str,
+        default=None,
+        help="Write the encoded audio to this WAV file instead of transmitting",
     )
     encode_parser.add_argument(
         "--callsign",
