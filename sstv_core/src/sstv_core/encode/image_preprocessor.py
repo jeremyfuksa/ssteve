@@ -128,3 +128,28 @@ class ImagePreprocessor:
     @classmethod
     def for_scottie_s1(cls, **kwargs):
         return cls(target_resolution=ModeResolution.scottie_s1(), **kwargs)
+
+
+def overlay_callsign(image: np.ndarray, callsign: str) -> np.ndarray:
+    """Draw the operator callsign onto the top-left of an RGB image.
+
+    On-air convention: the sending station's callsign appears on the
+    picture. White text with a black outline stays legible on any content.
+    """
+    from PIL import ImageDraw, ImageFont
+
+    pil_image = Image.fromarray(image.astype(np.uint8))
+    draw = ImageDraw.Draw(pil_image)
+    try:
+        font = ImageFont.load_default(size=22)
+    except TypeError:  # Pillow < 10.1 has no size parameter
+        font = ImageFont.load_default()
+
+    x, y = 8, 6
+    text = callsign.upper()
+    for dx in (-1, 0, 1):
+        for dy in (-1, 0, 1):
+            if dx or dy:
+                draw.text((x + dx, y + dy), text, fill=(0, 0, 0), font=font)
+    draw.text((x, y), text, fill=(255, 255, 255), font=font)
+    return np.asarray(pil_image)

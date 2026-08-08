@@ -7,10 +7,11 @@ Handles:
 - POST /decode/stop/{session_id} - Stop active decode session
 """
 
+import asyncio
 import logging
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, status
 
 from sstv_core.api.dsp_manager import dsp_manager
 from sstv_core.api.models import (
@@ -106,7 +107,12 @@ async def detect_mode(request: ModeDetectionRequest) -> ModeDetectionResponse:
             import soundfile as sf
 
             try:
-                audio_data, sample_rate = sf.read(audio_path)
+                # Off the event loop: this can be a 60 s file, and the loop
+                # also services live decode and WebSocket traffic.
+                loop = asyncio.get_event_loop()
+                audio_data, sample_rate = await loop.run_in_executor(
+                    None, sf.read, audio_path
+                )
 
                 if len(audio_data.shape) == 1:
                     audio_samples = audio_data
@@ -131,12 +137,16 @@ async def detect_mode(request: ModeDetectionRequest) -> ModeDetectionResponse:
                 },
             )
 
-        # Perform mode detection
-        detection_result = detect_mode_from_sync_timing(
-            audio_stream=audio_samples,
-            sample_rate=sample_rate if request.audio_file else 48000,
-            duration_sec=request.duration_sec,
-            min_samples=10,
+        # Perform mode detection off-loop (Goertzel over the whole clip).
+        loop = asyncio.get_event_loop()
+        detection_result = await loop.run_in_executor(
+            None,
+            lambda: detect_mode_from_sync_timing(
+                audio_stream=audio_samples,
+                sample_rate=sample_rate if request.audio_file else 48000,
+                duration_sec=request.duration_sec,
+                min_samples=10,
+            ),
         )
 
         # Build response
@@ -152,12 +162,15 @@ async def detect_mode(request: ModeDetectionRequest) -> ModeDetectionResponse:
                 "You'll need to choose the mode manually.",
             )
 
-        # Get top 3 fallback modes for low confidence
-        top_candidates = get_top_mode_candidates(
-            audio_stream=audio_samples,
-            sample_rate=sample_rate if request.audio_file else 48000,
-            duration_sec=request.duration_sec,
-            top_n=3,
+        # Get top 3 fallback modes for low confidence (also off-loop)
+        top_candidates = await loop.run_in_executor(
+            None,
+            lambda: get_top_mode_candidates(
+                audio_stream=audio_samples,
+                sample_rate=sample_rate if request.audio_file else 48000,
+                duration_sec=request.duration_sec,
+                top_n=3,
+            ),
         )
 
         fallback_modes = [
@@ -201,7 +214,9 @@ async def detect_mode(request: ModeDetectionRequest) -> ModeDetectionResponse:
 
 
 @router.post("/start", response_model=DecodeStartResponse, status_code=status.HTTP_201_CREATED)
-async def start_decode(request: DecodeStartRequest) -> DecodeStartResponse:
+async def start_decode(
+    request: DecodeStartRequest, http_request: Request
+) -> DecodeStartResponse:
     """Start a new decode session.
 
     Creates a listening session that waits for SSTV signals. The session
@@ -257,7 +272,7 @@ async def start_decode(request: DecodeStartRequest) -> DecodeStartResponse:
         )
 
         # Build WebSocket URL
-        ws_url = f"ws://localhost:8000/api/v1/ws/decode/{session.session_id}"
+        ws_url = _ws_url(http_request, f"/api/v1/ws/decode/{session.session_id}")
 
         return DecodeStartResponse(
             session_id=session.session_id,
@@ -416,3 +431,13 @@ async def stop_decode(session_id: UUID) -> None:
                 "message": str(e),
             },
         ) from e
+
+
+def _ws_url(request: Request, path: str) -> str:
+    """WebSocket URL for the host the client actually reached us on.
+
+    Hardcoding ws://localhost:8000 broke any client not on the same
+    machine with the default port.
+    """
+    scheme = "wss" if request.url.scheme == "https" else "ws"
+    return f"{scheme}://{request.url.netloc}{path}"

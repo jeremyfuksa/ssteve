@@ -22,7 +22,11 @@ import numpy as np
 
 from sstv_core.audio.ptt_controller import PTTController, PTTMethod
 from sstv_core.audio.stream_manager import AudioStreamManager
-from sstv_core.encode.image_preprocessor import ImagePreprocessor, ModeResolution
+from sstv_core.encode.image_preprocessor import (
+    ImagePreprocessor,
+    ModeResolution,
+    overlay_callsign,
+)
 from sstv_core.encode.martin_encoder import MartinM1Encoder
 from sstv_core.encode.robot_encoder import Robot36Encoder
 from sstv_core.encode.scottie_encoder import ScottieS1Encoder
@@ -124,6 +128,7 @@ class TXManager:
         image_source: str | Path | np.ndarray,
         mode: SSTVMode = SSTVMode.SCOTTIE_S1,
         output_device_index: int | None = None,
+        callsign: str | None = None,
     ) -> bool:
         """Transmit an image via SSTV.
 
@@ -131,6 +136,7 @@ class TXManager:
             image_source: Image file path or numpy array
             mode: SSTV mode to use
             output_device_index: Audio output device
+            callsign: Optional operator callsign to overlay on the image
 
         Returns:
             True if transmission completed successfully
@@ -155,6 +161,10 @@ class TXManager:
             preprocessor = ImagePreprocessor(target_resolution=resolution)
             result = preprocessor.process(image_source)
             image = result.image
+            if callsign:
+                # The API has always promised "callsign overlaid on image";
+                # until 2026-08-07 the value was accepted and dropped.
+                image = overlay_callsign(image, callsign)
             logger.info("Image preprocessed: %s", result.final_size)
 
             # Phase 2: Generate audio. The manager assembles its own VIS

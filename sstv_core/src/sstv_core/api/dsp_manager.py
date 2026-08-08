@@ -291,6 +291,7 @@ class DSPManager:
         device_id: str | None,
         vox_enabled: bool,
         serial_port: str | None,
+        callsign: str | None = None,
     ) -> None:
         """Start real transmit operation for a session.
 
@@ -301,6 +302,7 @@ class DSPManager:
             device_id: Audio output device ID (string integer)
             vox_enabled: Whether to use VOX (voice-activated) PTT
             serial_port: Serial port for PTT control (e.g., "/dev/ttyUSB0")
+            callsign: Optional operator callsign to overlay on the image
 
         Raises:
             RuntimeError: If audio device or PTT device not found
@@ -376,6 +378,7 @@ class DSPManager:
                 image_source=Path(image_path),
                 mode=sstv_mode,
                 output_device_index=device_index,
+                callsign=callsign,
             )
         )
         self._transmit_tasks[session_id] = transmit_task

@@ -326,7 +326,9 @@ def run_server() -> None:
         "sstv_core.api.main:app",
         host="127.0.0.1",
         port=8000,
-        reload=True,
+        # Not a dev server: auto-reload in the production console entry
+        # restarted mid-transmission on any file change.
+        reload=False,
         log_level="info",
     )
 
