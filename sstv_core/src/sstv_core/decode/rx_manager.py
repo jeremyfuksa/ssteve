@@ -124,6 +124,9 @@ class RXManager:
         # Measured decode metrics for the most recent session (Auto-RSV).
         self._metrics: DecodeMetrics | None = None
 
+        # FSKID result from the most recent decode (None = none detected).
+        self._fskid_result: Any | None = None
+
         # AFC: correct the video frequency mapping by the measured sync
         # offset. Manual override is auto_afc=False -- auto-only AFC is
         # dangerous for satellite (Doppler) work, so the switch must exist.
@@ -180,6 +183,10 @@ class RXManager:
         if abs(offset) > 300.0:
             return None
         return offset
+
+    def get_fskid_result(self) -> Any | None:
+        """FSKID callsign result from the most recent decode, if any."""
+        return self._fskid_result
 
     def get_decode_metrics(self) -> DecodeMetrics | None:
         """Measured metrics for the current/most recent decode (Auto-RSV)."""
@@ -250,6 +257,7 @@ class RXManager:
         self._bandpass_filter.reset_state()
         self._correlation_vis.reset()
         self._metrics = DecodeMetrics()
+        self._fskid_result = None
         pre_vis_rms: list[float] = []
 
         try:
@@ -533,6 +541,40 @@ class RXManager:
                     if keep_from > 0:
                         stream_audio = stream_audio[keep_from:]
                         stream_base_position += keep_from
+
+            # FSKID: the callsign ID follows the image immediately
+            # (docs/features/FSKID_SPECIFICATION.md). Only worth looking for
+            # after a full decode; collect up to ~3s more audio.
+            if line_number >= total_lines and not self._cancel_requested:
+                fskid_tail = stream_audio
+                fskid_deadline = time.monotonic() + 3.0
+                fskid_needed = int(self._sample_rate * 3.0)
+                while (
+                    len(fskid_tail) < len(stream_audio) + fskid_needed
+                    and time.monotonic() < fskid_deadline
+                ):
+                    await asyncio.sleep(0.1)
+                    extra = ring_buffer.pop(len(ring_buffer))
+                    if len(extra):
+                        fskid_tail = np.concatenate(
+                            (fskid_tail, self._bandpass_filter.filter(extra))
+                        )
+                try:
+                    from sstv_core.decode.fsk_decoder import FSKIDDecoder
+
+                    self._fskid_result = FSKIDDecoder(
+                        sample_rate=self._sample_rate
+                    ).decode(fskid_tail)
+                    if self._fskid_result:
+                        logger.info(
+                            "FSKID: %s (confidence %.2f, checksum %s)",
+                            self._fskid_result.callsign,
+                            self._fskid_result.confidence,
+                            "ok" if self._fskid_result.checksum_valid else "BAD",
+                        )
+                except Exception as exc:
+                    # FSKID is a bonus; its failure must not fail the decode.
+                    logger.warning("FSKID decode error: %s", exc)
 
             # Finalize timing metrics for Auto-RSV
             if len(sync_intervals_ms) >= 3:

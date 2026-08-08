@@ -32,6 +32,7 @@ from sstv_core.api.websocket_manager import websocket_manager
 from sstv_core.audio.device_manager import AudioDeviceManager
 from sstv_core.audio.ptt_controller import PTTController, PTTMethod
 from sstv_core.audio.stream_manager import AudioStreamManager
+from sstv_core.decode.fsk_decoder import FSKIDResult
 from sstv_core.decode.rsv import DecodeMetrics, RSVCalculator
 from sstv_core.decode.rx_manager import RXManager, RXProgress, RXState
 from sstv_core.encode.tx_manager import TXManager, TXProgress, TXState
@@ -585,8 +586,9 @@ class DSPManager:
                 if self._db_session_factory:
                     rx_mgr = self._rx_managers.get(session_id)
                     metrics = rx_mgr.get_decode_metrics() if rx_mgr else None
+                    fskid = rx_mgr.get_fskid_result() if rx_mgr else None
                     db_image_id = await self._create_image_record(
-                        session_id, result, metrics
+                        session_id, result, metrics, fskid
                     )
                     if db_image_id is not None:
                         image_id = str(db_image_id_to_uuid(db_image_id))
@@ -658,6 +660,7 @@ class DSPManager:
         session_id: UUID,
         filepath: Path,
         metrics: "DecodeMetrics | None" = None,
+        fskid: "FSKIDResult | None" = None,
     ) -> int | None:
         """Create database record for decoded image.
 
@@ -665,6 +668,7 @@ class DSPManager:
             session_id: UUID of the decode session
             filepath: Path to saved image file
             metrics: Measured decode metrics for Auto-RSV (None = not collected)
+            fskid: FSKID decode result, if a callsign ID followed the image
 
         Returns:
             Database ID of created record, or None if failed
@@ -715,15 +719,30 @@ class DSPManager:
                             "decode_metrics_json": metrics.to_json(),
                         }
 
+                    # FSKID: store the detection outcome; adopt the decoded
+                    # callsign only when the checksum validated and the user
+                    # didn't supply one themselves.
+                    fskid_kwargs = {}
+                    record_callsign = callsign
+                    if fskid is not None:
+                        fskid_kwargs = {
+                            "fskid_detected": True,
+                            "fskid_confidence": float(fskid.confidence),
+                            "fskid_checksum_valid": bool(fskid.checksum_valid),
+                        }
+                        if fskid.checksum_valid and not record_callsign:
+                            record_callsign = fskid.callsign
+
                     # Create record
                     db_image = SSTVImage(
                         filename=filename,
                         filepath=str(filepath),
                         mode=mode,
-                        callsign=callsign,
+                        callsign=record_callsign,
                         rx_quality_score=signal_quality,
                         is_received=True,  # This is a received image
                         **rsv_kwargs,
+                        **fskid_kwargs,
                     )
 
                     db_session.add(db_image)

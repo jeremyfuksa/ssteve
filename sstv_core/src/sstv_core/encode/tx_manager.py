@@ -22,6 +22,7 @@ import numpy as np
 
 from sstv_core.audio.ptt_controller import PTTController, PTTMethod
 from sstv_core.audio.stream_manager import AudioStreamManager
+from sstv_core.encode.fsk_generator import FSKIDGenerator
 from sstv_core.encode.image_preprocessor import (
     ImagePreprocessor,
     ModeResolution,
@@ -177,14 +178,29 @@ class TXManager:
 
             image_audio = encoder.encode_image(image, include_vis=False)
 
+            # FSKID: MMSSTV-compatible callsign ID appended after the image
+            # (docs/features/FSKID_SPECIFICATION.md). Skipped, with a
+            # warning, when the callsign fails validation -- a bad ID string
+            # should not kill the transmission.
+            fskid_audio = np.zeros(0, dtype=image_audio.dtype)
+            if callsign:
+                try:
+                    fskid_audio = FSKIDGenerator(
+                        sample_rate=self._sample_rate
+                    ).generate(callsign).astype(image_audio.dtype)
+                except ValueError as exc:
+                    logger.warning("Skipping FSKID: %s", exc)
+
             # Combine VIS + image audio
             if self._ptt.method == PTTMethod.VOX:
                 # Add preamble and postamble for VOX
                 preamble = self._ptt.generate_vox_preamble()
                 postamble = self._ptt.generate_vox_postamble()
-                full_audio = np.concatenate([preamble, vis_audio, image_audio, postamble])
+                full_audio = np.concatenate(
+                    [preamble, vis_audio, image_audio, fskid_audio, postamble]
+                )
             else:
-                full_audio = np.concatenate([vis_audio, image_audio])
+                full_audio = np.concatenate([vis_audio, image_audio, fskid_audio])
 
             total_duration = len(full_audio) / self._sample_rate
             logger.info("Total audio: %.1f seconds", total_duration)
