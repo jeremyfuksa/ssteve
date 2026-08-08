@@ -41,7 +41,10 @@ class BandpassConfig:
 
     # Processing options
     use_zero_phase: bool = True  # Use filtfilt for zero-phase (no phase distortion)
-    apply_dithering: bool = True  # Add small noise to prevent quantization artifacts
+    # (A "dithering" option lived here until 2026-08-07. Float samples have
+    # no quantization artifacts to dither away, and its removal step
+    # actually re-injected the input's DC offset into the bandpassed
+    # signal.)
 
 
 class SSTVBandpassFilter:
@@ -119,10 +122,6 @@ class SSTVBandpassFilter:
         if len(samples) == 0:
             return samples
 
-        # Apply dithering to prevent quantization artifacts
-        if self._config.apply_dithering:
-            samples = samples + np.random.normal(0, 1e-6, samples.shape)
-
         # filtfilt needs a minimum chunk length for its edge padding; short
         # chunks fall through to the stateful streaming path.
         padlen = 3 * max(len(self._a), len(self._b))
@@ -136,10 +135,6 @@ class SSTVBandpassFilter:
             if self._zi is None:
                 self._zi = signal.lfilter_zi(self._b, self._a) * samples[0]
             filtered, self._zi = signal.lfilter(self._b, self._a, samples, zi=self._zi)
-
-        # Remove dithering noise (subtracts mean of added dither)
-        if self._config.apply_dithering:
-            filtered = filtered - np.mean(filtered - samples)
 
         return np.asarray(filtered)
 

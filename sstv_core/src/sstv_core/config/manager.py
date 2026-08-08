@@ -58,7 +58,8 @@ class AudioAdvancedSettings(BaseModel):
     """Audio-specific advanced settings from advanced_settings_json."""
 
     buffer_size_samples: int = Field(default=1024, ge=512, le=2048)
-    sample_rate_override: int | None = Field(default=None, ge=44100, le=48000)
+    # (sample_rate_override was removed 2026-08-07: nothing ever read it.
+    # The engine runs at 48000 Hz end to end.)
     input_gain_override: float | None = Field(default=None, ge=0.0, le=2.0)
     auto_squelch: bool = Field(
         default=True,

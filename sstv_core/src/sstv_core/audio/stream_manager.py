@@ -194,7 +194,9 @@ class AudioStreamManager:
                 )
                 self._input_stream.start()
                 logger.info("Started input stream on device %s", device_index)
-            except sd.PortAudioError as e:
+            except (sd.PortAudioError, ValueError) as e:
+                # sounddevice raises ValueError (not PortAudioError) for bad
+                # device indexes and unsupported parameters.
                 self._input_stream = None
                 self._input_buffer = None
                 raise AudioStreamError(f"Can't start input stream: {e}") from e
@@ -239,7 +241,9 @@ class AudioStreamManager:
                 )
                 self._output_stream.start()
                 logger.info("Started output stream on device %s", device_index)
-            except sd.PortAudioError as e:
+            except (sd.PortAudioError, ValueError) as e:
+                # sounddevice raises ValueError (not PortAudioError) for bad
+                # device indexes and unsupported parameters.
                 self._output_stream = None
                 self._output_buffer = None
                 raise AudioStreamError(f"Can't start output stream: {e}") from e
