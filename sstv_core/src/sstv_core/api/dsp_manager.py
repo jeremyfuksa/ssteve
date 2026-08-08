@@ -32,6 +32,7 @@ from sstv_core.api.websocket_manager import websocket_manager
 from sstv_core.audio.device_manager import AudioDeviceManager
 from sstv_core.audio.ptt_controller import PTTController, PTTMethod
 from sstv_core.audio.stream_manager import AudioStreamManager
+from sstv_core.decode.rsv import DecodeMetrics, RSVCalculator
 from sstv_core.decode.rx_manager import RXManager, RXProgress, RXState
 from sstv_core.encode.tx_manager import TXManager, TXProgress, TXState
 
@@ -446,12 +447,15 @@ class DSPManager:
 
         """
         # Update session metadata
+        rx_mgr = self._rx_managers.get(session_id)
+        live_snr = rx_mgr.current_snr_db if rx_mgr else None
         metadata = {
             "mode": progress.mode,
             "mode_confidence": progress.mode_confidence,
             "progress_percent": progress.percent_complete,
             "scanlines_received": progress.current_line,
             "signal_quality": progress.signal_quality,
+            "snr_db": live_snr,
         }
 
         # Emit audio levels event (mono monitoring - single channel)
@@ -521,6 +525,7 @@ class DSPManager:
                         total_scanlines=max(1, progress.total_lines),
                         progress_percent=min(100.0, max(0.0, progress.percent_complete)),
                         signal_quality=min(1.0, max(0.0, progress.signal_quality)),
+                        snr_db=live_snr,
                     ).model_dump(mode="json"),
                 )
 
@@ -546,7 +551,11 @@ class DSPManager:
                 # Create database record if database is enabled
                 image_id = None
                 if self._db_session_factory:
-                    db_image_id = await self._create_image_record(session_id, result)
+                    rx_mgr = self._rx_managers.get(session_id)
+                    metrics = rx_mgr.get_decode_metrics() if rx_mgr else None
+                    db_image_id = await self._create_image_record(
+                        session_id, result, metrics
+                    )
                     if db_image_id is not None:
                         image_id = str(db_image_id_to_uuid(db_image_id))
 
@@ -613,13 +622,17 @@ class DSPManager:
             logger.info("Decode resources cleaned up for session %s", session_id)
 
     async def _create_image_record(
-        self, session_id: UUID, filepath: Path
+        self,
+        session_id: UUID,
+        filepath: Path,
+        metrics: "DecodeMetrics | None" = None,
     ) -> int | None:
         """Create database record for decoded image.
 
         Args:
             session_id: UUID of the decode session
             filepath: Path to saved image file
+            metrics: Measured decode metrics for Auto-RSV (None = not collected)
 
         Returns:
             Database ID of created record, or None if failed
@@ -651,6 +664,25 @@ class DSPManager:
                     # Extract filename from path
                     filename = filepath.name
 
+                    # Measured signal metrics + Auto-RSV report, when the
+                    # decode collected them. Absent metrics stay NULL --
+                    # never fabricated.
+                    rsv_kwargs = {}
+                    if metrics is not None:
+                        report = RSVCalculator().calculate(metrics)
+                        rsv_kwargs = {
+                            "rx_snr_db": round(metrics.snr_db, 1)
+                            if metrics.noise_floor > 0
+                            else None,
+                            "rx_peak_amplitude": metrics.peak_amplitude or None,
+                            "rx_noise_floor": metrics.noise_floor or None,
+                            "rsv_readability": report.readability,
+                            "rsv_signal": report.signal,
+                            "rsv_video": report.video,
+                            "rsv_report": report.to_string(),
+                            "decode_metrics_json": metrics.to_json(),
+                        }
+
                     # Create record
                     db_image = SSTVImage(
                         filename=filename,
@@ -659,6 +691,7 @@ class DSPManager:
                         callsign=callsign,
                         rx_quality_score=signal_quality,
                         is_received=True,  # This is a received image
+                        **rsv_kwargs,
                     )
 
                     db_session.add(db_image)
