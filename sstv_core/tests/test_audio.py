@@ -75,13 +75,17 @@ class TestPTTController:
         assert ptt.method == PTTMethod.NONE
         assert not ptt.is_keyed
 
-    def test_vox_preamble_generation(self):
+    def test_vox_preamble_is_audible(self):
+        """VOX triggers on audio energy; a silent preamble activates
+        nothing. This test used to assert the preamble was all zeros --
+        enshrining exactly that defect."""
         from sstv_core.audio.ptt_controller import PTTController, PTTMethod
         ptt = PTTController(method=PTTMethod.VOX, vox_preamble_ms=500, sample_rate=48000)
         preamble = ptt.generate_vox_preamble()
         expected_samples = 48000 * 500 // 1000
         assert len(preamble) == expected_samples
-        assert np.all(preamble == 0)
+        rms = float(np.sqrt(np.mean(preamble.astype(np.float64) ** 2)))
+        assert rms > 0.1, "preamble must carry energy to trip VOX"
 
     def test_invalid_serial_signal(self):
         from sstv_core.audio.ptt_controller import PTTController, PTTMethod

@@ -88,13 +88,18 @@ class PTTController:
             raise PTTError("Can't open serial PTT - no port configured")
         try:
             import serial
-            self._serial_connection = serial.Serial(
-                port=self._serial_port,
-                baudrate=self._serial_baud,
-                timeout=1.0,
-            )
-            self._serial_connection.rts = False
-            self._serial_connection.dtr = False
+
+            # Construct WITHOUT a port so the connection does not open yet:
+            # pyserial opens with RTS and DTR asserted by default, which on an
+            # RTS/DTR-keyed interface keys the transmitter for a moment every
+            # time the port opens. Setting the lines low first makes them the
+            # state applied at open().
+            connection = serial.Serial(baudrate=self._serial_baud, timeout=1.0)
+            connection.rts = False
+            connection.dtr = False
+            connection.port = self._serial_port
+            connection.open()
+            self._serial_connection = connection
             logger.info("Opened serial port %s for PTT", self._serial_port)
         except ImportError:
             # The ImportError adds nothing beyond "pyserial not installed".
@@ -161,8 +166,19 @@ class PTTController:
             logger.debug("PTT method is NONE - no unkeying action")
 
     def generate_vox_preamble(self) -> np.ndarray:
+        """Audible tone that trips VOX before the VIS header starts.
+
+        This was silence until 2026-08-07 -- and VOX triggers on audio
+        energy, so a silent preamble activates nothing and the rig's VOX
+        attack time ate the front of the 300ms VIS leader instead. 1900 Hz
+        is the leader frequency, so the preamble blends into the header.
+        """
         num_samples = int(self._vox_preamble_ms * self._sample_rate / 1000)
-        return np.zeros(num_samples, dtype=np.float32)
+        if num_samples == 0:
+            return np.zeros(0, dtype=np.float32)
+        t = np.arange(num_samples) / self._sample_rate
+        tone: np.ndarray = (0.5 * np.sin(2.0 * np.pi * 1900.0 * t)).astype(np.float32)
+        return tone
 
     def generate_vox_postamble(self) -> np.ndarray:
         num_samples = int(self._post_delay_ms * self._sample_rate / 1000)
