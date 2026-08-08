@@ -79,7 +79,11 @@ class SyncPulseDetector:
     """
 
     SYNC_FREQ = 1200.0
-    MIN_SYNC_DURATION_MS = 3.0
+    # Duration is measured on a 1ms hop grid (see BLOCK_DURATION_MS). The
+    # shortest real pulse, Martin's 4.862ms, can read as short as ~3ms when
+    # its edges fall mid-window; a single spurious video window reads as
+    # ~1ms. 2.0 sits between them.
+    MIN_SYNC_DURATION_MS = 2.0
     MAX_SYNC_DURATION_MS = 15.0
 
     # Detection is a RATIO of 1200 Hz response to the block's own broadband
@@ -134,11 +138,22 @@ class SyncPulseDetector:
     # 2ms is also the longest block that still fits inside the shortest sync
     # pulse SSTeVe decodes (Martin M1, 4.862ms), leaving room to measure the
     # pulse's duration rather than merely notice it.
+    #
+    # Windows overlap by half (1ms hop). With non-overlapping 2ms blocks a
+    # 4.862ms Martin pulse could land so that only one whole block sat inside
+    # it; that block's 2ms "duration" failed the minimum and the pulse was
+    # dropped entirely. The block grid precesses against the line period, so
+    # this silently deleted ~6% of Martin scanlines on a phase-dependent
+    # schedule (measured on the gradient roundtrip test: 240 of 256 lines).
+    # Overlap guarantees at least two consecutive windows inside any real
+    # pulse regardless of alignment, at the cost of running the filter twice
+    # as often.
     BLOCK_DURATION_MS = 2.0
 
     def __init__(self, sample_rate: int = 48000) -> None:
         self._sample_rate = sample_rate
         self._block_size = max(4, int(sample_rate * self.BLOCK_DURATION_MS / 1000))
+        self._hop_size = max(2, self._block_size // 2)
         self._filter = GoertzelFilter(self.SYNC_FREQ, sample_rate, self._block_size)
 
         self._in_sync = False
@@ -195,8 +210,10 @@ class SyncPulseDetector:
                 # Measured by sweeping the offset across the five Scottie
                 # reference files: mean SSIM peaks at +0.91ms against a 2ms
                 # block, and the correction improves all five (0.366 -> 0.422).
+                # With overlapping windows the quantisation -- and therefore
+                # the expected bias -- is half a hop, not half a block.
                 self._in_sync = True
-                self._sync_start = current_pos + self._block_size // 2
+                self._sync_start = current_pos + self._hop_size // 2
 
             elif not is_sync and self._in_sync:
                 # End of sync pulse, corrected by the same half block as the
@@ -205,7 +222,7 @@ class SyncPulseDetector:
                 # the measured duration is biased, and mode detection reads
                 # that duration to tell Scottie (9ms) from Martin (4.862ms).
                 self._in_sync = False
-                sync_end = current_pos + self._block_size // 2
+                sync_end = current_pos + self._hop_size // 2
                 duration_samples = sync_end - self._sync_start
                 duration_ms = duration_samples * 1000.0 / self._sample_rate
 
@@ -230,7 +247,7 @@ class SyncPulseDetector:
 
                     self._last_sync_end = sync_end
 
-            offset += self._block_size
+            offset += self._hop_size
 
         return detected
 

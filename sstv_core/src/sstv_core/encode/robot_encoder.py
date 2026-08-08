@@ -93,9 +93,16 @@ class Robot36Encoder:
 
     def _generate_tone(self, freq: float, num_samples: int) -> np.ndarray:
         """Generate a pure tone at the specified frequency."""
-        t = (np.arange(num_samples) + self._phase) / self._config.sample_rate
-        samples = np.sin(2 * np.pi * freq * t).astype(np.float32) * 0.8
-        self._phase = (self._phase + num_samples) % self._config.sample_rate
+        # _phase is accumulated phase in radians. Advancing it by this tone's
+        # own angular step is what keeps the waveform continuous when the
+        # frequency changes; carrying a sample count instead restarts each
+        # tone at the wrong phase and puts a click at every pixel boundary.
+        if num_samples <= 0:
+            return np.zeros(0, dtype=np.float32)
+        step = 2.0 * np.pi * freq / self._config.sample_rate
+        phases = self._phase + step * np.arange(1, num_samples + 1)
+        samples: np.ndarray = (np.sin(phases) * 0.8).astype(np.float32)
+        self._phase = float(phases[-1] % (2.0 * np.pi))
         return samples
 
     def _luma_to_freq(self, luma: int) -> float:
