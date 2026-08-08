@@ -50,18 +50,24 @@ class TestVISDetector:
     @pytest.mark.parametrize(
         "mode", [SSTVMode.SCOTTIE_S1, SSTVMode.MARTIN_M1, SSTVMode.ROBOT_36]
     )
-    @pytest.mark.skip(
-        reason="KNOWN DEFECT (2026-08-07): CorrelationVISDetector cannot read a header "
-        "that VISGenerator produces, at matching sample rates, for any MVP mode. Mode "
-        "auto-detection is therefore non-functional and every decode must be given its "
-        "mode explicitly. The generator emits a spec-correct header, so the detector is "
-        "the broken side. See PRODUCT.md 'Not built'."
-    )
     def test_reads_a_header_this_project_generated(self, mode):
-        """Round trip through our own VIS generator and detector."""
+        """Round trip through our own VIS generator and detector.
+
+        Leading and trailing audio on purpose. Detection needs the header to
+        be fully inside the rolling buffer with at least one more chunk behind
+        it, because the best alignment is only found once the whole header has
+        arrived. Audio that stops dead at the final header sample scores 0.82
+        against a 0.85 threshold and is missed -- an artifact of the fixture,
+        since a real transmission always continues into picture data, but it
+        does mean the detector cannot identify a header from a recording
+        truncated the instant it ends.
+        """
         header = VISGenerator(sample_rate=RATE).generate(mode).astype(np.float32)
-        # A little leading silence, as a real capture would have.
-        audio = np.concatenate([np.zeros(RATE // 2, dtype=np.float32), header])
+        audio = np.concatenate([
+            np.zeros(RATE // 2, dtype=np.float32),
+            header,
+            np.zeros(RATE // 2, dtype=np.float32),
+        ])
 
         detector = CorrelationVISDetector(CorrelationVISConfig(sample_rate=RATE))
 
@@ -73,7 +79,7 @@ class TestVISDetector:
 
         assert result is not None, f"{mode.name}: header not detected"
         assert result.mode == mode
-        assert result.parity_valid, "VIS parity should validate on a generated header"
+        assert result.parity_valid
 
     def test_detector_runs_at_the_configured_sample_rate(self):
         """Guards the config plumbing, which is a separate bug from detection.

@@ -26,7 +26,10 @@ import numpy as np
 
 from sstv_core.audio.bandpass_filter import BandpassPresets, SSTVBandpassFilter
 from sstv_core.audio.stream_manager import AudioStreamManager
-from sstv_core.decode.correlation_vis_detector import CorrelationVISDetector
+from sstv_core.decode.correlation_vis_detector import (
+    CorrelationVISConfig,
+    CorrelationVISDetector,
+)
 from sstv_core.decode.hough_slant_corrector import HoughSlantCorrector
 from sstv_core.decode.image_saver import ImageSaver
 from sstv_core.decode.martin_decoder import MartinM1Config, MartinM1Decoder
@@ -100,8 +103,13 @@ class RXManager:
         # New: Bandpass filter for noise reduction
         self._bandpass_filter = SSTVBandpassFilter(BandpassPresets.standard())
 
-        # New: Correlation VIS detector (replaces Goertzel)
-        self._correlation_vis = CorrelationVISDetector()
+        # Correlation VIS detector, built for THIS stream's sample rate.
+        # Constructing it bare left it at the 48000 Hz default, so its
+        # templates were the wrong length for any other rate -- the same class
+        # of bug that made the decoders unusable at 11025 and 22050 Hz.
+        self._correlation_vis = CorrelationVISDetector(
+            CorrelationVISConfig(sample_rate=sample_rate)
+        )
 
         # Hough slant corrector, opt-in. See the decision recorded at the call
         # site in `receive` for the measurements behind the default.

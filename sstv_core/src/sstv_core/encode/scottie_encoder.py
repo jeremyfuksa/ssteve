@@ -16,6 +16,11 @@ from dataclasses import dataclass
 
 import numpy as np
 
+# The encode-side SSTVMode. A separate enum of the same name lives in
+# decode/vis_detector.py; their VIS values agree for all 12 shared modes,
+# but VISGenerator is typed against this one.
+from sstv_core.encode.vis_generator import SSTVMode, VISGenerator
+
 logger = logging.getLogger(__name__)
 
 
@@ -130,11 +135,17 @@ class ScottieS1Encoder:
         self._lines_encoded = line_number + 1
         return np.concatenate(audio_parts)
 
-    def encode_image(self, image: np.ndarray) -> np.ndarray:
+    def encode_image(
+        self, image: np.ndarray, *, include_vis: bool = True
+    ) -> np.ndarray:
         """Encode complete RGB image to audio.
 
         Args:
             image: RGB image array (height, width, 3)
+            include_vis: Prepend the VIS header announcing this mode.
+                On by default -- without it no receiver can auto-detect
+                what is being sent. Pass False only when the caller
+                assembles its own preamble.
 
         Returns:
             Audio samples for complete image
@@ -151,6 +162,15 @@ class ScottieS1Encoder:
         for line_num in range(min(image.shape[0], self._config.height)):
             rgb_row = image[line_num]
             audio_parts.append(self.encode_scanline(rgb_row, line_num))
+
+        if include_vis:
+            # A VIS header is how a transmission announces its own mode.
+            # Without one no receiver can auto-detect what we are sending,
+            # and until 2026-08-07 no SSTeVe encoder emitted it.
+            header = VISGenerator(sample_rate=self._config.sample_rate).generate(
+                SSTVMode.SCOTTIE_S1
+            )
+            audio_parts.insert(0, header.astype(audio_parts[0].dtype))
 
         result = np.concatenate(audio_parts)
         logger.info("Encoded %d scanlines, %d audio samples (%.1f seconds)",
