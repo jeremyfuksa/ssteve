@@ -27,9 +27,14 @@ class DeviceProfile:
     ptt_post_delay_ms: int = 200
     vox_preamble_ms: int = 500
 
-    # Audio settings
+    # Audio settings (audio device IDs only -- never serial ports)
     recommended_input_device: str | None = None
     recommended_output_device: str | None = None
+
+    # Serial PTT port ("/dev/ttyUSB0", "COM3"). Until 2026-08-07 the port
+    # was stuffed into recommended_input_device, an audio field, so applying
+    # any detected serial profile failed ConfigManager validation.
+    recommended_serial_port: str | None = None
 
     # Identification patterns
     usb_vid: int | None = None
@@ -49,6 +54,7 @@ class DeviceProfile:
             "vox_preamble_ms": self.vox_preamble_ms,
             "recommended_input_device": self.recommended_input_device,
             "recommended_output_device": self.recommended_output_device,
+            "recommended_serial_port": self.recommended_serial_port,
         }
 
 
@@ -62,8 +68,14 @@ DEVICE_PROFILES = [
         ptt_serial_signal="RTS",
         ptt_pre_delay_ms=500,
         ptt_post_delay_ms=200,
-        usb_vid=0x0403,  # FTDI chipset
-        usb_pid=0x6015,  # FT231X USB-Serial
+        # Digirig Mobile ships a Silicon Labs CP2102N USB-serial bridge
+        # (per digirig.net documentation). This was listed as FTDI
+        # 0x0403/0x6015 until 2026-08-07, which would have missed every
+        # real Digirig and misidentified FTDI-based devices as one.
+        # Unverified against physical hardware -- confirm with lsusb when
+        # a unit is available.
+        usb_vid=0x10C4,  # Silicon Labs
+        usb_pid=0xEA60,  # CP2102N
     ),
     DeviceProfile(
         name="SignaLink USB",
@@ -158,8 +170,9 @@ def detect_hardware_device(serial_ports: list[dict] | None = None) -> DeviceProf
                         usb_vid=vid,
                         usb_pid=pid,
                     )
-                    # Store the actual serial port
-                    matched_profile.recommended_input_device = port["port"]
+                    # Store the actual serial port in the serial field --
+                    # NOT in an audio-device field.
+                    matched_profile.recommended_serial_port = port["port"]
                     return matched_profile
 
     return None
@@ -206,8 +219,8 @@ def get_recommended_settings(profile: DeviceProfile) -> dict:
 
     if profile.ptt_method == "serial":
         settings["ptt_serial_signal"] = profile.ptt_serial_signal
-        if profile.recommended_input_device:
-            settings["ptt_serial_port"] = profile.recommended_input_device
+        if profile.recommended_serial_port:
+            settings["ptt_serial_port"] = profile.recommended_serial_port
 
     elif profile.ptt_method == "vox":
         settings["vox_preamble_ms"] = profile.vox_preamble_ms

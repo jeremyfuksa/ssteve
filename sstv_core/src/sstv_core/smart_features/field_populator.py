@@ -3,8 +3,10 @@
 This module implements the fallback hierarchy for populating Smart Reply fields:
 1. User override (manual entry in preview dialog)
 2. Image metadata (callsign, frequency, SNR from decode)
-3. Configuration defaults (operator callsign from settings)
-4. Placeholder text ("N/A", "Unknown")
+3. Placeholder text ("N/A", "Unknown")
+
+(A configuration tier existed on paper but read columns that were never
+created; removed 2026-08-07.)
 """
 
 from datetime import datetime
@@ -12,7 +14,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from ..database.models import SSTVImage, get_or_create_config
+from ..database.models import SSTVImage
 
 
 class FieldPopulationError(Exception):
@@ -49,9 +51,6 @@ def populate_smart_reply_fields(
     if image is None:
         raise ValueError(f"Image not found: {image_id}")
 
-    # Fetch configuration
-    config = get_or_create_config(session)
-
     # Build field values with fallback hierarchy
     fields = {
         # Critical field: Their callsign (must be present)
@@ -59,26 +58,29 @@ def populate_smart_reply_fields(
                             or image.callsign
                             or None,  # Will raise error below if None
 
-        # Your callsign (fallback to config or placeholder)
-        "callsign_operator": overrides.get("callsign_operator")
-                            or getattr(config, "station_callsign", None)
-                            or "YOUR_CALL",
+        # Your callsign. There is no station-callsign column in
+        # configuration (the old code read `config.station_callsign`, which
+        # never existed, so this was always the placeholder); callers must
+        # pass it as an override until such a setting exists.
+        "callsign_operator": overrides.get("callsign_operator") or "YOUR_CALL",
 
-        # Frequency (from image metadata or config default)
+        # Frequency: override wins, then the image's own metadata. (The old
+        # expression ended in a low-precedence conditional on a config
+        # column that never existed, which evaluated the WHOLE chain --
+        # including the explicit override -- to None every time.)
         "frequency_mhz": (
             overrides.get("frequency_mhz")
             or (image.frequency_hz / 1e6 if image.frequency_hz else None)
-            or getattr(config, "default_frequency_hz", 0.0) / 1e6
-            if hasattr(config, "default_frequency_hz")
-            else None
         ),
 
         # Timestamp (always from image)
         "timestamp_utc": image.timestamp,
 
-        # SNR/Signal quality (from decode metadata)
+        # SNR in dB, from the column that actually holds dB. The old code
+        # read rx_quality_score -- a 0-1 quality number -- and templates
+        # rendered it as "SNR: 0dB".
         "snr_db": overrides.get("snr_db")
-                 or image.rx_quality_score
+                 or getattr(image, "rx_snr_db", None)
                  or "N/A",
 
         # Mode (always from image)
@@ -181,11 +183,16 @@ def suggest_field_improvements(fields: dict[str, Any]) -> dict[str, str]:
 
     # Check for placeholder values
     if fields.get("callsign_operator") == "YOUR_CALL":
-        suggestions["callsign_operator"] = "Configure your callsign in Settings for auto-population"
+        # There is no station-callsign setting yet; pointing users at
+        # Settings was a dead end.
+        suggestions["callsign_operator"] = (
+            "Pass callsign_operator when generating the reply -- "
+            "I don't have a station callsign setting yet"
+        )
 
     if fields.get("frequency_mhz") is None or fields.get("frequency_mhz") == "N/A":
         suggestions["frequency_mhz"] = (
-            "Add frequency to image metadata or configure default frequency"
+            "Add frequency to the image metadata, or pass frequency_mhz directly"
         )
 
     if fields.get("snr_db") == "N/A":
