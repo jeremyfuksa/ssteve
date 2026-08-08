@@ -106,29 +106,29 @@ class WebSocketManager:
             Number of connections successfully notified
 
         """
+        # Snapshot under the lock, send outside it. Holding the manager-wide
+        # lock across network sends meant one slow or backpressured client
+        # stalled event delivery for every session -- and the decode worker
+        # awaits broadcast inline, so it stalled decoding too.
         async with self._lock:
-            # Add to event buffer for catch-up
             self._event_buffers[session_id].append(event)
+            connections = set(self._connections.get(session_id, set()))
 
-            # Broadcast to all active connections
-            connections = self._connections.get(session_id, set())
-            sent_count = 0
+        sent_count = 0
+        failed_connections = set()
+        for conn in connections:
+            success = await conn.send_event(event)
+            if success:
+                sent_count += 1
+            else:
+                failed_connections.add(conn)
 
-            # Track failed connections for removal
-            failed_connections = set()
+        if failed_connections:
+            async with self._lock:
+                for failed_conn in failed_connections:
+                    self._connections[session_id].discard(failed_conn)
 
-            for conn in connections:
-                success = await conn.send_event(event)
-                if success:
-                    sent_count += 1
-                else:
-                    failed_connections.add(conn)
-
-            # Remove failed connections
-            for failed_conn in failed_connections:
-                self._connections[session_id].discard(failed_conn)
-
-            return sent_count
+        return sent_count
 
     async def send_buffered_events(
         self, connection: WebSocketConnection

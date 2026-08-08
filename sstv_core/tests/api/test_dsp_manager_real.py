@@ -148,7 +148,7 @@ class TestDecodeFailureReporting:
             assert data is not None
             assert data.state == DecodeState.FAILED.value
             assert "PortAudio exploded" in (data.metadata.get("error") or "")
-            error_events = [b for b in broadcasts if b.get("event") == "error"]
+            error_events = [b for b in broadcasts if b.get("event_type") == "error"]
             assert error_events, f"no error event broadcast; got {broadcasts}"
         finally:
             session_manager.reset()
