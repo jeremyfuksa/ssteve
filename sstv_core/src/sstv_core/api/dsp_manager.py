@@ -115,6 +115,31 @@ class DSPManager:
             )
         return int(index)
 
+    async def _read_decode_config(self) -> dict:
+        """Read AFC/squelch settings; documented defaults without a DB."""
+        defaults = {
+            "auto_afc": True,
+            "afc_range_hz": 100.0,
+            "auto_squelch": True,
+            "squelch_threshold_db": -40.0,
+        }
+        session_factory = self._db_session_factory
+        if session_factory is None:
+            return defaults
+
+        def read() -> dict:
+            from sstv_core.config.manager import ConfigManager
+
+            with session_factory() as db_session:
+                config = ConfigManager(db_session)
+                return {
+                    key: config.get(key, default)
+                    for key, default in defaults.items()
+                }
+
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, read)
+
     async def _read_ptt_config(self) -> dict:
         """Read PTT settings from the configuration database.
 
@@ -218,11 +243,18 @@ class DSPManager:
         # fails the request instead of silently opening the default device.
         device_index = self._resolve_device_index(device_id)
 
-        # Create RX manager
+        # Create RX manager with the user's AFC/squelch settings -- these
+        # knobs were stored and served by /config but consumed by nothing
+        # until 2026-08-08.
+        decode_config = await self._read_decode_config()
         rx_mgr = RXManager(
             stream_manager=self._stream_manager,
             sample_rate=48000,
             save_directory=Path.home() / "sstv_images",
+            auto_afc=bool(decode_config["auto_afc"]),
+            afc_range_hz=float(decode_config["afc_range_hz"]),
+            auto_squelch=bool(decode_config["auto_squelch"]),
+            squelch_threshold_db=float(decode_config["squelch_threshold_db"]),
         )
 
         # Wire progress callback
