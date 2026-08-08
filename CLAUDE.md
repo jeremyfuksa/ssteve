@@ -51,7 +51,7 @@ uv run python -m sstv_core.cli.main --help
 Notes:
 
 - Always `cd sstv_core` first — pytest, uv, and alembic are all rooted there.
-- The `sstv-decode` / `sstv-encode` console scripts declared in `pyproject.toml` are currently broken (they point at `sstv_core.cli:decode`/`:encode`, which don't exist). Use `python -m sstv_core.cli.main` instead. `sstv-server` works.
+- All three console scripts work: `sstv-server`, `sstv-decode`, `sstv-encode` (fixed 2026-08-07; they wrap `python -m sstv_core.cli.main`).
 - `sounddevice` needs PortAudio (`brew install portaudio` on macOS, `libportaudio2` on Debian). Tests mock audio hardware via `tests/conftest.py`.
 
 ## Module Map (`sstv_core/src/sstv_core/`)
@@ -106,7 +106,7 @@ reference as binding.
 
 Work is done when, from `sstv_core/`:
 
-1. `uv run pytest` passes — the full suite, no exclusions. (As of 2026-08-05 there are no known pre-existing failures; CI runs the whole suite.)
+1. `uv run pytest` passes — the full suite, no exclusions. (As of 2026-08-07 there are no known pre-existing failures; CI runs the whole suite. The gradient roundtrip gate in `tests/integration/test_roundtrip_gradient.py` is the canary for encoder/sync regressions — never skip it.)
 2. `uv run ruff check src/` and `uv run mypy src/` are clean for files you changed.
 3. API changes keep `docs/core/backend-spec.md` / `docs/core/openapi.json` in sync (regenerate via `scripts/export_api_docs.py`).
 
