@@ -6,7 +6,7 @@ Tests session creation, half-duplex enforcement, expiry, and cleanup.
 
 import pytest
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from sstv_core.api.session_manager import SessionManager, SessionData
@@ -50,7 +50,7 @@ class TestSessionData:
         assert not session.is_expired(timeout_minutes=5)
 
         # Simulate expiry by backdating last_activity
-        session.last_activity = datetime.utcnow() - timedelta(minutes=6)
+        session.last_activity = datetime.now(timezone.utc) - timedelta(minutes=6)
         assert session.is_expired(timeout_minutes=5)
 
     def test_is_terminal_state(self):
@@ -334,7 +334,7 @@ class TestSessionCleanup:
         """Should clean up expired sessions."""
         # Create session and manually expire it
         session = await manager.create_decode_session()
-        session.last_activity = datetime.utcnow() - timedelta(minutes=6)
+        session.last_activity = datetime.now(timezone.utc) - timedelta(minutes=6)
 
         # Run cleanup
         cleaned = await manager.cleanup_expired_sessions()
@@ -378,7 +378,7 @@ class TestSessionCleanup:
         """Should clear active session ID when cleaning expired session."""
         # Create and expire session
         session = await manager.create_decode_session()
-        session.last_activity = datetime.utcnow() - timedelta(minutes=6)
+        session.last_activity = datetime.now(timezone.utc) - timedelta(minutes=6)
 
         # Verify it's tracked as active
         active_id = await manager.get_active_decode_id()

@@ -5,7 +5,7 @@ with comprehensive validation to ensure data integrity and security.
 """
 
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 from uuid import UUID
@@ -732,7 +732,7 @@ class WSEvent(BaseModel):
         description="Event type identifier"
     )
     timestamp: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(timezone.utc),
         description="Event timestamp (UTC)"
     )
     data: dict[str, Any] = Field(
@@ -751,7 +751,7 @@ class VISDetectedEvent(BaseModel):
     # a raw VIS byte is not always available; None means "mode known, code
     # not separately decoded".
     vis_code: int | None = Field(default=None, ge=0, le=255)
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class ScanlineUpdateEvent(BaseModel):
@@ -769,7 +769,7 @@ class ScanlineUpdateEvent(BaseModel):
     )
     snr_db: float | None = None
     frequency_offset_hz: float | None = None
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class AudioLevelsEvent(BaseModel):
@@ -780,7 +780,7 @@ class AudioLevelsEvent(BaseModel):
     right_db: float
     peak_db: float
     is_clipping: bool = False
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class TransmitProgressEvent(BaseModel):
@@ -790,7 +790,7 @@ class TransmitProgressEvent(BaseModel):
     progress_percent: float = Field(ge=0.0, le=100.0)
     current_scanline: int = Field(ge=0)
     time_remaining_seconds: float = Field(ge=0.0)
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class DecodeCompleteEvent(BaseModel):
@@ -807,7 +807,7 @@ class DecodeCompleteEvent(BaseModel):
     # here must be a measurement, not a guess.
     snr_db: float | None = None
     duration_seconds: float = Field(ge=0.0)
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class TransmitCompleteEvent(BaseModel):
@@ -819,7 +819,7 @@ class TransmitCompleteEvent(BaseModel):
     # normal completions always carry the transmitted mode.
     mode: SSTVMode | None = None
     duration_seconds: float = Field(ge=0.0)
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class ErrorEvent(BaseModel):
@@ -833,7 +833,7 @@ class ErrorEvent(BaseModel):
         description="Whether operation can be retried"
     )
     suggested_action: str | None = None
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 # ============================================================================

@@ -6,7 +6,7 @@ events during disconnects and providing catch-up on reconnection.
 
 import asyncio
 from collections import defaultdict, deque
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
@@ -19,8 +19,8 @@ class WebSocketConnection:
     def __init__(self, websocket: WebSocket, session_id: UUID):
         self.websocket = websocket
         self.session_id = session_id
-        self.connected_at = datetime.utcnow()
-        self.last_activity = datetime.utcnow()
+        self.connected_at = datetime.now(timezone.utc)
+        self.last_activity = datetime.now(timezone.utc)
 
     async def send_event(self, event: dict[str, Any]) -> bool:
         """Send event to client.
@@ -31,7 +31,7 @@ class WebSocketConnection:
         """
         try:
             await self.websocket.send_json(event)
-            self.last_activity = datetime.utcnow()
+            self.last_activity = datetime.now(timezone.utc)
             return True
         except Exception:
             return False
