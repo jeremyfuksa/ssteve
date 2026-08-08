@@ -8,13 +8,10 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import Any, ClassVar
 
 import numpy as np
 from PIL import Image
-
-if TYPE_CHECKING:
-    from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
@@ -146,60 +143,11 @@ class ImageSaver:
         except Exception as e:
             raise ImageSaveError(f"Can't save image to {filepath}: {e}") from e
 
-    def save_with_metadata(
-        self,
-        session: Session,
-        image_array: np.ndarray,
-        mode: str,
-        is_transmitted: bool = False,
-        callsign: str | None = None,
-        snr: float | None = None,
-        frequency: float | None = None,
-        custom_filename: str | None = None,
-    ) -> tuple[Path, int]:
-        """Save image and create database record.
-
-        Args:
-            session: SQLAlchemy session for database operations
-            image_array: RGB image as numpy array
-            mode: SSTV mode name
-            is_transmitted: True if transmitted
-            callsign: Detected/associated callsign
-            snr: Signal-to-noise ratio
-            frequency: Operating frequency
-            custom_filename: Override filename
-
-        Returns:
-            Tuple of (filepath, database_id)
-
-        """
-        from sstv_core.database.models import SSTVImage
-
-        # Save file first
-        filepath = self.save_image(
-            image_array,
-            mode,
-            is_transmitted,
-            custom_filename,
-        )
-
-        # Create database record
-        db_image = SSTVImage(
-            filepath=str(filepath),
-            mode=mode,
-            is_transmitted=is_transmitted,
-            callsign=callsign,
-            snr=snr,
-            frequency=frequency,
-            width=image_array.shape[1],
-            height=image_array.shape[0],
-        )
-
-        session.add(db_image)
-        session.commit()
-
-        logger.info("Created database record for image: id=%d", db_image.id)
-        return filepath, db_image.id
+    # (save_with_metadata was deleted 2026-08-07: it constructed SSTVImage
+    # with column names that have never existed -- is_transmitted, snr,
+    # frequency, width, height -- so it crashed on first use, and nothing
+    # called it. The API decode path creates gallery records via
+    # dsp_manager._create_image_record, which uses the real columns.)
 
     def list_images(
         self,

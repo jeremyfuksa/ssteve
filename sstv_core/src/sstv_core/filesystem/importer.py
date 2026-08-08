@@ -122,11 +122,21 @@ def _parse_filename(filename_stem: str) -> dict[str, Any] | None:
     pattern = r'^(\d{8})_(\d{6})(?:_([A-Za-z0-9]+))?(?:_([A-Z0-9/]+))?$'
     match = re.match(pattern, filename_stem)
 
-    if not match:
-        logger.debug("Filename doesn't match expected pattern: %s", filename_stem)
-        return None
-
-    date_str, time_str, mode, callsign = match.groups()
+    if match:
+        date_str, time_str, mode, callsign = match.groups()
+    else:
+        # SSTeVe's own decode output: sstv_rx_MODE_YYYYMMDD_HHMMSS
+        # (ImageSaver._generate_filename). Until 2026-08-07 the importer
+        # didn't recognize the app's own files, so they imported with
+        # mode="Unknown" and an mtime timestamp.
+        own = re.match(
+            r'^sstv_(?:rx|tx)_([A-Za-z0-9]+)_(\d{8})_(\d{6})$', filename_stem
+        )
+        if not own:
+            logger.debug("Filename doesn't match expected pattern: %s", filename_stem)
+            return None
+        mode, date_str, time_str = own.groups()
+        callsign = None
 
     metadata: dict[str, Any] = {}
 
