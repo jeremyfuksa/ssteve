@@ -38,8 +38,13 @@ class DSPManager:
     """
 
     def __init__(self, db_session_factory: sessionmaker[Session] | None = None):
-        # Shared audio infrastructure
-        self._device_manager = AudioDeviceManager()
+        # Shared audio infrastructure. The device manager is created lazily:
+        # constructing it queries PortAudio, and this class is instantiated
+        # as a module-level singleton -- eager construction made `import
+        # sstv_core.api.dsp_manager` itself fail on hosts with no audio
+        # stack (a stated headless operating situation), so the server could
+        # never even start to report the problem.
+        self._device_manager_instance: AudioDeviceManager | None = None
         self._stream_manager = AudioStreamManager()
 
         # Database session factory (for creating database records)
@@ -60,6 +65,12 @@ class DSPManager:
             "DSPManager initialized (database: %s)",
             "enabled" if db_session_factory else "disabled",
         )
+
+    @property
+    def _device_manager(self) -> AudioDeviceManager:
+        if self._device_manager_instance is None:
+            self._device_manager_instance = AudioDeviceManager()
+        return self._device_manager_instance
 
     def _resolve_device_index(self, device_id: str | None) -> int | None:
         """Translate a public device ID into a sounddevice index.

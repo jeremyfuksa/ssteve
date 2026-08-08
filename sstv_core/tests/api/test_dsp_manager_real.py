@@ -22,7 +22,7 @@ from sstv_core.audio.ptt_controller import PTTMethod
 def dsp() -> DSPManager:
     manager = DSPManager()
     # Deterministic device map regardless of the mocked sounddevice module.
-    manager._device_manager = SimpleNamespace(
+    manager._device_manager_instance = SimpleNamespace(
         get_device_index=lambda device_id: {"ca_USB_Audio": 3, "hw:1,0": 2}.get(
             device_id
         ),
@@ -124,7 +124,7 @@ class TestDecodeFailureReporting:
         )
 
         manager = DSPManager()
-        manager._device_manager = SimpleNamespace(get_device_index=lambda _id: None)
+        manager._device_manager_instance = SimpleNamespace(get_device_index=lambda _id: None)
 
         session = await session_manager.create_decode_session(metadata={})
         try:

@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 from collections import deque
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 class AudioRingBuffer:
@@ -39,6 +42,19 @@ class AudioRingBuffer:
         self._max_samples = max_samples
         self._sample_rate = sample_rate
         self._total_samples_added = 0
+        self._dropped_samples = 0
+
+    @property
+    def dropped_samples(self) -> int:
+        """Samples silently evicted by overflow since the last clear.
+
+        Consumers track absolute stream positions on the assumption that
+        pop() yields a gapless stream; any overflow shifts every subsequent
+        sync position. Surfacing the count lets them detect the corruption
+        instead of decoding a torn image with no error.
+        """
+        with self._lock:
+            return self._dropped_samples
 
     @property
     def max_samples(self) -> int:
@@ -69,6 +85,15 @@ class AudioRingBuffer:
         flat_samples = np.asarray(samples).flatten()
 
         with self._lock:
+            overflow = len(self._buffer) + len(flat_samples) - self._max_samples
+            if overflow > 0:
+                if self._dropped_samples == 0:
+                    logger.warning(
+                        "Ring buffer overflow: dropping %d samples "
+                        "(consumer stalled?)",
+                        overflow,
+                    )
+                self._dropped_samples += overflow
             self._buffer.extend(flat_samples)
             self._total_samples_added += len(flat_samples)
 
@@ -110,6 +135,7 @@ class AudioRingBuffer:
         """Clear all samples from the buffer."""
         with self._lock:
             self._buffer.clear()
+            self._dropped_samples = 0
 
     def is_full(self) -> bool:
         """Check if the buffer is full."""

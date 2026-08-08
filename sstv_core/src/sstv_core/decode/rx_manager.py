@@ -228,11 +228,11 @@ class RXManager:
                             -vis_tail_samples:
                         ]
 
-                        # NEW: Apply bandpass filter before VIS detection
-                        filtered_samples = self._bandpass_filter.filter(samples)
-
-                        # NEW: Use correlation VIS detector (more robust)
-                        vis_result = self._correlation_vis.process_samples(filtered_samples)
+                        # The correlation detector bandpasses internally
+                        # (CorrelationVISConfig.enable_pre_filter), so feed it
+                        # raw samples. Filtering here too cascaded two
+                        # 4th-order Butterworths (~-6 dB at the 2300 Hz edge).
+                        vis_result = self._correlation_vis.process_samples(samples)
 
                         # Update audio levels
                         audio_levels = self._stream_manager.get_input_levels()
@@ -305,11 +305,26 @@ class RXManager:
                 await asyncio.sleep(0.05)  # Allow cancellation
 
                 # Consume each input sample exactly once.
+                if ring_buffer.dropped_samples > 0:
+                    # Overflow broke the gapless-stream assumption every sync
+                    # position depends on; the decode would silently tear.
+                    raise RuntimeError(
+                        f"Audio buffer overflowed ({ring_buffer.dropped_samples} "
+                        "samples lost) -- the decode timeline is corrupted. "
+                        "Is the machine overloaded?"
+                    )
                 samples = ring_buffer.pop(len(ring_buffer))
                 if len(samples) == 0:
                     if time.monotonic() - last_sync_time > 5.0:
                         raise TimeoutError("No scanline sync received for 5 seconds")
                     continue
+
+                # Bandpass the image audio. The filter's documented job is to
+                # clean the whole DSP path, but until 2026-08-07 it ran only
+                # in the VIS phase (twice, cascaded with the correlation
+                # detector's internal filter) and the decode loop got raw
+                # audio. The stateful streaming path keeps chunk continuity.
+                samples = self._bandpass_filter.filter(samples)
 
                 chunk_position = stream_position
                 stream_position += len(samples)
@@ -355,6 +370,10 @@ class RXManager:
                     progress = decoder.get_progress()
                     elapsed = time.time() - start_time
 
+                    # Levels ride along on every line (~2-7 Hz depending on
+                    # mode) so the UI's meter and waterfall stay live during
+                    # decode -- previously they updated about three times per
+                    # session.
                     self._emit_progress(
                         detected_mode,
                         vis_confidence,
@@ -364,6 +383,7 @@ class RXManager:
                         elapsed,
                         scanline.decode_quality,
                         f"Decoding line {line_number + 1}/{total_lines}",
+                        audio_levels=self._stream_manager.get_input_levels(),
                     )
 
                     line_number += 1

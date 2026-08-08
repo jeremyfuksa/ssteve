@@ -117,24 +117,40 @@ class AudioDeviceManager:
             if self._probe_sample_rates
             else [int(info.get("default_samplerate", 48000))]
         )
+        raw_info = dict(info)
+        # The enumeration index, so lookups can address THIS device even when
+        # identical hardware shares a name.
+        raw_info["_index"] = idx
         return AudioDevice(id=device_id, name=self._clean_device_name(name), hostapi=hostapi_name,
                            channels=max_in if is_input else max_out, sample_rates=sample_rates,
                            is_input=is_input, is_output=is_output, is_default=is_default,
-                           raw_info=dict(info))
+                           raw_info=raw_info)
 
     def _generate_device_id(self, idx, name, hostapi):
         p = platform.system().lower()
         if p == "linux":
             m = re.search(r"(hw:\d+,\d+)", name)
             if m:
-                return m.group(1)
+                return self._dedupe_device_id(m.group(1))
         elif p == "darwin":
             pattern = r'[^a-zA-Z0-9]'
             cleaned = re.sub(pattern, '_', name)
-            return f"ca_{cleaned}"
+            return self._dedupe_device_id(f"ca_{cleaned}")
         elif p == "windows":
             return f"{'wasapi' if 'WASAPI' in hostapi else 'ds'}_{idx}"
         return str(idx)
+
+    def _dedupe_device_id(self, candidate):
+        """Keep name-derived IDs unique when identical hardware is plugged in
+        twice (the normal two-USB-codec rig setup). Without this the second
+        device silently shadowed the first in the device map.
+        """
+        if candidate not in self._device_map:
+            return candidate
+        suffix = 2
+        while f"{candidate}_{suffix}" in self._device_map:
+            suffix += 1
+        return f"{candidate}_{suffix}"
 
     def _clean_device_name(self, name):
         name = re.sub(r"^(HDA Intel PCH:|ALSA:)", "", name)
@@ -172,6 +188,13 @@ class AudioDeviceManager:
         with self._lock:
             device = self._device_map.get(device_id)
             if device and device.raw_info:
+                # Prefer the enumeration index captured at scan time: a
+                # name-based search returns the FIRST device with that name,
+                # which is the wrong unit when identical hardware is plugged
+                # in twice.
+                stored = device.raw_info.get("_index")
+                if stored is not None:
+                    return int(stored)
                 try:
                     all_devices = sd.query_devices()
                     if isinstance(all_devices, dict):
