@@ -435,7 +435,45 @@ class RXManager:
                     )
                 samples = ring_buffer.pop(len(ring_buffer))
                 if len(samples) == 0:
-                    if time.monotonic() - last_sync_time > 5.0:
+                    stalled_sec = time.monotonic() - last_sync_time
+                    if stalled_sec > 2.0 and line_number > 0:
+                        # The signal has ended. A line only completes when
+                        # the NEXT sync arrives, so the final line has no
+                        # closer -- silence follows the transmission. Flush
+                        # any pending line using the mode's nominal length,
+                        # then finish with what was decoded. Without this,
+                        # every live decode stalled at the last line and
+                        # timed out (found by the first end-to-end live
+                        # pipeline test, 2026-08-08).
+                        flushed = False
+                        if sync_positions:
+                            nominal = decoder.config.total_line_samples
+                            line_start = sync_positions[0] - stream_base_position
+                            if (
+                                0 <= line_start
+                                and line_start + nominal <= len(stream_audio)
+                            ):
+                                tail_line = stream_audio[
+                                    line_start : line_start + nominal
+                                ]
+                                scanline = decoder.decode_scanline(
+                                    tail_line, line_number
+                                )
+                                self._metrics.scanline_confidences.append(
+                                    float(scanline.decode_quality)
+                                )
+                                line_number += 1
+                                sync_positions.pop(0)
+                                flushed = True
+                        if not flushed:
+                            logger.info(
+                                "Signal ended after %d/%d lines; finishing",
+                                line_number,
+                                total_lines,
+                            )
+                            break
+                        continue
+                    if stalled_sec > 5.0:
                         raise TimeoutError("No scanline sync received for 5 seconds")
                     continue
 
