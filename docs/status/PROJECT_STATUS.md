@@ -1,118 +1,98 @@
 # SSTeVe Project Status
 
-**Last Updated:** 2026-08-07 (post audit-remediation; every claim below verified by measurement in that session, not extrapolated)
-**Current Focus:** Backend remediation complete (PRs #26–#36). Next work: session-based mode detection, desktop shell, and the deliberate deferrals listed below.
+**Last Updated:** 2026-08-08 (post known-gaps remediation; every claim verified by measurement, not extrapolated)
+**Current Focus:** Backend complete for beta scope. Next epoch: the desktop shell (`sstv_desktop/` is still empty; the REST/WebSocket contract it builds on is done and honest).
 
 ---
 
 ## Executive Summary
 
-On 2026-08-07 a full adversarial audit (four subsystem readers + a measured
-encode→decode roundtrip) found that the previous "fully green" status was
-misleading: the suite passed while the encoder emitted broken audio, device
-selection was a no-op, and several features were fabrications. All findings
-were remediated the same day in eleven PRs (#26–#36). The audit report and
-remediation plan live in `docs/superpowers/plans/2026-08-07-backend-audit-remediation.md`.
+Two remediation rounds landed back to back:
 
-**Ground truth after remediation** (CLI `encode --output` → file decode with
-VIS auto-detection, gradient test card): ScottieS1 1.000 / MartinM1 1.000 /
-Robot36 0.96 channel correlation. Before: 0.70 / 0.15 / 0.04.
+1. **Audit remediation (2026-08-07, PRs #26–#37):** a full adversarial audit
+   found the green suite was structurally blind and ~20 BLOCKS-PROD defects
+   ("the backend was a lie"); all were fixed the same day. Record:
+   `docs/superpowers/plans/2026-08-07-backend-audit-remediation.md`.
+2. **Known-gaps remediation (2026-08-08, PRs #38–#47 + this one):** every
+   buildable item on the previous Known Gaps list closed. Record:
+   `docs/superpowers/plans/2026-08-08-known-gaps-remediation.md`.
 
-- **Tests:** 546 passing, zero exclusions; `ruff check src/` and `mypy src/` clean; CI green on `main`.
-- The suite is no longer structurally blind: a gradient roundtrip gate
-  (`tests/integration/test_roundtrip_gradient.py`) fails on any encoder or
-  sync regression; DSPManager, smart features, the watcher, and the
-  WebSocket contract now have real (non-mock-asserting-mock) tests; `pytest`
-  can no longer touch `~/.ssteve`.
+**Ground truth** (CLI `encode --output` → file decode with VIS auto-detect,
+gradient card): ScottieS1 **1.000** / MartinM1 **1.000** / Robot36 **0.96**
+channel correlation. (Audit-day baseline: 0.70 / 0.15 / 0.04.)
 
-## What was fixed (PRs #26–#36, all measured)
+- **Tests:** 569 passing, zero exclusions; ruff + mypy clean; CI green on `main`.
+- Suite deprecation warnings: 26 (down from ~490; remainder is third-party).
+- Dependabot: scanning enabled, **0 open alerts** — all 35 from the
+  2026-08-05 baseline are state *fixed* via landed dependency updates;
+  0 open dependency PRs. (Verified via the GitHub API 2026-08-08.)
 
-- **Encoders** (#26): phase now accumulates in radians — gradient content
-  (i.e. photographs) previously produced a full-scale click at every pixel
-  boundary and decoded as noise. Sync windows overlap so Martin's 4.862 ms
-  pulse can't fall between blocks (~6% of scanlines were silently dropped).
-- **CLI** (#27): `--file` decode auto-detects from VIS (was hardcoded
-  ScottieS1); `encode` really encodes to WAV or transmits (was a fabricated
-  event stream); `sstv-decode`/`sstv-encode` console scripts work.
-- **API↔DSP seam** (#28): device IDs actually route (every real ID silently
-  fell back to the default device); transmit reads saved PTT config
-  (DTR-keyed rigs could never key); decode failures report `failed` + error
-  event (were silent "stopped"); unsupported modes 400 up front.
-- **RF safety** (#29): cancelling a transmission unkeys the radio (was a
-  dead-key); VOX preamble is a 1900 Hz tone (was silence, which can't trip
-  VOX); serial open no longer key-glitches; transmissions carry exactly one
-  VIS header (was two).
-- **Audio hygiene** (#30/#31): bandpass applied once, on the decode path
-  (was twice on VIS, never on decode); ring-buffer overflow fails loudly
-  instead of silently corrupting the timeline; duplicate identical hardware
-  gets addressable device IDs; no PortAudio at import on headless boxes.
-- **WebSocket contract** (#32): one contract — the models.py event models —
-  emitted everywhere (three incompatible shapes coexisted; no client could
-  parse the real stream). Unmeasurable fields are honestly null, not
-  fabricated. Broadcasts aren't serialized behind one slow client.
-- **Smart features** (#33): mode detection uses real line periods (the old
-  table made Scottie/Martin/PD undetectable in principle); Smart Reply's
-  three template base images exist (zero templates loaded before); detected
-  device profiles apply cleanly (always 400'd before); field population
-  honors overrides and reads the real dB column.
-- **Filesystem** (#34): the watcher actually imports new files (created
-  event was superseded by modified, which dropped unknown files — measured
-  0 rows imported); it recognizes SSTeVe's own output filenames.
-- **DB/test hygiene** (#35): `alembic upgrade head` works on app-created
-  databases (init stamps head); the 447-line dead synthetic-data simulator
-  and its green tests are gone.
-- **API coherence** (#36): QSO/Smart Reply accept the public image UUIDs
-  the API actually exposes (they demanded raw DB keys no endpoint
-  returned); Smart Reply transmit is a real half-duplex session (was an
-  admitted mock); fabricated dims/modes/SNR removed; `callsign` is really
-  overlaid on transmitted images; blocking file IO moved off the event loop.
+## What landed in the known-gaps round (PRs #38–#47)
 
-## What Works (verified end-to-end this session)
+- **Auto-RSV + measured SNR** (#38): the decode pipeline measures noise
+  floor, peak, SNR, sync jitter, and per-line confidence; RSV reports
+  (spec: `docs/features/AUTO_RSV_SPECIFICATION.md`) and the January
+  `rx_snr_db`/`rsv_*` columns are now populated. Live SNR feeds scanline
+  WS events and decode status.
+- **AFC + squelch consumed** (#39/#40): sync pulses are 1200 Hz references —
+  measured offset (median of 3, clamped to `afc_range_hz`) shifts the video
+  mapping when `auto_afc`; verified on a heterodyne-shifted +60 Hz signal.
+  `auto_squelch` gates VIS processing below `squelch_threshold_db`. Manual
+  overrides preserved (Doppler/contest constraints).
+- **FSKID wired both directions** (#41): TX appends the MMSSTV-compatible ID
+  when a callsign is given; RX decodes it from the post-image tail and
+  populates the `fskid_*` columns (callsign adopted only when
+  checksum-valid and not operator-supplied).
+- **Session-based mode detection** (#42): the stub is gone; a rolling 15 s
+  raw-audio window per session feeds the sync-timing detector.
+- **CLI live-device decode** (#43): `decode --device` runs the real RX
+  pipeline — and the first end-to-end live test found and fixed two real
+  bugs: the final scanline never completed (silence follows a
+  transmission), and Robot36's `get_image()` returned a never-built RGB
+  buffer on the live path (all-black images).
+- **Audio guidance wired** (#44): lock chime on VIS, double chime on
+  completion, via local output when `stereo_guidance_enabled` (default
+  off). Playback failure never fails a decode.
+- **Orphans deleted** (#45): the redundant `SlantDetector` class and
+  `AudioTransmitter` (`SlantErrorData` survives; Hough is the wired slant
+  corrector, off by default with measured rationale).
+- **One image directory** (#46): `image_save_directory` defaults to
+  `~/.ssteve/images`; the decoder saves into the configured directory and
+  the watcher watches the same one. Empty string = watcher opt-out.
+- **Timezone-aware datetimes** (#47): DB stays naive-UTC (matching stored
+  rows), events/WS timestamps carry `+00:00`, session bookkeeping aware
+  end-to-end.
 
-- Encode→decode roundtrip on gradient content, all three modes, with VIS
-  auto-detection (numbers above).
-- Server boots and serves real data; bad device / unsupported mode return
-  honest SSTeVe-voice 400s (exercised live via curl).
-- Half-duplex session management, config persistence, QSO logging, Smart
-  Reply generate/transmit, MMSSTV import, watcher auto-import.
+## What Works (verified end-to-end)
 
-## Known Gaps
+- Encode→decode roundtrip on gradient content, all three modes, VIS
+  auto-detected (numbers above).
+- Live-path decode: real transmission through the real ring buffer at
+  live pacing → ≥0.9 correlation (automated test).
+- Honest failures everywhere exercised: bad device, unsupported mode,
+  no-signal timeout, not-enough-audio session analysis.
+- Half-duplex sessions, config persistence, QSO logging (public UUID
+  bridge), Smart Reply generate/transmit, MMSSTV import, watcher
+  auto-import, FSKID, RSV, AFC, squelch, guidance.
 
-1. **Session-based mode detection is stubbed** — `POST /decode/detect_mode`
-   with a `session_id` still returns `SESSION_ANALYSIS_NOT_SUPPORTED`;
-   file-based detection works.
-2. **CLI live-device decode is not wired** — `decode --device` fails
-   honestly (exit 2) and points at `--file`. The API path does live decode.
-3. **No calibrated SNR measurement exists.** `snr_db` fields are honestly
-   null everywhere until the engine truly measures it (rx_snr_db is
-   populated only by the FSKID/RSV path when that runs).
-4. **Deliberately unwired modules** (product decisions, not defects —
-   the code is real but nothing invokes it): FSKID encode/decode,
-   accessibility audio guidance (stereo sonification), the sync-timing
-   SlantDetector (the Hough corrector is the wired one, off by default),
-   and `AudioTransmitter` (superseded by TXManager's callback path).
-   Decide per-feature: wire or delete.
-5. **Auto-AFC/squelch config knobs are stored but not consumed** by the
-   decode path — wiring them is feature work, tracked here so the config
-   surface doesn't read as implemented.
-6. **Digirig VID/PID (CP2102N 0x10C4/0xEA60) is unverified against
-   physical hardware** — confirm with `lsusb` on a real unit.
-7. **Watcher default directory is a product decision** — with
-   `image_save_directory` unset the watcher doesn't start; RXManager saves
-   to `~/sstv_images`. Also note `dsp_manager` hardcodes that save path
-   rather than reading config — align when the decision lands.
-8. `datetime.utcnow()` deprecation warnings (~400) — mechanical migration
-   pending. Dependabot backlog untriaged. Desktop shell unstarted.
+## Remaining (all external or next-epoch — nothing buildable is open)
+
+1. **Digirig VID/PID hardware verification** — the profile uses CP2102N
+   0x10C4/0xEA60 per digirig.net; confirm with `lsusb` on a physical unit.
+2. **Desktop shell** (`sstv_desktop/`) — unstarted by design; see
+   `PRODUCT.md` and `DESIGN.md` before any UI work.
+3. Deferred by design: AI captioning, multi-receiver, full-duplex, PD/
+   Wraase/Scottie-S2-DX decoder implementations (the API 400s them
+   honestly), calibrated-SNR refinement beyond the peak/floor estimate.
 
 ## Where Things Live
 
 - Backend spec / API contract: `docs/core/backend-spec.md`,
   `docs/core/openapi.json` (regenerate with `scripts/export_api_docs.py`).
-  **Breaking change 2026-08-07:** QSO/Smart Reply image IDs are public
-  UUIDs; WebSocket events are keyed `event_type` per the models.py shapes;
-  `TransmitRequest.include_vis` is gone.
-- Audit + remediation plan:
-  `docs/superpowers/plans/2026-08-07-backend-audit-remediation.md`.
-- Definition of done, commands, module map: `CLAUDE.md`.
+- Remediation records: `docs/superpowers/plans/2026-08-07-*.md` and
+  `2026-08-08-*.md`.
+- Definition of done, commands, module map: `CLAUDE.md`. The gradient
+  roundtrip gate (`tests/integration/test_roundtrip_gradient.py`) is the
+  regression canary — never skip it.
 - Phase summaries under `docs/status/PHASE*_IMPLEMENTATION_SUMMARY.md` are
   historical records; this file supersedes their status claims.
