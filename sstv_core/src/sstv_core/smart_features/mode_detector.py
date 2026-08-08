@@ -11,21 +11,27 @@ import numpy as np
 
 from ..decode.sync_detector import SyncPulseDetector
 
-# Mode timing specifications (scanline duration in ms)
-# Ref: backend-spec.md §6.2 Smart Mode Detection Algorithm
+# Full line period in ms -- the time between consecutive sync pulse starts,
+# which is what this module actually measures. Until 2026-08-07 this table
+# held per-COLOR-CHANNEL scan durations instead (ScottieS1 138.24 instead of
+# 428.22...), so a textbook Scottie S1 measured ~428 ms, matched nothing
+# within the confidence window, and detection returned None for every mode
+# except Robot36/72, whose entries happened to be real line periods. The
+# seven non-PD entries come from the decode-side sync detector's table (the
+# correct one that already existed and was bypassed); PD periods are
+# 20 ms sync + 2.08 ms porch + 4 color components.
 MODE_TIMINGS = {
-    "ScottieS1": 138.24,
-    "ScottieS2": 71.04,
-    "ScottieDX": 269.04,
-    "MartinM1": 146.43,
-    "MartinM2": 73.22,
-    "Robot36": 150.0,
-    "Robot72": 300.0,
-    "PD90": 126.72,
-    "PD120": 121.6,
-    "PD180": 121.6,
-    "PD240": 121.92,
+    mode: line_ms
+    for mode, (line_ms, _sync_ms) in SyncPulseDetector.MODE_TIMINGS.items()
 }
+MODE_TIMINGS.update(
+    {
+        "PD90": 703.04,   # 20 + 2.08 + 4 x 170.240
+        "PD120": 508.48,  # 20 + 2.08 + 4 x 121.600
+        "PD180": 754.24,  # 20 + 2.08 + 4 x 183.040
+        "PD240": 1000.0,  # 20 + 2.08 + 4 x 244.480
+    }
+)
 
 
 @dataclass
@@ -106,6 +112,45 @@ def calculate_mode_confidence(measured_interval: float, expected_interval: float
     return confidence
 
 
+def _measure_intervals(
+    audio_stream: np.ndarray,
+    sample_rate: int,
+    duration_sec: float,
+    min_samples: int,
+) -> tuple[float, list[float]] | None:
+    """Measure the median sync-to-sync interval in ms.
+
+    Shared by primary detection and candidate ranking so candidates exist
+    even when the primary confidence gate rejects the best match --
+    previously get_top_mode_candidates called the gated function first and
+    returned [] exactly when fallback options were needed.
+    """
+    max_samples = int(duration_sec * sample_rate)
+    if len(audio_stream) > max_samples:
+        audio_stream = audio_stream[:max_samples]
+
+    sync_detector = SyncPulseDetector(sample_rate=sample_rate)
+    sync_pulses = sync_detector.detect_in_buffer(audio_stream)
+    if len(sync_pulses) < min_samples:
+        return None
+
+    intervals = []
+    for i in range(len(sync_pulses) - 1):
+        interval_samples = (
+            sync_pulses[i + 1].position_samples - sync_pulses[i].position_samples
+        )
+        intervals.append(interval_samples * 1000.0 / sample_rate)
+
+    if len(intervals) < min_samples - 1:
+        return None
+
+    filtered_intervals = remove_outliers(intervals, z_threshold=2.0)
+    if len(filtered_intervals) < 5:
+        return None
+
+    return float(np.median(filtered_intervals)), filtered_intervals
+
+
 def detect_mode_from_sync_timing(
     audio_stream: np.ndarray,
     sample_rate: int = 48000,
@@ -131,39 +176,12 @@ def detect_mode_from_sync_timing(
         ModeDetectionResult or None if detection failed
 
     """
-    # Limit audio to requested duration
-    max_samples = int(duration_sec * sample_rate)
-    if len(audio_stream) > max_samples:
-        audio_stream = audio_stream[:max_samples]
-
-    # Step 1: Detect sync pulses using existing sync detector
-    sync_detector = SyncPulseDetector(sample_rate=sample_rate)
-    sync_pulses = sync_detector.detect_in_buffer(audio_stream)
-
-    if len(sync_pulses) < min_samples:
-        # Not enough sync pulses detected
+    measurement = _measure_intervals(
+        audio_stream, sample_rate, duration_sec, min_samples
+    )
+    if measurement is None:
         return None
-
-    # Step 2: Calculate inter-pulse intervals
-    intervals = []
-    for i in range(len(sync_pulses) - 1):
-        # Calculate time between start of consecutive sync pulses
-        interval_samples = sync_pulses[i + 1].position_samples - sync_pulses[i].position_samples
-        interval_ms = (interval_samples * 1000.0) / sample_rate
-        intervals.append(interval_ms)
-
-    if len(intervals) < min_samples - 1:
-        return None
-
-    # Step 3: Remove outliers (QRM, noise spikes)
-    filtered_intervals = remove_outliers(intervals, z_threshold=2.0)
-
-    if len(filtered_intervals) < 5:
-        # Too many outliers, unreliable data
-        return None
-
-    # Step 4: Calculate median interval (robust against noise)
-    median_interval = np.median(filtered_intervals)
+    median_interval, filtered_intervals = measurement
 
     # Step 5: Score each mode based on deviation
     mode_scores = {}
@@ -208,18 +226,13 @@ def get_top_mode_candidates(
         List of (mode_name, confidence) tuples sorted by confidence (descending)
 
     """
-    # Run detection analysis
-    result = detect_mode_from_sync_timing(
-        audio_stream,
-        sample_rate=sample_rate,
-        duration_sec=duration_sec
+    measurement = _measure_intervals(
+        audio_stream, sample_rate, duration_sec, min_samples=10
     )
-
-    if result is None:
+    if measurement is None:
         return []
+    median_interval, _ = measurement
 
-    # Calculate confidence for all modes
-    median_interval = np.median(result.measured_intervals)
     mode_scores = []
 
     for mode_name, expected_interval in MODE_TIMINGS.items():

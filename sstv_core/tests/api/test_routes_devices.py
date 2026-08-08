@@ -92,8 +92,11 @@ class TestApplySettings:
         )
 
         assert response.status_code == 200
+        # serial_rts normalizes to stored method "serial" + signal "RTS".
+        # This test previously asserted the raw "serial_rts" reached
+        # ConfigManager -- a value the real manager's validation rejects.
         mock_config_manager.update.assert_called_once_with({
-            "ptt_method": "serial_rts",
+            "ptt_method": "serial",
             "ptt_serial_signal": "RTS",
             "ptt_pre_delay_ms": 500,
             "ptt_post_delay_ms": 200,
@@ -128,7 +131,8 @@ class TestApplySettings:
 
         assert response.status_code == 200
         mock_config_manager.update.assert_called_once_with({
-            "ptt_method": "serial_rts",  # Explicit setting wins
+            "ptt_method": "serial",  # Explicit setting wins (normalized)
+            "ptt_serial_signal": "RTS",  # implied by serial_rts
             "vox_preamble_ms": 750,  # Profile fills the gap
         })
 

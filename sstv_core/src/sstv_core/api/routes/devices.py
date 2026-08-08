@@ -144,9 +144,17 @@ async def apply_device_settings(
         # Build settings to apply
         updates: dict[str, Any] = {}
 
-        # PTT settings
+        # PTT settings. Normalize the public spellings serial_rts/serial_dtr
+        # into stored method + signal, same as the /config routes -- writing
+        # the raw string used to fail ConfigManager's pattern and 400 the
+        # documented values.
         if request.ptt_method is not None:
-            updates["ptt_method"] = request.ptt_method
+            from sstv_core.api.routes.config import _normalize_ptt_method
+
+            method, signal = _normalize_ptt_method(request.ptt_method)
+            updates["ptt_method"] = method
+            if signal:
+                updates["ptt_serial_signal"] = signal
         if request.ptt_serial_signal is not None:
             updates["ptt_serial_signal"] = request.ptt_serial_signal
         if request.ptt_pre_delay_ms is not None:
