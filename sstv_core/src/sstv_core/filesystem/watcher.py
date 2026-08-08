@@ -417,11 +417,30 @@ class ImageLibraryWatcher:
     def _handle_modified(self, filepath: Path) -> None:
         """Handle file modification event.
 
-        Updates the database record with new metadata.
+        Updates the database record with new metadata. A modified event for
+        a file with NO record is a brand-new file: saving a file emits
+        created immediately followed by modified (FSEvents and inotify
+        both), and the debouncer keeps only the latest event per path -- so
+        new files routinely arrive here, not in _handle_created. Until
+        2026-08-07 this path warned "Cannot update non-existent image" and
+        dropped them, which meant the watcher never imported anything.
         """
+        from sstv_core.database.models import SSTVImage
         from sstv_core.filesystem.importer import ImageImporter
 
         try:
+            filepath_str = str(filepath.resolve())
+            with self._session_factory() as session:
+                known = (
+                    session.query(SSTVImage)
+                    .filter_by(filepath=filepath_str)
+                    .first()
+                    is not None
+                )
+            if not known:
+                self._handle_created(filepath)
+                return
+
             with self._session_factory() as session:
                 importer = ImageImporter(session)
                 image = importer.update_image_metadata(filepath)
