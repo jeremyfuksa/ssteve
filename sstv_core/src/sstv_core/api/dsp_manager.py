@@ -116,6 +116,14 @@ class DSPManager:
             )
         return int(index)
 
+    def get_session_audio(self, session_id: UUID) -> "np.ndarray | None":
+        """Recent raw audio from an active decode session, or None."""
+        rx_mgr = self._rx_managers.get(session_id)
+        if rx_mgr is None:
+            return None
+        audio = rx_mgr.get_recent_audio()
+        return audio if len(audio) else None
+
     async def _read_decode_config(self) -> dict:
         """Read AFC/squelch settings; documented defaults without a DB."""
         defaults = {

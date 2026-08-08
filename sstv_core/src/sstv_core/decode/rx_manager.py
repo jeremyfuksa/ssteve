@@ -127,6 +127,11 @@ class RXManager:
         # FSKID result from the most recent decode (None = none detected).
         self._fskid_result: Any | None = None
 
+        # Rolling window of RAW input for on-demand analysis (session-based
+        # mode detection). ~15s covers >30 scanlines of every mode.
+        self._analysis_window = np.zeros(0, dtype=np.float32)
+        self._analysis_window_samples = sample_rate * 15
+
         # AFC: correct the video frequency mapping by the measured sync
         # offset. Manual override is auto_afc=False -- auto-only AFC is
         # dangerous for satellite (Doppler) work, so the switch must exist.
@@ -183,6 +188,16 @@ class RXManager:
         if abs(offset) > 300.0:
             return None
         return offset
+
+    def get_recent_audio(self) -> np.ndarray:
+        """Copy of the last ~15s of raw input (session mode detection)."""
+        window: np.ndarray = self._analysis_window.copy()
+        return window
+
+    def _extend_analysis_window(self, samples: np.ndarray) -> None:
+        self._analysis_window = np.concatenate(
+            (self._analysis_window, samples)
+        )[-self._analysis_window_samples:]
 
     def get_fskid_result(self) -> Any | None:
         """FSKID callsign result from the most recent decode, if any."""
@@ -258,6 +273,7 @@ class RXManager:
         self._correlation_vis.reset()
         self._metrics = DecodeMetrics()
         self._fskid_result = None
+        self._analysis_window = np.zeros(0, dtype=np.float32)
         pre_vis_rms: list[float] = []
 
         try:
@@ -298,6 +314,8 @@ class RXManager:
                         vis_tail = np.concatenate((vis_tail, samples))[
                             -vis_tail_samples:
                         ]
+
+                        self._extend_analysis_window(samples)
 
                         # Noise floor: RMS of pre-signal chunks. The lower
                         # quartile rejects the chunks that already contain
@@ -420,6 +438,8 @@ class RXManager:
                     if time.monotonic() - last_sync_time > 5.0:
                         raise TimeoutError("No scanline sync received for 5 seconds")
                     continue
+
+                self._extend_analysis_window(samples)
 
                 # Peak level from the RAW audio -- the filter would hide
                 # clipping and level problems the metric exists to expose.
