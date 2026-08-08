@@ -34,6 +34,7 @@ from sstv_core.decode.hough_slant_corrector import HoughSlantCorrector
 from sstv_core.decode.image_saver import ImageSaver
 from sstv_core.decode.martin_decoder import MartinM1Config, MartinM1Decoder
 from sstv_core.decode.robot_decoder import Robot36Config, Robot36Decoder
+from sstv_core.decode.rsv import DecodeMetrics
 from sstv_core.decode.scottie_decoder import ScottieS1Config, ScottieS1Decoder
 from sstv_core.decode.sync_detector import SyncPulseDetector
 
@@ -116,6 +117,9 @@ class RXManager:
         self._hough_corrector = HoughSlantCorrector()
         self._slant_correction_enabled = slant_correction
 
+        # Measured decode metrics for the most recent session (Auto-RSV).
+        self._metrics: DecodeMetrics | None = None
+
     @property
     def state(self) -> RXState:
         return self._state
@@ -131,6 +135,18 @@ class RXManager:
     def set_progress_callback(self, callback: Callable[[RXProgress], None]) -> None:
         """Set callback for progress updates."""
         self._progress_callback = callback
+
+    def get_decode_metrics(self) -> DecodeMetrics | None:
+        """Measured metrics for the current/most recent decode (Auto-RSV)."""
+        return self._metrics
+
+    @property
+    def current_snr_db(self) -> float | None:
+        """Live SNR estimate, or None before noise floor + signal exist."""
+        m = self._metrics
+        if m is None or m.noise_floor <= 0.0 or m.peak_amplitude <= 0.0:
+            return None
+        return m.snr_db
 
     def _emit_progress(
         self,
@@ -185,9 +201,11 @@ class RXManager:
         start_time = time.time()
         self._cancel_requested = False
 
-        # Reset filters and detectors
+        # Reset filters, detectors, and per-session measurements
         self._bandpass_filter.reset_state()
         self._correlation_vis.reset()
+        self._metrics = DecodeMetrics()
+        pre_vis_rms: list[float] = []
 
         try:
             # Phase 1: Start listening
@@ -228,6 +246,12 @@ class RXManager:
                             -vis_tail_samples:
                         ]
 
+                        # Noise floor: RMS of pre-signal chunks. The lower
+                        # quartile rejects the chunks that already contain
+                        # the transmission's leading edge.
+                        chunk_rms = float(np.sqrt(np.mean(samples.astype(np.float64) ** 2)))
+                        pre_vis_rms.append(chunk_rms)
+
                         # The correlation detector bandpasses internally
                         # (CorrelationVISConfig.enable_pre_filter), so feed it
                         # raw samples. Filtering here too cascaded two
@@ -257,6 +281,16 @@ class RXManager:
                 )
                 return None
 
+            # Finalize pre-signal measurements
+            if pre_vis_rms:
+                quietest = sorted(pre_vis_rms)[: max(1, len(pre_vis_rms) // 4)]
+                self._metrics.noise_floor = float(np.mean(quietest))
+            self._metrics.vis_confidence = vis_confidence
+            # The correlation detector identifies mode by envelope matching
+            # and does not decode the parity bit; a forced mode skips VIS
+            # entirely. Neither case is evidence of a parity FAILURE.
+            self._metrics.vis_parity_valid = True
+
             # Phase 3: Select decoder
             self._state = RXState.VIS_DETECTED
             self._emit_progress(
@@ -285,6 +319,7 @@ class RXManager:
             # Detect sync pulses
             sync_detector = SyncPulseDetector(sample_rate=self._sample_rate)
             sync_positions: list[int] = []
+            sync_intervals_ms: list[float] = []
             for pulse in sync_detector.process_samples(
                 vis_tail,
                 position=stream_position - len(vis_tail),
@@ -319,6 +354,16 @@ class RXManager:
                         raise TimeoutError("No scanline sync received for 5 seconds")
                     continue
 
+                # Peak level from the RAW audio -- the filter would hide
+                # clipping and level problems the metric exists to expose.
+                chunk_peak = float(np.max(np.abs(samples)))
+                if chunk_peak > self._metrics.peak_amplitude:
+                    self._metrics.peak_amplitude = chunk_peak
+                    if self._metrics.noise_floor > 0.0:
+                        self._metrics.snr_db = 20.0 * float(
+                            np.log10(chunk_peak / self._metrics.noise_floor)
+                        )
+
                 # Bandpass the image audio. The filter's documented job is to
                 # clean the whole DSP path, but until 2026-08-07 it ran only
                 # in the VIS phase (twice, cascaded with the correlation
@@ -346,6 +391,12 @@ class RXManager:
                             and pulse.position_samples - sync_positions[-1] < min_line_samples
                         ):
                             continue
+                        if sync_positions:
+                            interval_ms = (
+                                (pulse.position_samples - sync_positions[-1])
+                                * 1000.0 / self._sample_rate
+                            )
+                            sync_intervals_ms.append(interval_ms)
                         sync_positions.append(pulse.position_samples)
 
                 # Decode every complete frame currently buffered.
@@ -365,6 +416,9 @@ class RXManager:
 
                     # Decode scanline
                     scanline = decoder.decode_scanline(line_samples, line_number)
+                    self._metrics.scanline_confidences.append(
+                        float(scanline.decode_quality)
+                    )
 
                     # Update progress
                     progress = decoder.get_progress()
@@ -394,6 +448,13 @@ class RXManager:
                     if keep_from > 0:
                         stream_audio = stream_audio[keep_from:]
                         stream_base_position += keep_from
+
+            # Finalize timing metrics for Auto-RSV
+            if len(sync_intervals_ms) >= 3:
+                self._metrics.sync_pulse_jitter_ms = float(np.std(sync_intervals_ms))
+            self._metrics.rx_quality_score = (
+                self._metrics.mean_scanline_quality
+            )
 
             # Check if cancelled
             if self._cancel_requested:
@@ -433,6 +494,7 @@ class RXManager:
                     corrected_image = image
                     if self._slant_correction_enabled:
                         logger.info("Applying Hough slant correction...")
+                        self._metrics.slant_correction_applied = True
                         slant_result = self._hough_corrector.correct_slant(image)
                         if slant_result.slant_angle_degrees != 0:
                             logger.info(
