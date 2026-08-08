@@ -235,8 +235,10 @@ class TestAudioGuidance:
         config = GuidanceConfig(enabled=True, pilot_tone_volume=0.2)
         guidance = AudioGuidance(config=config, sample_rate=48000)
 
-        # Create mono monitoring audio
-        monitoring = np.random.randn(4800).astype(np.float32) * 0.1
+        # Seeded: this test was flaky unseeded -- a random noise PEAK can
+        # land counter-phase to the tone, making max(|mixed|) < max(|mono|).
+        rng = np.random.default_rng(42)
+        monitoring = rng.standard_normal(4800).astype(np.float32) * 0.1
 
         # Generate guidance tone
         guidance_tone = guidance.generate_pilot_tone(duration_ms=100)
@@ -247,8 +249,11 @@ class TestAudioGuidance:
         # Should be stereo
         assert mixed.shape[1] == 2
 
-        # Should contain both signals
-        assert np.max(np.abs(mixed)) > np.max(np.abs(monitoring))
+        # Adding an independent tone raises ENERGY deterministically;
+        # peak comparison depended on phase luck.
+        mixed_rms = float(np.sqrt(np.mean(mixed.astype(np.float64) ** 2)))
+        mono_rms = float(np.sqrt(np.mean(monitoring.astype(np.float64) ** 2)))
+        assert mixed_rms > mono_rms
 
     def test_mix_with_monitoring_stereo(self):
         """Mix guidance with stereo monitoring audio."""
