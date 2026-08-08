@@ -120,7 +120,14 @@ class ConfigValidation(BaseModel):
     )
 
     # Storage paths - must be within user directory, no path traversal
-    image_save_directory: str = Field(default="", max_length=1024)
+    # Defaults to the app's data home; the decode pipeline saves into the
+    # SAME configured directory, so the library watcher works out of the
+    # box (empty string = watcher off, the explicit opt-out). Matches the
+    # database column default in database/models.py.
+    image_save_directory: str = Field(
+        default_factory=lambda: str(Path.home() / ".ssteve" / "images"),
+        max_length=1024,
+    )
     mmsstv_import_directory: str | None = Field(default=None, max_length=1024)
 
     # PTT settings

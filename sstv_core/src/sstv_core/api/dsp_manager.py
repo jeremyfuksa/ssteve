@@ -161,6 +161,7 @@ class DSPManager:
             "afc_range_hz": 100.0,
             "auto_squelch": True,
             "squelch_threshold_db": -40.0,
+            "image_save_directory": str(Path.home() / ".ssteve" / "images"),
         }
         session_factory = self._db_session_factory
         if session_factory is None:
@@ -289,10 +290,18 @@ class DSPManager:
         guidance_player = await self._build_guidance_player()
         if guidance_player is not None:
             self._guidance_players[session_id] = guidance_player
+        # Save where the user configured -- one directory, watched by the
+        # library watcher and written by the decoder. (Previously hardcoded
+        # here while the watcher watched the CONFIGURED directory, so
+        # decoded images could land outside the library.)
+        save_directory = Path(
+            decode_config["image_save_directory"]
+            or (Path.home() / ".ssteve" / "images")
+        ).expanduser()
         rx_mgr = RXManager(
             stream_manager=self._stream_manager,
             sample_rate=48000,
-            save_directory=Path.home() / "sstv_images",
+            save_directory=save_directory,
             auto_afc=bool(decode_config["auto_afc"]),
             afc_range_hz=float(decode_config["afc_range_hz"]),
             auto_squelch=bool(decode_config["auto_squelch"]),
