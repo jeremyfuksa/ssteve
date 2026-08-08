@@ -180,6 +180,26 @@ exception — factual and direct, never conversational.
 
 ### Not built
 
+- **Mode auto-detection does not work.** Found 2026-08-07 by testing the VIS path
+  against real signals for the first time. Three separate problems, none of which the
+  test suite covers:
+  - **`CorrelationVISDetector` cannot read a VIS header that `VISGenerator` produces.**
+    Verified at matching sample rates for Scottie S1, Martin M1, and Robot 36: the
+    generator emits a spec-correct 910 ms header (300 ms 1900 Hz leader, break, data
+    bits), and the detector returns `None` for all three. The generator is right; the
+    detector is the broken side.
+  - **The encoders never emit a VIS header at all.** `VISGenerator` exists and works,
+    but no encoder calls it, so every SSTeVe transmission is headerless and no other
+    application can auto-detect our mode.
+  - **`rx_manager` builds the detector with no config**, so it runs at the default
+    48000 Hz regardless of the stream's actual rate — the same class of bug fixed in
+    the decoders on 2026-08-07.
+
+  Consequence: an operator who does not pick a mode manually gets nothing. Every
+  decode verified this session passed the mode explicitly. Note the reference
+  recordings cannot exercise this either — they were captured mid-transmission and
+  contain no VIS header, which is why the gap survived.
+
 - **The shipping UI.** `sstv_desktop/` contains a README and nothing else — no `.tsx`,
   no `package.json`, no component code.
 - **A working HTML/CSS/JS prototype does exist** at `prototype/` (~2,900 lines across
