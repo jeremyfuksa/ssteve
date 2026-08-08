@@ -141,9 +141,11 @@ class AudioDeviceManager:
         return str(idx)
 
     def _dedupe_device_id(self, candidate):
-        """Keep name-derived IDs unique when identical hardware is plugged in
-        twice (the normal two-USB-codec rig setup). Without this the second
-        device silently shadowed the first in the device map.
+        """Keep name-derived IDs unique for duplicate identical hardware.
+
+        Two identical USB codecs (the normal two-codec rig setup) produce
+        the same name-derived ID; without this the second device silently
+        shadowed the first in the device map.
         """
         if candidate not in self._device_map:
             return candidate
