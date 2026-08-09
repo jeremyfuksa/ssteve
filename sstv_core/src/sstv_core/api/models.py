@@ -368,10 +368,21 @@ class Configuration(BaseModel):
     @field_validator("image_library_path")
     @classmethod
     def validate_library_path(cls, v: str) -> str:
-        """Ensure library path is within user home directory."""
-        expanded = v.replace("~", "/home/admin")  # Simplified for validation
-        if ".." in expanded:
-            raise ValueError("Image library path can't contain path traversal")
+        """Accept any path the operator names, `~` included.
+
+        This deliberately does not constrain the location. SSTeVe is a
+        single-user local app -- the same person could set the value
+        directly in the database -- and an external drive or NAS mount is a
+        legitimate place to keep an image library. `TransmitRequest.
+        image_path` already accepts arbitrary absolute paths, so this
+        matches.
+
+        Until 2026-08-09 this claimed to enforce home-containment and did
+        not: it substituted a hardcoded `/home/admin` for `~` (a path on
+        neither dev nor production) and rejected only the literal substring
+        `..`. `routes/config.py` does the real `expanduser().resolve()`
+        before the value is stored or used.
+        """
         return v
 
     @model_validator(mode="after")

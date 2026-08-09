@@ -161,10 +161,21 @@ class TestConfiguration:
         config = Configuration(ptt_method=PTTMethod.VOX)
         assert config.ptt_serial_port is None
 
-    def test_library_path_traversal_rejected(self):
-        """Library paths with traversal should be rejected."""
-        with pytest.raises(ValidationError, match="path traversal"):
-            Configuration(image_library_path="/home/../../etc/passwd")
+    def test_library_path_accepts_any_location(self):
+        """The library may live anywhere the operator names (decided #52).
+
+        SSTeVe is a single-user local app and an external drive or NAS mount
+        is a legitimate library location, so this is deliberately
+        unconstrained -- `routes/config.py` expands and resolves the value
+        before use.
+
+        The check removed here was theater: it rejected the spelling
+        "/home/../../etc/passwd" while accepting the "/etc" that string
+        resolves to, and compared against a hardcoded /home/admin that
+        exists on neither dev nor production.
+        """
+        for path in ("/home/../../etc/passwd", "/Volumes/Photos/sstv", "~/pics"):
+            assert Configuration(image_library_path=path).image_library_path == path
 
     def test_afc_range_validation(self):
         """AFC range must be 0-500 Hz."""
