@@ -252,7 +252,21 @@ class AudioDevice(BaseModel):
         ...,
         ge=8000,
         le=192000,
-        description="Sample rate in Hz"
+        description="Preferred sample rate in Hz (48000 when the device supports it)"
+    )
+    # device_manager already probes every supported rate and the route threw
+    # the list away, keeping one. A client choosing a rate needs the choices.
+    sample_rates: list[int] = Field(
+        default_factory=list,
+        description="All sample rates this device supports, ascending"
+    )
+    is_input: bool = Field(
+        default=False,
+        description="Device can capture audio"
+    )
+    is_output: bool = Field(
+        default=False,
+        description="Device can play audio"
     )
     is_default: bool = Field(
         default=False,
@@ -500,8 +514,46 @@ class DecodeStatusResponse(BaseModel):
     )
     frequency_offset_hz: float | None = Field(
         default=None,
-        description="Frequency offset from nominal (AFC)"
+        description="Measured receiver offset in Hz (null until AFC locks)"
     )
+
+    # Contract drift: backend-spec.md:407-416 specified these three and the
+    # model never carried them.
+    total_scanlines: int | None = Field(
+        default=None,
+        ge=1,
+        description="Scanline count for the detected mode (null before VIS)"
+    )
+    vis_detected: bool = Field(
+        default=False,
+        description="Whether a VIS header has been identified this session"
+    )
+    signal_quality: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Decoder's rolling 0-1 quality estimate; not a calibrated SNR"
+    )
+
+    # AFC lock (PRODUCT.md #5: "AFC lock must be verifiable"). Three states
+    # the operator must be able to tell apart, which is why this is not one
+    # boolean:
+    #   searching        -> afc_locked False
+    #   locked+corrected -> afc_locked True, correction_applied_hz != 0
+    #   locked, not applied -> afc_locked True, correction_applied_hz 0.0
+    # The last is auto_afc off (Doppler/satellite work): the offset is known
+    # and deliberately untouched. Collapsing that into "locked" would erase
+    # the manual-override distinction CLAUDE.md requires.
+    afc_locked: bool = Field(
+        default=False,
+        description="AFC has agreed on an offset (three sync pulses concurring)"
+    )
+    afc_correction_applied_hz: float | None = Field(
+        default=None,
+        description="Offset actually applied to the video mapping; 0.0 when locked "
+                    "but auto_afc is off, null before lock"
+    )
+
     image_id: UUID | None = Field(
         default=None,
         description="Image ID if decode completed and saved"
@@ -704,6 +756,52 @@ class ImageMetadata(BaseModel):
         ge=1,
         description="Image height in pixels (null if file unreadable)"
     )
+    filename: str | None = Field(
+        default=None,
+        description="Base filename on disk"
+    )
+    rx_quality_score: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Decoder's 0-1 quality estimate (RX only); not a calibrated SNR"
+    )
+
+    # Auto-RSV. Computed and persisted since PR #38; never exposed until
+    # 2026-08-09. All null for TX images and for decodes predating RSV.
+    rsv_readability: int | None = Field(
+        default=None, ge=1, le=5, description="RSV readability, 1-5"
+    )
+    rsv_signal: int | None = Field(
+        default=None, ge=1, le=9, description="RSV signal strength, 1-9"
+    )
+    rsv_video: int | None = Field(
+        default=None, ge=1, le=9, description="RSV video quality, 1-9"
+    )
+    rsv_report: str | None = Field(
+        default=None, description="Formatted RSV report, e.g. '595'"
+    )
+    peak_amplitude: float | None = Field(
+        default=None, description="Measured peak input amplitude (0-1)"
+    )
+    noise_floor: float | None = Field(
+        default=None, description="Measured pre-signal noise floor (0-1)"
+    )
+
+    # FSKID. There is deliberately no separate fskid_callsign field: a
+    # checksum-valid decoded call is adopted INTO `callsign` when the
+    # operator supplied none, so a second field would imply a distinction
+    # the schema does not make. fskid_detected + callsign is the full story.
+    fskid_detected: bool | None = Field(
+        default=None, description="Whether an FSKID burst was found"
+    )
+    fskid_confidence: float | None = Field(
+        default=None, ge=0.0, le=1.0, description="FSKID decode confidence"
+    )
+    fskid_checksum_valid: bool | None = Field(
+        default=None,
+        description="FSKID checksum passed; false means the callsign is suspect"
+    )
 
 
 class ImageListResponse(BaseModel):
@@ -818,6 +916,21 @@ class DecodeCompleteEvent(BaseModel):
     # here must be a measurement, not a guess.
     snr_db: float | None = None
     duration_seconds: float = Field(ge=0.0)
+
+    # Auto-RSV and FSKID at the moment a client would show them, so the
+    # gallery does not have to re-fetch the image record to render the
+    # report it just earned. Null when the decode produced none.
+    rsv_report: str | None = Field(
+        default=None, description="Formatted RSV report, e.g. '595'"
+    )
+    fskid_detected: bool | None = Field(
+        default=None, description="Whether an FSKID burst was found"
+    )
+    fskid_checksum_valid: bool | None = Field(
+        default=None,
+        description="FSKID checksum passed; false means any decoded call is suspect"
+    )
+
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 

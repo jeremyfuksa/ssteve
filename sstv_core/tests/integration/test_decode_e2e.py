@@ -223,7 +223,9 @@ def test_decode_half_duplex_enforcement(client):
         },
     )
     assert response2.status_code == 409
-    assert "SESSION_CONFLICT" in response2.json()["detail"]["error"]
+    detail = response2.json()["detail"]
+    assert detail["error"] == "CONCURRENT_OPERATION"
+    assert detail["active_session_id"] == str(session_id_1)
 
     # Stop first session
     client.post(f"/api/v1/decode/stop/{session_id_1}")

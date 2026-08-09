@@ -57,6 +57,20 @@ def _db_image_to_api(db_image) -> ImageMetadata:
         frequency_hz=db_image.frequency_hz,
         width=width,
         height=height,
+        filename=db_image.filename,
+        rx_quality_score=db_image.rx_quality_score,
+        # Auto-RSV and FSKID: persisted since PRs #38/#41, dropped here
+        # until 2026-08-09. Null stays null -- nothing is fabricated for
+        # TX images or for decodes that predate these columns.
+        rsv_readability=db_image.rsv_readability,
+        rsv_signal=db_image.rsv_signal,
+        rsv_video=db_image.rsv_video,
+        rsv_report=db_image.rsv_report,
+        peak_amplitude=db_image.rx_peak_amplitude,
+        noise_floor=db_image.rx_noise_floor,
+        fskid_detected=db_image.fskid_detected,
+        fskid_confidence=db_image.fskid_confidence,
+        fskid_checksum_valid=db_image.fskid_checksum_valid,
     )
 
 

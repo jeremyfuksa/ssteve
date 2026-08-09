@@ -326,6 +326,14 @@ class SessionManager:
             )
             return has_decode or has_transmit
 
+    def active_session_ids(self) -> tuple[UUID | None, UUID | None]:
+        """Return the currently-active (decode, transmit) session IDs.
+
+        A 409 that names the blocking session lets a client offer "stop that
+        and retry" instead of making the operator hunt for it.
+        """
+        return (self._active_decode_id, self._active_transmit_id)
+
     def reset(self) -> None:
         """Reset session manager (for testing only)."""
         self._decode_sessions.clear()
@@ -336,3 +344,24 @@ class SessionManager:
 
 # Global singleton instance
 session_manager = SessionManager()
+
+
+def concurrent_operation_detail(message: str) -> dict:
+    """Build the 409 body backend-spec.md:361-369 specifies for half-duplex.
+
+    Both decode and transmit raise this, and they previously built two
+    slightly different bodies -- neither carrying error_code,
+    active_session_id, or recoverable. The session ID is the useful part:
+    it is what lets a client offer "stop that one and retry."
+    """
+    active_decode, active_transmit = session_manager.active_session_ids()
+    blocking = active_decode or active_transmit
+    return {
+        "error": "CONCURRENT_OPERATION",
+        "error_code": 6004,
+        "message": message,
+        "active_session_id": str(blocking) if blocking else None,
+        "session_type": "decode" if active_decode else ("transmit" if active_transmit else None),
+        "recoverable": True,
+        "suggested_action": "Stop the active session before starting a new one.",
+    }

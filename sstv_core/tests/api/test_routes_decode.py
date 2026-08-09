@@ -114,8 +114,15 @@ class TestStartDecode:
         # Try to start second session
         response2 = client.post("/api/v1/decode/start", json={})
         assert response2.status_code == 409
-        data = response2.json()
-        assert data["detail"]["error"] == "SESSION_CONFLICT"
+        detail = response2.json()["detail"]
+        # backend-spec.md:361-369 shape, implemented 2026-08-09 (#58 item 6).
+        assert detail["error"] == "CONCURRENT_OPERATION"
+        assert detail["error_code"] == 6004
+        assert detail["recoverable"] is True
+        # The blocking session must be named: it is what lets a client
+        # offer "stop that one and retry".
+        assert detail["active_session_id"] == response1.json()["session_id"]
+        assert detail["session_type"] == "decode"
 
     def test_websocket_url_format(self):
         """Should return properly formatted WebSocket URL."""

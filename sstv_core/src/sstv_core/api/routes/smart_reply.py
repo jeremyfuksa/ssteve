@@ -26,7 +26,7 @@ from ...smart_features.template_engine import TemplateEngine
 from ..dsp_manager import dsp_manager
 from ..image_lookup import resolve_image_uuid
 from ..models import TransmitState
-from ..session_manager import session_manager
+from ..session_manager import concurrent_operation_detail, session_manager
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/smart_reply", tags=["smart_reply"])
@@ -342,11 +342,7 @@ async def transmit_smart_reply(
         if "already active" in str(e) or "half-duplex" in str(e):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail={
-                    "error": "SESSION_CONFLICT",
-                    "message": str(e),
-                    "suggested_action": "Stop the active session first",
-                },
+                detail=concurrent_operation_detail(str(e)),
             ) from e
         raise
     except Exception as e:

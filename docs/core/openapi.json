@@ -163,6 +163,18 @@
             "title": "Is Default",
             "type": "boolean"
           },
+          "is_input": {
+            "default": false,
+            "description": "Device can capture audio",
+            "title": "Is Input",
+            "type": "boolean"
+          },
+          "is_output": {
+            "default": false,
+            "description": "Device can play audio",
+            "title": "Is Output",
+            "type": "boolean"
+          },
           "name": {
             "description": "Human-readable device name",
             "maxLength": 512,
@@ -171,11 +183,19 @@
             "type": "string"
           },
           "sample_rate": {
-            "description": "Sample rate in Hz",
+            "description": "Preferred sample rate in Hz (48000 when the device supports it)",
             "maximum": 192000.0,
             "minimum": 8000.0,
             "title": "Sample Rate",
             "type": "integer"
+          },
+          "sample_rates": {
+            "description": "All sample rates this device supports, ascending",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Sample Rates",
+            "type": "array"
           }
         },
         "required": [
@@ -423,6 +443,24 @@
       "DecodeStatusResponse": {
         "description": "Decode session status.",
         "properties": {
+          "afc_correction_applied_hz": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Offset actually applied to the video mapping; 0.0 when locked but auto_afc is off, null before lock",
+            "title": "Afc Correction Applied Hz"
+          },
+          "afc_locked": {
+            "default": false,
+            "description": "AFC has agreed on an offset (three sync pulses concurring)",
+            "title": "Afc Locked",
+            "type": "boolean"
+          },
           "completed_at": {
             "anyOf": [
               {
@@ -456,7 +494,7 @@
                 "type": "null"
               }
             ],
-            "description": "Frequency offset from nominal (AFC)",
+            "description": "Measured receiver offset in Hz (null until AFC locks)",
             "title": "Frequency Offset Hz"
           },
           "image_id": {
@@ -517,6 +555,20 @@
             "title": "Session Id",
             "type": "string"
           },
+          "signal_quality": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Decoder's rolling 0-1 quality estimate; not a calibrated SNR",
+            "title": "Signal Quality"
+          },
           "snr_db": {
             "anyOf": [
               {
@@ -536,6 +588,25 @@
           },
           "state": {
             "$ref": "#/components/schemas/DecodeState"
+          },
+          "total_scanlines": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Scanline count for the detected mode (null before VIS)",
+            "title": "Total Scanlines"
+          },
+          "vis_detected": {
+            "default": false,
+            "description": "Whether a VIS header has been identified this session",
+            "title": "Vis Detected",
+            "type": "boolean"
           }
         },
         "required": [
@@ -800,6 +871,18 @@
             "title": "Direction",
             "type": "string"
           },
+          "filename": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Base filename on disk",
+            "title": "Filename"
+          },
           "filepath": {
             "description": "Absolute path to image file",
             "title": "Filepath",
@@ -816,6 +899,44 @@
             ],
             "description": "Dial frequency the image was received on (RX only)",
             "title": "Frequency Hz"
+          },
+          "fskid_checksum_valid": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "FSKID checksum passed; false means the callsign is suspect",
+            "title": "Fskid Checksum Valid"
+          },
+          "fskid_confidence": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "FSKID decode confidence",
+            "title": "Fskid Confidence"
+          },
+          "fskid_detected": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Whether an FSKID burst was found",
+            "title": "Fskid Detected"
           },
           "height": {
             "anyOf": [
@@ -846,6 +967,98 @@
               }
             ],
             "description": "SSTV mode used (null when unknown)"
+          },
+          "noise_floor": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Measured pre-signal noise floor (0-1)",
+            "title": "Noise Floor"
+          },
+          "peak_amplitude": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Measured peak input amplitude (0-1)",
+            "title": "Peak Amplitude"
+          },
+          "rsv_readability": {
+            "anyOf": [
+              {
+                "maximum": 5.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "RSV readability, 1-5",
+            "title": "Rsv Readability"
+          },
+          "rsv_report": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Formatted RSV report, e.g. '595'",
+            "title": "Rsv Report"
+          },
+          "rsv_signal": {
+            "anyOf": [
+              {
+                "maximum": 9.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "RSV signal strength, 1-9",
+            "title": "Rsv Signal"
+          },
+          "rsv_video": {
+            "anyOf": [
+              {
+                "maximum": 9.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "RSV video quality, 1-9",
+            "title": "Rsv Video"
+          },
+          "rx_quality_score": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Decoder's 0-1 quality estimate (RX only); not a calibrated SNR",
+            "title": "Rx Quality Score"
           },
           "snr_db": {
             "anyOf": [

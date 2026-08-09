@@ -131,6 +131,13 @@ class RXManager:
         # can tell "known mode, not supported yet" from an ordinary stop.
         self._unsupported_mode: str | None = None
 
+        # AFC lock, surfaced so the operator can verify it (PRODUCT.md #5).
+        # offset is what we measured; applied is what we did about it --
+        # they differ when auto_afc is off.
+        self._afc_locked = False
+        self._afc_offset_hz: float | None = None
+        self._afc_correction_applied_hz: float | None = None
+
         # Rolling window of RAW input for on-demand analysis (session-based
         # mode detection). ~15s covers >30 scanlines of every mode.
         self._analysis_window = np.zeros(0, dtype=np.float32)
@@ -211,6 +218,19 @@ class RXManager:
         """Measured metrics for the current/most recent decode (Auto-RSV)."""
         return self._metrics
 
+    def get_afc_state(self) -> tuple[bool, float | None, float | None]:
+        """AFC lock as (locked, measured_offset_hz, correction_applied_hz).
+
+        Applied is 0.0 rather than None once locked with auto_afc off: we
+        know the offset and chose not to act, which the operator must be
+        able to distinguish from still searching.
+        """
+        return (
+            self._afc_locked,
+            self._afc_offset_hz,
+            self._afc_correction_applied_hz,
+        )
+
     def get_unsupported_mode(self) -> str | None:
         """VIS-identified mode we have no decoder for, if that stopped us.
 
@@ -285,6 +305,9 @@ class RXManager:
         self._metrics = DecodeMetrics()
         self._fskid_result = None
         self._unsupported_mode = None
+        self._afc_locked = False
+        self._afc_offset_hz = None
+        self._afc_correction_applied_hz = None
         self._analysis_window = np.zeros(0, dtype=np.float32)
         pre_vis_rms: list[float] = []
 
@@ -573,12 +596,24 @@ class RXManager:
                     measured = float(np.median(afc_samples_hz))
                     clamped = max(-self._afc_range_hz, min(self._afc_range_hz, measured))
                     self._metrics.afc_correction_hz = clamped
+                    # Surface lock state for the API. The measured offset is
+                    # reported whether or not we act on it: with auto_afc off
+                    # the operator still needs to see how far off they are.
+                    self._afc_locked = True
+                    self._afc_offset_hz = measured
+                    self._afc_correction_applied_hz = 0.0
                     if self._auto_afc and abs(clamped) >= 5.0:
                         decoder.config.black_freq += clamped
                         decoder.config.white_freq += clamped
+                        self._afc_correction_applied_hz = clamped
                         logger.info(
                             "AFC: correcting video mapping by %+.1f Hz "
                             "(measured %+.1f)", clamped, measured
+                        )
+                    else:
+                        logger.info(
+                            "AFC locked at %+.1f Hz; not correcting (auto_afc=%s)",
+                            measured, self._auto_afc
                         )
 
                 # Decode every complete frame currently buffered.
