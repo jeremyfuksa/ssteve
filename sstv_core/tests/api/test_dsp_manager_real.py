@@ -170,6 +170,89 @@ class TestUnsupportedDecodeMode:
         assert detail["error"] == "UNSUPPORTED_MODE"
         assert "ScottieS1" in detail["suggested_action"]
 
+    @pytest.mark.asyncio
+    async def test_auto_detected_undecodable_mode_stops_and_explains(
+        self, monkeypatch
+    ):
+        """VIS finds Robot72 on the air: STOPPED with a reason, not FAILED.
+
+        The route above guards the *requested* mode. This is the auto-detect
+        path, where the mode is discovered mid-session -- until 2026-08-08 it
+        raised and the session landed in FAILED with an enum repr.
+        """
+        from sstv_core.api import dsp_manager as dsp_module
+        from sstv_core.api.models import DecodeState
+        from sstv_core.api.session_manager import session_manager
+
+        class UndecodableRX:
+            """Stands in for an RXManager that met a mode it can't decode."""
+
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def set_progress_callback(self, cb):
+                pass
+
+            async def receive(self, **kwargs):
+                return None
+
+            def get_unsupported_mode(self):
+                return "Robot72"
+
+            async def cancel(self):
+                pass
+
+        monkeypatch.setattr(dsp_module, "RXManager", UndecodableRX)
+
+        broadcasts: list[dict] = []
+
+        async def record_broadcast(session_id, payload):
+            broadcasts.append(payload)
+
+        monkeypatch.setattr(
+            dsp_module.websocket_manager, "broadcast", record_broadcast
+        )
+
+        manager = DSPManager()
+        manager._device_manager_instance = SimpleNamespace(
+            get_device_index=lambda _id: None
+        )
+
+        session = await session_manager.create_decode_session(metadata={})
+        try:
+            await manager.start_decode(
+                session_id=session.session_id,
+                mode=None,
+                auto_detect=True,
+                timeout_seconds=5.0,
+                save_image=False,
+                callsign=None,
+                device_id=None,
+            )
+            for _ in range(10):
+                await asyncio.sleep(0.05)
+                data = await session_manager.get_decode_session(session.session_id)
+                if data and data.state == DecodeState.STOPPED.value:
+                    break
+
+            data = await session_manager.get_decode_session(session.session_id)
+            assert data is not None
+            assert data.state == DecodeState.STOPPED.value, (
+                "a known-but-undecodable mode is not a session failure"
+            )
+            assert data.metadata.get("unsupported_mode") == "Robot72"
+
+            events = [
+                b for b in broadcasts if b.get("error_code") == "UNSUPPORTED_MODE"
+            ]
+            assert events, f"operator was never told why; got {broadcasts}"
+            event = events[0]
+            assert event["recoverable"] is True
+            assert "Robot72" in event["message"]
+            assert "SSTVMode." not in event["message"]
+            assert event["suggested_action"], "no suggested_action offered"
+        finally:
+            session_manager.reset()
 
 class TestShutdown:
     """Shutdown must stop live operations, not orphan them.
