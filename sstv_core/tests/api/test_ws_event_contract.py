@@ -38,6 +38,17 @@ MODEL_FOR_EVENT = {
 }
 
 
+def _utc_offset_present(serialized: str) -> bool:
+    """True when an ISO 8601 string carries an explicit UTC offset."""
+    from datetime import datetime as _dt
+
+    try:
+        parsed = _dt.fromisoformat(serialized)
+    except (TypeError, ValueError):
+        return False
+    return parsed.tzinfo is not None and parsed.utcoffset() is not None
+
+
 @pytest.fixture
 def captured(monkeypatch):
     broadcasts: list[dict] = []
@@ -139,6 +150,10 @@ async def test_decode_complete_carries_real_duration_and_mode(captured, tmp_path
     assert payload["mode"] == "MartinM1"
     assert 85.0 < payload["duration_seconds"] < 95.0
     assert payload["timestamp"] not in (0, "0", None)
+    # Not merely non-null: the offset must survive serialization. A naive
+    # "2026-08-09T14:23:11" passes the check above and is then read in the
+    # browser's local zone -- an hours-wide error in when a contact happened.
+    assert _utc_offset_present(payload["timestamp"]), payload["timestamp"]
 
 
 @pytest.mark.asyncio
@@ -174,3 +189,55 @@ async def test_broadcast_not_serialized_behind_slow_client():
     )
     assert fast.received
     await slow_task
+
+
+class TestTimestampSerialization:
+    """Every event's timestamp must reach the client with a UTC offset.
+
+    The "+00:00 on WS/event timestamps" claim was enforced by code but
+    asserted by nothing before 2026-08-09: the only check tested non-null,
+    which a naive datetime passes. `mode="json"` is what turns the tz-aware
+    default into an offset-bearing string, and that string is all a client
+    ever sees -- so that is what these assert.
+    """
+
+    @pytest.mark.parametrize(
+        "event_type,model", sorted(MODEL_FOR_EVENT.items())
+    )
+    def test_event_timestamp_serializes_with_offset(self, event_type, model):
+        required = {
+            "vis_detected": {"mode": "MartinM1", "confidence": 0.9},
+            "scanline_update": {
+                "scanline_number": 5,
+                "total_scanlines": 256,
+                "progress_percent": 2.0,
+            },
+            "audio_levels": {
+                "left_db": -20.0,
+                "right_db": -20.0,
+                "peak_db": -10.0,
+                "is_clipping": False,
+            },
+            "decode_complete": {"filepath": "/tmp/x.png", "duration_seconds": 90.0},
+            "tx_progress": {
+                "progress_percent": 2.0,
+                "current_scanline": 5,
+                "time_remaining_seconds": 89.0,
+            },
+            "error": {"error_code": "E", "message": "m"},
+        }[event_type]
+
+        payload = model(**required).model_dump(mode="json")
+        serialized = payload["timestamp"]
+        assert isinstance(serialized, str), (
+            f"{event_type} timestamp is {type(serialized)}, not a JSON string"
+        )
+        assert _utc_offset_present(serialized), (
+            f"{event_type} timestamp has no UTC offset: {serialized!r}"
+        )
+        assert serialized.endswith("+00:00") or serialized.endswith("Z"), serialized
+
+    def test_a_naive_timestamp_would_be_caught(self):
+        """Guard the guard: the helper must reject an offset-less string."""
+        assert not _utc_offset_present("2026-08-09T14:23:11")
+        assert _utc_offset_present("2026-08-09T14:23:11+00:00")
