@@ -5,7 +5,7 @@ Tests validation rules, security constraints, and serialization.
 """
 
 import pytest
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import uuid4
 from pydantic import ValidationError
 
@@ -247,7 +247,7 @@ class TestDecodeStartResponse:
             session_id=session_id,
             state=DecodeState.LISTENING,
             websocket_url=f"ws://localhost:8000/api/v1/ws/decode/{session_id}",
-            started_at=datetime.utcnow(),
+            started_at=datetime.now(timezone.utc),
         )
         assert resp.session_id == session_id
         assert resp.state == DecodeState.LISTENING
@@ -261,7 +261,7 @@ class TestDecodeStatusResponse:
         resp = DecodeStatusResponse(
             session_id=uuid4(),
             state=DecodeState.LISTENING,
-            started_at=datetime.utcnow(),
+            started_at=datetime.now(timezone.utc),
         )
         assert resp.progress_percent == 0.0
         assert resp.mode is None
@@ -277,7 +277,7 @@ class TestDecodeStatusResponse:
             scanlines_received=120,
             snr_db=12.5,
             frequency_offset_hz=-15.3,
-            started_at=datetime.utcnow(),
+            started_at=datetime.now(timezone.utc),
         )
         assert resp.progress_percent == 45.5
         assert resp.scanlines_received == 120
@@ -289,7 +289,7 @@ class TestDecodeStatusResponse:
             session_id=uuid4(),
             state=DecodeState.FAILED,
             error="Audio device disconnected during decode",
-            started_at=datetime.utcnow(),
+            started_at=datetime.now(timezone.utc),
         )
         assert resp.state == DecodeState.FAILED
         assert resp.error is not None
@@ -301,7 +301,7 @@ class TestDecodeStatusResponse:
                 session_id=uuid4(),
                 state=DecodeState.DECODING,
                 progress_percent=101.0,  # Too high
-                started_at=datetime.utcnow(),
+                started_at=datetime.now(timezone.utc),
             )
 
 
@@ -364,7 +364,7 @@ class TestTransmitStatusResponse:
             scanlines_transmitted=180,
             elapsed_seconds=45.3,
             estimated_duration_seconds=67.5,
-            started_at=datetime.utcnow(),
+            started_at=datetime.now(timezone.utc),
         )
         assert resp.progress_percent == 67.2
         assert resp.elapsed_seconds == 45.3
@@ -379,8 +379,8 @@ class TestTransmitStatusResponse:
             scanlines_transmitted=240,
             elapsed_seconds=72.1,
             estimated_duration_seconds=72.0,
-            started_at=datetime.utcnow(),
-            completed_at=datetime.utcnow(),
+            started_at=datetime.now(timezone.utc),
+            completed_at=datetime.now(timezone.utc),
         )
         assert resp.state == TransmitState.COMPLETED
         assert resp.completed_at is not None
@@ -397,7 +397,7 @@ class TestImageMetadata:
             mode=SSTVMode.MARTIN_M2,
             direction="rx",
             callsign="W1AW",
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
             snr_db=15.2,
             frequency_offset_hz=-8.5,
             width=320,
@@ -413,7 +413,7 @@ class TestImageMetadata:
             filepath="/home/admin/sstv_images/tx_20250115_123045.png",
             mode=SSTVMode.ROBOT_36,
             direction="tx",
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
             width=320,
             height=240,
         )
@@ -428,7 +428,7 @@ class TestImageMetadata:
                 filepath="/home/admin/test.png",
                 mode=SSTVMode.PD_90,
                 direction="invalid",  # Bad value
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
                 width=320,
                 height=256,
             )
@@ -456,7 +456,7 @@ class TestImageListResponse:
                 filepath=f"/home/admin/img{i}.png",
                 mode=SSTVMode.MARTIN_M1,
                 direction="rx",
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
                 width=320,
                 height=256,
             )

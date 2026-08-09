@@ -1,6 +1,6 @@
 # SSTeVe Project Status
 
-**Last Updated:** 2026-08-08 (post known-gaps remediation; every claim verified by measurement, not extrapolated)
+**Last Updated:** 2026-08-09 (documentation reconciliation, #70; every claim verified by measurement, not extrapolated)
 **Current Focus:** Backend complete for beta scope. Next epoch: the desktop shell (`sstv_desktop/` is still empty; the REST/WebSocket contract it builds on is done and honest).
 
 ---
@@ -18,11 +18,20 @@ Two remediation rounds landed back to back:
    `docs/superpowers/plans/2026-08-08-known-gaps-remediation.md`.
 
 **Ground truth** (CLI `encode --output` → file decode with VIS auto-detect,
-gradient card): ScottieS1 **1.000** / MartinM1 **1.000** / Robot36 **0.96**
-channel correlation. (Audit-day baseline: 0.70 / 0.15 / 0.04.)
+gradient card): ScottieS1 **0.9999** / MartinM1 **0.9999** / Robot36 **0.9978**
+overall correlation. (Audit-day baseline: 0.70 / 0.15 / 0.04.)
+
+Reproduced by `tests/cli/test_cli_file_roundtrip.py::test_file_roundtrip_per_mode_via_vis_autodetect`,
+which prints each figure on `-s`; measured 2026-08-09. The earlier Robot36
+headline of 0.96 predated that test and understated the real number — no test
+reproduced it, so it could not be checked.
 
 - **Tests:** 569 passing, zero exclusions; ruff + mypy clean; CI green on `main`.
-- Suite deprecation warnings: 26 (down from ~490; remainder is third-party).
+  (Milestone-1 PRs in flight add coverage on top of this: #75, #76, #77, #78.)
+- Suite deprecation warnings: **1** (down from ~490), and it is third-party
+  (starlette's TestClient/httpx notice). The project's own `datetime.utcnow()`
+  calls in `tests/` were migrated 2026-08-09 — PR #47 had covered `src/` only —
+  and the unregistered `pytest.mark.integration` is now declared in `pytest.ini`.
 - Dependabot: scanning enabled, **0 open alerts** — all 35 from the
   2026-08-05 baseline are state *fixed* via landed dependency updates;
   0 open dependency PRs. (Verified via the GitHub API 2026-08-08.)
@@ -75,7 +84,17 @@ channel correlation. (Audit-day baseline: 0.70 / 0.15 / 0.04.)
   bridge), Smart Reply generate/transmit, MMSSTV import, watcher
   auto-import, FSKID, RSV, AFC, squelch, guidance.
 
-## Remaining (all external or next-epoch — nothing buildable is open)
+## Remaining
+
+The 2026-08-08 pre-frontend review opened Milestone 1 ("Pre-hardware fixes"),
+so buildable work *is* open — this heading previously read "nothing buildable
+is open," which stopped being true the moment those issues were filed. Track
+them in GitHub Milestone 1; two are blocked rather than buildable:
+
+- **#52 `image_library_path` validator** — blocked on a product decision
+  (enforce home-containment, or accept arbitrary absolute paths and drop the
+  misleading docstring).
+- **#73 Digirig VID/PID** — blocked on physical hardware; see below.
 
 1. **Digirig VID/PID hardware verification** — the profile uses CP2102N
    0x10C4/0xEA60 per digirig.net. With the unit plugged in, run
