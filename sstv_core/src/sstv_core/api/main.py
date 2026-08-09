@@ -63,6 +63,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     - Start session cleanup task
 
     Shutdown:
+    - Stop the file library watcher
+    - Stop active transmit/decode operations (unkeys the radio)
     - Clean up active sessions
     - Close database connections
     """
@@ -128,6 +130,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if _file_library_watcher:
         _file_library_watcher.stop()
         logger.info("Stopped file library watcher")
+    # Before the engine is disposed: stopping a session can write a final
+    # record, and an orphaned transmit task can leave the radio keyed.
+    await dsp_manager.shutdown()
     await session_manager.stop_cleanup_task()
     if _db_engine is not None:
         _db_engine.dispose()

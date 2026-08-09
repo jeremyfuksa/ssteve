@@ -48,6 +48,63 @@ def martin_wav(tmp_path: Path) -> tuple[Path, np.ndarray]:
     return wav, img
 
 
+@pytest.mark.parametrize(
+    "mode,encoder_cls",
+    [
+        ("ScottieS1", "sstv_core.encode.scottie_encoder:ScottieS1Encoder"),
+        ("MartinM1", "sstv_core.encode.martin_encoder:MartinM1Encoder"),
+        ("Robot36", "sstv_core.encode.robot_encoder:Robot36Encoder"),
+    ],
+)
+def test_file_roundtrip_per_mode_via_vis_autodetect(mode, encoder_cls, tmp_path):
+    """CLI encode -> WAV -> CLI decode with VIS auto-detect, per mode.
+
+    Only MartinM1 was covered before 2026-08-09, which left the documented
+    Robot36 ground-truth figure reproduced by nothing in the suite. This path
+    differs from the in-memory roundtrip: audio goes through 16-bit PCM and
+    the mode comes from the VIS header rather than being forced, so the
+    correlation it measures is the honest CLI-file number.
+    """
+    import importlib
+
+    import cv2
+
+    module_name, class_name = encoder_cls.split(":")
+    enc = getattr(importlib.import_module(module_name), class_name)()
+    img = _gradient_card(enc.config.width, enc.config.height)
+
+    src = tmp_path / "card.png"
+    cv2.imwrite(str(src), cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
+
+    wav = tmp_path / f"{mode}.wav"
+    assert main(["encode", "--image", str(src), "--mode", mode, "--output", str(wav)]) == 0
+
+    out = tmp_path / f"{mode}-decoded.png"
+    assert main(["decode", "--file", str(wav), "--output", str(out)]) == 0, (
+        f"{mode} did not decode from its own VIS header"
+    )
+
+    decoded = cv2.cvtColor(cv2.imread(str(out)), cv2.COLOR_BGR2RGB).astype(np.float64)
+    assert decoded.shape == img.shape, (
+        f"{mode} decoded to {decoded.shape}, expected {img.shape} "
+        "(wrong decoder chosen from VIS?)"
+    )
+
+    o = img[10:-10, 10:-10].astype(np.float64)
+    d = decoded[10:-10, 10:-10]
+    per_channel = [
+        float(np.corrcoef(o[:, :, ch].ravel(), d[:, :, ch].ravel())[0, 1])
+        for ch in range(3)
+    ]
+    overall = float(np.corrcoef(o.ravel(), d.ravel())[0, 1])
+    # Printed so the documented ground-truth figures stay traceable to a run.
+    channels = ", ".join(f"{c:.4f}" for c in per_channel)
+    print(f"\n{mode} CLI-file roundtrip: overall={overall:.4f} channels=[{channels}]")
+
+    for ch, corr in enumerate(per_channel):
+        assert corr >= 0.95, f"{mode} channel {ch} corr {corr:.3f}"
+
+
 def test_file_decode_autodetects_martin_from_vis(martin_wav, tmp_path):
     """No --mode: the VIS header, not a hardcoded default, picks the decoder."""
     wav, img = martin_wav

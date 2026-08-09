@@ -78,7 +78,10 @@ channel correlation. (Audit-day baseline: 0.70 / 0.15 / 0.04.)
 ## Remaining (all external or next-epoch — nothing buildable is open)
 
 1. **Digirig VID/PID hardware verification** — the profile uses CP2102N
-   0x10C4/0xEA60 per digirig.net; confirm with `lsusb` on a physical unit.
+   0x10C4/0xEA60 per digirig.net. With the unit plugged in, run
+   `uv run python scripts/verify_device_profiles.py` from `sstv_core/`; it
+   compares every profile's VID/PID against attached hardware and exits 0
+   (confirmed), 1 (contradicted — fix the profile), or 2 (nothing attached).
 2. **Desktop shell** (`sstv_desktop/`) — unstarted by design; see
    `PRODUCT.md` and `DESIGN.md` before any UI work.
 3. Deferred by design: AI captioning, multi-receiver, full-duplex, PD/

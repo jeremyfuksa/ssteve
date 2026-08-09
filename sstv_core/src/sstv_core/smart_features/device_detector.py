@@ -72,8 +72,8 @@ DEVICE_PROFILES = [
         # (per digirig.net documentation). This was listed as FTDI
         # 0x0403/0x6015 until 2026-08-07, which would have missed every
         # real Digirig and misidentified FTDI-based devices as one.
-        # Unverified against physical hardware -- confirm with lsusb when
-        # a unit is available.
+        # Unverified against physical hardware (issue #73). With a unit
+        # attached, run scripts/verify_device_profiles.py to confirm.
         usb_vid=0x10C4,  # Silicon Labs
         usb_pid=0xEA60,  # CP2102N
     ),

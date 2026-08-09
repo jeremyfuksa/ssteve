@@ -7,14 +7,27 @@ existed, but nothing in TX appended an ID and nothing in RX looked).
 
 from __future__ import annotations
 
+from pathlib import Path
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 from sstv_core.audio.bandpass_filter import BandpassPresets, SSTVBandpassFilter
+from sstv_core.database.models import Base
 from sstv_core.decode.fsk_decoder import FSKIDDecoder
 from sstv_core.encode.fsk_generator import FSKIDGenerator
 
 SAMPLE_RATE = 48000
+
+
+@pytest.fixture
+def session_factory(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path}/library.db")
+    Base.metadata.create_all(engine)
+    return sessionmaker(bind=engine)
 
 
 def test_fskid_survives_image_tail_and_bandpass():
@@ -96,3 +109,94 @@ def test_invalid_callsign_skips_fskid_without_failing():
     generator = FSKIDGenerator(sample_rate=SAMPLE_RATE)
     with pytest.raises(ValueError):
         generator.generate("this is not a callsign!!")
+
+
+class TestCallsignAdoptionPrecedence:
+    """Who wins when FSKID and the operator both name a station.
+
+    dsp_manager adopts the decoded callsign only when the checksum validated
+    AND the operator supplied none. The rule existed since 2026-08-08 with no
+    test on either branch -- and its failure mode is silent: a wrong callsign
+    in a QSO log looks exactly like a right one.
+
+    A failed checksum means the demodulated bits are suspect, so filing a
+    contact under that call would invent a station. An operator-supplied
+    callsign reflects context the demodulator does not have (they may have
+    just worked the station by voice). Human beats inference, inference
+    beats nothing.
+    """
+
+    @staticmethod
+    def _record_callsign(session_factory, operator_callsign, fskid):
+        """Run one decode through _create_image_record; return the stored call."""
+        import asyncio
+
+        from sstv_core.api.dsp_manager import DSPManager
+        from sstv_core.api.session_manager import session_manager
+        from sstv_core.database.models import SSTVImage
+
+        async def run():
+            manager = DSPManager(db_session_factory=session_factory)
+            session = await session_manager.create_decode_session(
+                metadata={"mode": "MartinM1", "callsign": operator_callsign}
+            )
+            try:
+                await manager._create_image_record(
+                    session.session_id,
+                    Path("/tmp/does-not-need-to-exist.png"),
+                    None,
+                    fskid,
+                )
+            finally:
+                session_manager.reset()
+
+        asyncio.run(run())
+        with session_factory() as db_session:
+            row = db_session.query(SSTVImage).one()
+            return row.callsign, row
+
+    def test_valid_checksum_and_no_operator_callsign_adopts_fskid(
+        self, session_factory
+    ):
+        callsign, row = self._record_callsign(
+            session_factory,
+            operator_callsign=None,
+            fskid=SimpleNamespace(
+                callsign="K0ABC", confidence=0.95, checksum_valid=True
+            ),
+        )
+        assert callsign == "K0ABC"
+        assert row.fskid_detected is True
+        assert row.fskid_checksum_valid is True
+
+    def test_operator_callsign_beats_a_valid_fskid(self, session_factory):
+        """The operator typed it; they have context the demodulator lacks."""
+        callsign, _ = self._record_callsign(
+            session_factory,
+            operator_callsign="W1XYZ",
+            fskid=SimpleNamespace(
+                callsign="K0ABC", confidence=0.95, checksum_valid=True
+            ),
+        )
+        assert callsign == "W1XYZ"
+
+    def test_failed_checksum_is_never_adopted(self, session_factory):
+        """Suspect bits must not invent a station in the log."""
+        callsign, row = self._record_callsign(
+            session_factory,
+            operator_callsign=None,
+            fskid=SimpleNamespace(
+                callsign="K0ABC", confidence=0.40, checksum_valid=False
+            ),
+        )
+        assert callsign is None, "adopted a callsign whose checksum failed"
+        # The detection is still recorded -- we saw an ID, we just don't trust it.
+        assert row.fskid_detected is True
+        assert row.fskid_checksum_valid is False
+
+    def test_no_fskid_leaves_operator_callsign_untouched(self, session_factory):
+        callsign, row = self._record_callsign(
+            session_factory, operator_callsign="W1XYZ", fskid=None
+        )
+        assert callsign == "W1XYZ"
+        assert not row.fskid_detected

@@ -253,3 +253,109 @@ class TestUnsupportedDecodeMode:
             assert event["suggested_action"], "no suggested_action offered"
         finally:
             session_manager.reset()
+
+class TestShutdown:
+    """Shutdown must stop live operations, not orphan them.
+
+    Found 2026-08-08: the API lifespan stopped the watcher and the cleanup
+    task, then disposed the DB engine -- but never touched dsp_manager's
+    task dicts. On SIGTERM mid-transmit the task was orphaned with no
+    cancel() and, if PTT was keyed, nothing unkeyed the radio.
+    """
+
+    @pytest.mark.asyncio
+    async def test_shutdown_with_no_active_sessions_is_a_noop(self, dsp):
+        await dsp.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_shutdown_cancels_transmit_and_decode_tasks(self, dsp):
+        from uuid import uuid4
+
+        async def forever():
+            await asyncio.Event().wait()
+
+        tx_id, rx_id = uuid4(), uuid4()
+        tx_task = asyncio.create_task(forever())
+        rx_task = asyncio.create_task(forever())
+        dsp._transmit_tasks[tx_id] = tx_task
+        dsp._decode_tasks[rx_id] = rx_task
+
+        cancelled: list[str] = []
+        dsp._tx_managers[tx_id] = SimpleNamespace(
+            cancel=_recording_async(cancelled, "tx")
+        )
+        dsp._rx_managers[rx_id] = SimpleNamespace(
+            cancel=_recording_async(cancelled, "rx")
+        )
+
+        await dsp.shutdown()
+
+        assert tx_task.cancelled() or tx_task.done()
+        assert rx_task.cancelled() or rx_task.done()
+        assert cancelled == ["tx", "rx"], (
+            f"transmit must be stopped before decode (RF hazard first); got {cancelled}"
+        )
+        assert not dsp._transmit_tasks and not dsp._decode_tasks
+
+    @pytest.mark.asyncio
+    async def test_one_failing_session_does_not_strand_the_others(self, dsp):
+        from uuid import uuid4
+
+        async def forever():
+            await asyncio.Event().wait()
+
+        bad_id, good_id = uuid4(), uuid4()
+        bad_task = asyncio.create_task(forever())
+        good_task = asyncio.create_task(forever())
+        dsp._transmit_tasks[bad_id] = bad_task
+        dsp._transmit_tasks[good_id] = good_task
+
+        async def explode():
+            raise RuntimeError("serial port vanished")
+
+        stopped: list[str] = []
+        dsp._tx_managers[bad_id] = SimpleNamespace(cancel=explode)
+        dsp._tx_managers[good_id] = SimpleNamespace(
+            cancel=_recording_async(stopped, "good")
+        )
+
+        await dsp.shutdown()
+
+        assert stopped == ["good"], "a failing session stranded the remaining ones"
+        good_task.cancel()
+        bad_task.cancel()
+
+
+def _recording_async(sink: list[str], label: str):
+    async def _cancel():
+        sink.append(label)
+
+    return _cancel
+
+
+class TestLifespanWiring:
+    """The lifespan must actually invoke dsp_manager.shutdown().
+
+    The TestShutdown cases above prove the method behaves; this proves it is
+    reached. Without it, deleting the call from main.py would break nothing.
+    """
+
+    def test_app_shutdown_stops_dsp_operations(self, monkeypatch):
+        from fastapi.testclient import TestClient
+
+        from sstv_core.api import dsp_manager as dsp_module
+        from sstv_core.api.main import app
+
+        called: list[str] = []
+
+        async def record_shutdown():
+            called.append("shutdown")
+
+        monkeypatch.setattr(
+            dsp_module.dsp_manager, "shutdown", record_shutdown, raising=True
+        )
+
+        with TestClient(app):
+            assert called == [], "shutdown ran during startup"
+
+        assert called == ["shutdown"], "lifespan exit never stopped DSP operations"
