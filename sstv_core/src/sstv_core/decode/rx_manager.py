@@ -20,7 +20,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 
@@ -127,6 +127,10 @@ class RXManager:
         # FSKID result from the most recent decode (None = none detected).
         self._fskid_result: Any | None = None
 
+        # Set when VIS identified a mode we have no decoder for, so the API
+        # can tell "known mode, not supported yet" from an ordinary stop.
+        self._unsupported_mode: str | None = None
+
         # Rolling window of RAW input for on-demand analysis (session-based
         # mode detection). ~15s covers >30 scanlines of every mode.
         self._analysis_window = np.zeros(0, dtype=np.float32)
@@ -207,6 +211,13 @@ class RXManager:
         """Measured metrics for the current/most recent decode (Auto-RSV)."""
         return self._metrics
 
+    def get_unsupported_mode(self) -> str | None:
+        """VIS-identified mode we have no decoder for, if that stopped us.
+
+        None for every other outcome, including ordinary cancellation.
+        """
+        return self._unsupported_mode
+
     @property
     def current_snr_db(self) -> float | None:
         """Live SNR estimate, or None before noise floor + signal exist."""
@@ -273,6 +284,7 @@ class RXManager:
         self._correlation_vis.reset()
         self._metrics = DecodeMetrics()
         self._fskid_result = None
+        self._unsupported_mode = None
         self._analysis_window = np.zeros(0, dtype=np.float32)
         pre_vis_rms: list[float] = []
 
@@ -384,7 +396,26 @@ class RXManager:
 
             decoder = self._get_decoder(detected_mode)
             if decoder is None:
-                raise ValueError(f"Unsupported mode: {detected_mode}")
+                # VIS recognized the mode; we just have no decoder for it yet
+                # (Robot 72 and PD120 are both common on the air). That is a
+                # known limit met cleanly, not a failure -- raising here put
+                # the session in ERROR with an opaque "Unsupported mode:
+                # SSTVMode.ROBOT_72", indistinguishable from a real decode
+                # break. Stop the same way the no-signal path above does.
+                supported = ", ".join(self.DECODABLE_MODES)
+                logger.info(
+                    "Detected %s but no decoder is available for it", detected_mode
+                )
+                self._unsupported_mode = detected_mode
+                self._state = RXState.STOPPED
+                self._emit_progress(
+                    detected_mode, vis_confidence, 0, 0, 0,
+                    time.time() - start_time, 0,
+                    f"I heard {detected_mode}, but I can't decode it yet -- "
+                    f"I only have decoders for {supported}.",
+                    audio_levels=self._stream_manager.get_input_levels(),
+                )
+                return None
 
             decoder.reset()
             total_lines = decoder.height
@@ -731,17 +762,35 @@ class RXManager:
             self._stream_manager.stop_input()
             self._state = RXState.IDLE
 
+    # Every mode the correlation VIS detector can identify, in the public
+    # spelling the API uses. This covers more modes than DECODABLE_MODES
+    # below: VIS recognition and decode support are different things, and a
+    # name missing here leaks the enum repr ("SSTVMode.ROBOT_72") into
+    # operator-facing progress messages.
+    MODE_NAMES: ClassVar[dict[str, str]] = {
+        "SCOTTIE_S1": "ScottieS1",
+        "SCOTTIE_S2": "ScottieS2",
+        "SCOTTIE_DX": "ScottieDX",
+        "MARTIN_M1": "MartinM1",
+        "MARTIN_M2": "MartinM2",
+        "ROBOT_36": "Robot36",
+        "ROBOT_72": "Robot72",
+        "PD_90": "PD90",
+        "PD_120": "PD120",
+        "PD_160": "PD160",
+        "PD_180": "PD180",
+        "PD_240": "PD240",
+    }
+
+    # The subset _get_decoder can actually return a decoder for.
+    DECODABLE_MODES: ClassVar[tuple[str, ...]] = ("ScottieS1", "MartinM1", "Robot36")
+
     @staticmethod
     def _mode_name(mode: Any) -> str:
         """Normalize a VIS enum or user string to the public mode spelling."""
         name = getattr(mode, "name", None)
-        names = {
-            "SCOTTIE_S1": "ScottieS1",
-            "MARTIN_M1": "MartinM1",
-            "ROBOT_36": "Robot36",
-        }
-        if name in names:
-            return names[name]
+        if name in RXManager.MODE_NAMES:
+            return RXManager.MODE_NAMES[name]
         return str(mode)
 
     def _get_decoder(self, mode: str):

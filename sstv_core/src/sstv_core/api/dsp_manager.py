@@ -673,11 +673,54 @@ class DSPManager:
                 )
             else:
                 # Decode failed or cancelled
-                logger.warning("Decode failed or cancelled for session %s", session_id)
-                await session_manager.update_decode_state(
-                    session_id,
-                    DecodeState.STOPPED,
-                )
+                rx_mgr = self._rx_managers.get(session_id)
+                unsupported = rx_mgr.get_unsupported_mode() if rx_mgr else None
+                if unsupported:
+                    # VIS identified the mode; we have no decoder for it yet.
+                    # A clean stop with an explanation, not a FAILED session --
+                    # nothing broke, the operator just needs to know why.
+                    # Import the class here rather than using the module-level
+                    # RXManager name: what SSTeVe can decode is a fact about
+                    # the decoder, and reading it through a rebindable global
+                    # lets a substituted RXManager change what we claim.
+                    from sstv_core.decode.rx_manager import (
+                        RXManager as _RXManager,
+                    )
+
+                    supported = ", ".join(_RXManager.DECODABLE_MODES)
+                    logger.info(
+                        "Session %s stopped: %s detected, no decoder available",
+                        session_id,
+                        unsupported,
+                    )
+                    await session_manager.update_decode_state(
+                        session_id,
+                        DecodeState.STOPPED,
+                        {"unsupported_mode": unsupported},
+                    )
+                    await websocket_manager.broadcast(
+                        session_id,
+                        ErrorEvent(
+                            error_code="UNSUPPORTED_MODE",
+                            message=(
+                                f"I heard {unsupported}, but I can't decode it "
+                                f"yet -- I only have decoders for {supported}."
+                            ),
+                            recoverable=True,
+                            suggested_action=(
+                                f"Ask your correspondent to send in one of: "
+                                f"{supported}."
+                            ),
+                        ).model_dump(mode="json"),
+                    )
+                else:
+                    logger.warning(
+                        "Decode failed or cancelled for session %s", session_id
+                    )
+                    await session_manager.update_decode_state(
+                        session_id,
+                        DecodeState.STOPPED,
+                    )
 
         except asyncio.CancelledError:
             logger.info("Decode cancelled for session %s", session_id)
