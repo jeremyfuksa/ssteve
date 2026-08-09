@@ -59,7 +59,7 @@ Notes:
 - `decode/` — RX pipeline: `rx_manager.py` (session orchestration), per-mode decoders (`scottie_decoder.py`, `martin_decoder.py`, `robot_decoder.py`), `vis_detector.py` + `correlation_vis_detector.py` (VIS detection), `sync_detector.py`, `hough_slant_corrector.py` (Hough-transform slant correction), `fsk_decoder.py` (FSKID), `image_saver.py`
 - `encode/` — TX pipeline: `tx_manager.py`, per-mode encoders (Scottie/Martin/Robot), `vis_generator.py`, `fsk_generator.py` (FSKID), `image_preprocessor.py`, `audio_transmitter.py`
 - `audio/` — `stream_manager.py`, `device_manager.py`, `ring_buffer.py`, `bandpass_filter.py`, `ptt_controller.py` (Serial RTS/DTR + VOX)
-- `api/` — **implemented** FastAPI layer: `main.py` (app + `run_server`), `routes/` (decode, transmit, devices, images, config, qso, smart_reply, import_routes, websocket), `websocket_manager.py`, `session_manager.py` (half-duplex enforcement), `operation_manager.py`, `dsp_manager.py`, `models.py` (Pydantic)
+- `api/` — **implemented** FastAPI layer: `main.py` (app + `run_server`), `routes/` (decode, transmit, devices, images, config, qso, smart_reply, import_routes, websocket), `websocket_manager.py`, `session_manager.py` (half-duplex enforcement), `dsp_manager.py` (RX/TX lifecycle, progress→WebSocket wiring), `models.py` (Pydantic), `image_ids.py`, `image_lookup.py`
 - `database/` — SQLAlchemy 2.0 models (`models.py`) + Alembic migrations (`migrations/`); SQLite, metadata only — images live on disk as files
 - `smart_features/` — `mode_detector.py` (sync-timing mode detection), `device_detector.py`, `qso_logger.py`, `field_populator.py`, `template_engine.py` (smart replies)
 - `accessibility/` — `audio_guidance.py` (stereo sonification), `slant_detector.py`

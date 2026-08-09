@@ -172,6 +172,14 @@ exception — factual and direct, never conversational.
 
 - RX: bandpass → VIS detection → per-mode decode (Scottie S1, Martin M1, Robot 36) →
   Hough slant correction → save → DB record → WebSocket events.
+- **Mode auto-detection works.** `CorrelationVISDetector` reads the headers
+  `VISGenerator` emits (confidence ≥0.99 for all three decodable modes at matching
+  sample rates), encoders prepend a VIS header by default, and `rx_manager` builds the
+  detector at the stream's actual sample rate. Verified end to end by the CLI-file
+  roundtrip — encode → WAV → decode with no `--mode` — at correlations of 0.9999
+  (Scottie S1), 0.9999 (Martin M1), and 0.9978 (Robot 36). The detector recognizes 11
+  modes; the other 8 have no decoder yet and stop the session cleanly with an
+  explanation rather than failing (see "Not built" below).
 - TX: mode→encoder mapping, VIS + FSKID generation, serial/VOX PTT with pre/post delays.
 - REST + WebSocket API: decode, transmit, devices, config, images, QSO, smart replies,
   MMSSTV import, file-based mode detection. Contract in `docs/core/backend-spec.md` and
@@ -180,25 +188,20 @@ exception — factual and direct, never conversational.
 
 ### Not built
 
-- **Mode auto-detection does not work.** Found 2026-08-07 by testing the VIS path
-  against real signals for the first time. Three separate problems, none of which the
-  test suite covers:
-  - **`CorrelationVISDetector` cannot read a VIS header that `VISGenerator` produces.**
-    Verified at matching sample rates for Scottie S1, Martin M1, and Robot 36: the
-    generator emits a spec-correct 910 ms header (300 ms 1900 Hz leader, break, data
-    bits), and the detector returns `None` for all three. The generator is right; the
-    detector is the broken side.
-  - **The encoders never emit a VIS header at all.** `VISGenerator` exists and works,
-    but no encoder calls it, so every SSTeVe transmission is headerless and no other
-    application can auto-detect our mode.
-  - **`rx_manager` builds the detector with no config**, so it runs at the default
-    48000 Hz regardless of the stream's actual rate — the same class of bug fixed in
-    the decoders on 2026-08-07.
+- **Decoders for 8 of the 11 VIS-detectable modes.** Scottie S1, Martin M1, and Robot 36
+  decode; Scottie S2/DX, Martin M2, Robot 72, and PD 90/120/160/180/240 are recognized
+  by VIS but have no decoder. Robot 72 and PD 120 are both common on the air. Since
+  2026-08-09 these stop the session cleanly with a named reason rather than failing —
+  the operator is told which mode arrived and what SSTeVe can decode.
 
-  Consequence: an operator who does not pick a mode manually gets nothing. Every
-  decode verified this session passed the mode explicitly. Note the reference
-  recordings cannot exercise this either — they were captured mid-transmission and
-  contain no VIS header, which is why the gap survived.
+  > **Historical note (2026-08-07, resolved):** auto-detection was previously recorded
+  > here as broken outright, for three reasons: the detector could not read the
+  > generator's headers, no encoder emitted a header, and `rx_manager` built the
+  > detector at a fixed 48 kHz regardless of stream rate. All three were fixed by
+  > PRs #26–#37 and are covered by tests; re-verified against the code on 2026-08-09.
+  > The reference recordings still cannot exercise the VIS path — they were captured
+  > mid-transmission and contain no header — which is why the original gap survived
+  > as long as it did.
 
 - **The shipping UI.** `sstv_desktop/` contains a README and nothing else — no `.tsx`,
   no `package.json`, no component code.
