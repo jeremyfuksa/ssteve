@@ -505,6 +505,49 @@ class DSPManager:
 
         logger.info("Transmit session %s stopped", session_id)
 
+    async def shutdown(self) -> None:
+        """Stop every active operation. Called from the API lifespan on exit.
+
+        Transmits go first: a decode left running leaks an input stream, but a
+        transmit left running can leave the radio keyed (RTS/DTR still
+        asserted) after the process is gone. Shutdown is time-bounded by
+        SIGTERM, so the hazard gets the guaranteed slot.
+
+        Each stop is isolated -- one session failing must not strand the rest,
+        since the whole point is that nothing is left keyed. Session IDs are
+        snapshotted because stop_* mutates the dicts we would be iterating.
+        """
+        transmit_ids = list(self._transmit_tasks.keys())
+        decode_ids = list(self._decode_tasks.keys())
+        if not transmit_ids and not decode_ids:
+            return
+
+        logger.info(
+            "Shutdown: stopping %d transmit and %d decode session(s)",
+            len(transmit_ids),
+            len(decode_ids),
+        )
+        for session_id in transmit_ids:
+            try:
+                await self.stop_transmit(session_id)
+            except Exception as e:
+                logger.error(
+                    "Shutdown: failed to stop transmit session %s: %s",
+                    session_id,
+                    e,
+                    exc_info=True,
+                )
+        for session_id in decode_ids:
+            try:
+                await self.stop_decode(session_id)
+            except Exception as e:
+                logger.error(
+                    "Shutdown: failed to stop decode session %s: %s",
+                    session_id,
+                    e,
+                    exc_info=True,
+                )
+
     @staticmethod
     def _mode_enum(mode: str | None) -> SSTVMode | None:
         """Public mode string to enum; None when unknown rather than a guess."""
