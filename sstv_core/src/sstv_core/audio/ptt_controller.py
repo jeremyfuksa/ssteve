@@ -155,9 +155,24 @@ class PTTController:
             return
         if self._method == PTTMethod.SERIAL:
             await asyncio.sleep(self._post_delay_ms / 1000.0)
-            self._set_serial_signal(False)
-            self._is_keyed = False
-            logger.info("Unkeyed radio via %s", self._serial_signal)
+            try:
+                self._set_serial_signal(False)
+                logger.info("Unkeyed radio via %s", self._serial_signal)
+            except PTTError:
+                # The write failed -- typically the USB-serial interface was
+                # unplugged mid-transmission. Keeping _is_keyed True here would
+                # make every later unkey attempt a no-op via the guard above,
+                # so clear it regardless and drop the dead connection: a stale
+                # handle can leave the line asserted. The exception still
+                # propagates -- the operator needs to check the rig.
+                logger.error(
+                    "Failed to unkey radio via %s - transmitter may still be keyed",
+                    self._serial_signal,
+                )
+                self._close_serial()
+                raise
+            finally:
+                self._is_keyed = False
         elif self._method == PTTMethod.VOX:
             self._is_keyed = False
             logger.info("VOX mode - PTT will deactivate after audio")
