@@ -365,6 +365,110 @@ class Configuration(BaseModel):
         description="Squelch threshold in dB (manual mode)"
     )
 
+    # ---- Everything below was stored by ConfigManager and unreachable over
+    # the API until 2026-08-09 (#60). The accessibility block is the sharpest
+    # case: PR #44 shipped audio guidance and no client could switch it on.
+
+    # PTT detail
+    ptt_serial_baud: int = Field(
+        default=9600, ge=300, le=115200, description="Serial PTT baud rate"
+    )
+    ptt_serial_signal: str = Field(
+        default="RTS",
+        pattern=r"^(RTS|DTR)$",
+        description="Which serial line keys the radio"
+    )
+    vox_preamble_ms: int = Field(
+        default=500, ge=0, le=5000,
+        description="Tone length used to trip VOX before the VIS header"
+    )
+
+    # Accessibility (AccessibilitySettings)
+    stereo_guidance_enabled: bool = Field(
+        default=False,
+        description="Pan a pilot tone by slant error so the operator can tune by ear"
+    )
+    pilot_tone_freq: float = Field(
+        default=1200.0, ge=200.0, le=3000.0, description="Guidance pilot tone in Hz"
+    )
+    pilot_tone_volume: float = Field(
+        default=0.15, ge=0.0, le=1.0, description="Guidance pilot tone volume"
+    )
+    slant_threshold_degrees: float = Field(
+        default=2.0, ge=0.1, le=10.0,
+        description="Slant error below which guidance stays centered"
+    )
+    max_pan_degrees: float = Field(
+        default=10.0, ge=1.0, le=45.0,
+        description="Slant error mapped to full stereo pan"
+    )
+    lock_chime_enabled: bool = Field(
+        default=True, description="Chime when VIS locks and when a decode completes"
+    )
+    lock_chime_volume: float = Field(
+        default=0.3, ge=0.0, le=1.0, description="Lock chime volume"
+    )
+    verbose_cli_enabled: bool = Field(
+        default=False, description="Verbose CLI output"
+    )
+    json_logging_enabled: bool = Field(
+        default=False, description="Emit logs as JSON (screen-reader/scripted use)"
+    )
+
+    # Decoder detail
+    vis_detection_threshold: float = Field(
+        default=0.85, ge=0.0, le=1.0, description="Confidence required to accept a VIS header"
+    )
+    sync_detection_threshold: float = Field(
+        default=0.75, ge=0.0, le=1.0, description="Confidence required to accept a sync pulse"
+    )
+    slant_auto_correct: bool = Field(
+        default=True, description="Apply Hough slant correction automatically"
+    )
+
+    # Encoder
+    pre_emphasis_enabled: bool = Field(
+        default=False, description="Apply pre-emphasis to transmitted audio"
+    )
+    color_space: str = Field(
+        default="RGB", pattern=r"^(RGB|YUV)$", description="Encoder color space"
+    )
+    jpeg_quality: int = Field(
+        default=85, ge=0, le=100, description="JPEG quality for saved images"
+    )
+    enable_fskid_tx: bool = Field(
+        default=True,
+        description="Append an MMSSTV-compatible FSKID callsign burst to transmissions"
+    )
+
+    # UI
+    waterfall_fft_size: int = Field(
+        default=1024, ge=512, le=2048, description="Waterfall FFT bin count"
+    )
+    waterfall_visible: bool = Field(
+        default=True, description="Show the waterfall display"
+    )
+    canvas_zoom: float = Field(
+        default=1.0, ge=0.5, le=2.0, description="Decode canvas zoom"
+    )
+    telemetry_panel_visible: bool = Field(
+        default=True, description="Show the telemetry panel"
+    )
+
+    # Audio detail
+    buffer_size_samples: int = Field(
+        default=1024, ge=512, le=2048, description="Audio buffer size in samples"
+    )
+    input_gain_override: float | None = Field(
+        default=None, ge=0.0, le=2.0,
+        description="Manual input gain multiplier; null means automatic"
+    )
+
+    # Paths
+    mmsstv_import_directory: str | None = Field(
+        default=None, max_length=1024, description="Directory scanned for MMSSTV imports"
+    )
+
     @field_validator("image_library_path")
     @classmethod
     def validate_library_path(cls, v: str) -> str:

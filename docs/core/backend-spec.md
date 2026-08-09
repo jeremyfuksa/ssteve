@@ -501,7 +501,12 @@ GET /devices/serial
 
 ```yaml
 GET /config
-  Response: Configuration object (full schema)
+  Response: Configuration object (all 40 fields)
+
+GET /config/schema
+  Response: JSON Schema for Configuration -- types, ranges, defaults,
+            descriptions. Generated from the Pydantic model, so a client
+            never hardcodes the field list.
 
 POST /config
   Request: Partial Configuration object
@@ -511,6 +516,15 @@ PATCH /config
   Request: Partial updates
   Response: Updated Configuration
 ```
+
+> **Adding a setting.** `routes/config.py` holds one `_FIELD_TO_MANAGER_KEY`
+> table that drives both reads and writes; add the field to the API
+> `Configuration` model and one row to that table. It used to be two
+> hand-written mappings in opposite directions, which is how nine
+> accessibility settings — including the `stereo_guidance_enabled` PR #44
+> shipped — ended up stored but unreachable. `test_config_completeness.py`
+> enumerates the `AdvancedSettings` tree and fails on any leaf without a
+> mapping, so the drift cannot silently recur.
 
 ### 3.2 WebSocket Live Updates
 

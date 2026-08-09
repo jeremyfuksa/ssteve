@@ -240,10 +240,39 @@
             "title": "Auto Squelch",
             "type": "boolean"
           },
+          "buffer_size_samples": {
+            "default": 1024,
+            "description": "Audio buffer size in samples",
+            "maximum": 2048.0,
+            "minimum": 512.0,
+            "title": "Buffer Size Samples",
+            "type": "integer"
+          },
+          "canvas_zoom": {
+            "default": 1.0,
+            "description": "Decode canvas zoom",
+            "maximum": 2.0,
+            "minimum": 0.5,
+            "title": "Canvas Zoom",
+            "type": "number"
+          },
+          "color_space": {
+            "default": "RGB",
+            "description": "Encoder color space",
+            "pattern": "^(RGB|YUV)$",
+            "title": "Color Space",
+            "type": "string"
+          },
           "default_transmit_mode": {
             "$ref": "#/components/schemas/SSTVMode",
             "default": "MartinM1",
             "description": "Default SSTV mode for transmissions"
+          },
+          "enable_fskid_tx": {
+            "default": true,
+            "description": "Append an MMSSTV-compatible FSKID callsign burst to transmissions",
+            "title": "Enable Fskid Tx",
+            "type": "boolean"
           },
           "image_library_path": {
             "default": "~/sstv_images",
@@ -251,10 +280,95 @@
             "title": "Image Library Path",
             "type": "string"
           },
+          "input_gain_override": {
+            "anyOf": [
+              {
+                "maximum": 2.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Manual input gain multiplier; null means automatic",
+            "title": "Input Gain Override"
+          },
+          "jpeg_quality": {
+            "default": 85,
+            "description": "JPEG quality for saved images",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Jpeg Quality",
+            "type": "integer"
+          },
+          "json_logging_enabled": {
+            "default": false,
+            "description": "Emit logs as JSON (screen-reader/scripted use)",
+            "title": "Json Logging Enabled",
+            "type": "boolean"
+          },
+          "lock_chime_enabled": {
+            "default": true,
+            "description": "Chime when VIS locks and when a decode completes",
+            "title": "Lock Chime Enabled",
+            "type": "boolean"
+          },
+          "lock_chime_volume": {
+            "default": 0.3,
+            "description": "Lock chime volume",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Lock Chime Volume",
+            "type": "number"
+          },
+          "max_pan_degrees": {
+            "default": 10.0,
+            "description": "Slant error mapped to full stereo pan",
+            "maximum": 45.0,
+            "minimum": 1.0,
+            "title": "Max Pan Degrees",
+            "type": "number"
+          },
+          "mmsstv_import_directory": {
+            "anyOf": [
+              {
+                "maxLength": 1024,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Directory scanned for MMSSTV imports",
+            "title": "Mmsstv Import Directory"
+          },
           "operating_mode": {
             "$ref": "#/components/schemas/OperatingConditionMode",
             "default": "standard",
             "description": "Operating conditions mode"
+          },
+          "pilot_tone_freq": {
+            "default": 1200.0,
+            "description": "Guidance pilot tone in Hz",
+            "maximum": 3000.0,
+            "minimum": 200.0,
+            "title": "Pilot Tone Freq",
+            "type": "number"
+          },
+          "pilot_tone_volume": {
+            "default": 0.15,
+            "description": "Guidance pilot tone volume",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Pilot Tone Volume",
+            "type": "number"
+          },
+          "pre_emphasis_enabled": {
+            "default": false,
+            "description": "Apply pre-emphasis to transmitted audio",
+            "title": "Pre Emphasis Enabled",
+            "type": "boolean"
           },
           "ptt_method": {
             "$ref": "#/components/schemas/PTTMethod",
@@ -277,6 +391,14 @@
             "title": "Ptt Pre Delay Ms",
             "type": "integer"
           },
+          "ptt_serial_baud": {
+            "default": 9600,
+            "description": "Serial PTT baud rate",
+            "maximum": 115200.0,
+            "minimum": 300.0,
+            "title": "Ptt Serial Baud",
+            "type": "integer"
+          },
           "ptt_serial_port": {
             "anyOf": [
               {
@@ -289,6 +411,27 @@
             "description": "Serial port for PTT (if using serial PTT)",
             "title": "Ptt Serial Port"
           },
+          "ptt_serial_signal": {
+            "default": "RTS",
+            "description": "Which serial line keys the radio",
+            "pattern": "^(RTS|DTR)$",
+            "title": "Ptt Serial Signal",
+            "type": "string"
+          },
+          "slant_auto_correct": {
+            "default": true,
+            "description": "Apply Hough slant correction automatically",
+            "title": "Slant Auto Correct",
+            "type": "boolean"
+          },
+          "slant_threshold_degrees": {
+            "default": 2.0,
+            "description": "Slant error below which guidance stays centered",
+            "maximum": 10.0,
+            "minimum": 0.1,
+            "title": "Slant Threshold Degrees",
+            "type": "number"
+          },
           "squelch_threshold_db": {
             "default": -40.0,
             "description": "Squelch threshold in dB (manual mode)",
@@ -296,6 +439,62 @@
             "minimum": -100.0,
             "title": "Squelch Threshold Db",
             "type": "number"
+          },
+          "stereo_guidance_enabled": {
+            "default": false,
+            "description": "Pan a pilot tone by slant error so the operator can tune by ear",
+            "title": "Stereo Guidance Enabled",
+            "type": "boolean"
+          },
+          "sync_detection_threshold": {
+            "default": 0.75,
+            "description": "Confidence required to accept a sync pulse",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Sync Detection Threshold",
+            "type": "number"
+          },
+          "telemetry_panel_visible": {
+            "default": true,
+            "description": "Show the telemetry panel",
+            "title": "Telemetry Panel Visible",
+            "type": "boolean"
+          },
+          "verbose_cli_enabled": {
+            "default": false,
+            "description": "Verbose CLI output",
+            "title": "Verbose Cli Enabled",
+            "type": "boolean"
+          },
+          "vis_detection_threshold": {
+            "default": 0.85,
+            "description": "Confidence required to accept a VIS header",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Vis Detection Threshold",
+            "type": "number"
+          },
+          "vox_preamble_ms": {
+            "default": 500,
+            "description": "Tone length used to trip VOX before the VIS header",
+            "maximum": 5000.0,
+            "minimum": 0.0,
+            "title": "Vox Preamble Ms",
+            "type": "integer"
+          },
+          "waterfall_fft_size": {
+            "default": 1024,
+            "description": "Waterfall FFT bin count",
+            "maximum": 2048.0,
+            "minimum": 512.0,
+            "title": "Waterfall Fft Size",
+            "type": "integer"
+          },
+          "waterfall_visible": {
+            "default": true,
+            "description": "Show the waterfall display",
+            "title": "Waterfall Visible",
+            "type": "boolean"
           }
         },
         "title": "Configuration",

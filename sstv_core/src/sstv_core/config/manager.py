@@ -42,6 +42,10 @@ class EncoderSettings(BaseModel):
     pre_emphasis_enabled: bool = False
     color_space: str = Field(default="RGB", pattern=r"^(RGB|YUV)$")
     jpeg_quality: int = Field(default=85, ge=0, le=100)
+    # FSKID_SPECIFICATION.md:542. TXManager already appends the ID whenever a
+    # callsign is supplied; this is the operator's switch for that behavior.
+    # Defaults on: identifying yourself is the licensed operator's norm.
+    enable_fskid_tx: bool = True
 
 
 class UISettings(BaseModel):
