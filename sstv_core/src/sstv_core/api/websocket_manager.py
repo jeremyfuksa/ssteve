@@ -57,8 +57,59 @@ class WebSocketManager:
             lambda: deque(maxlen=100)  # Max 100 buffered events
         )
 
+        # App-channel connections (/ws), which exist while nothing is
+        # decoding or transmitting. Every other connection here is keyed by
+        # session, so before 2026-08-09 there was no channel at all when the
+        # app was idle -- which is what blocked idle metering, device
+        # hot-plug, and library pushes to an idle gallery (#57).
+        self._app_connections: set[WebSocketConnection] = set()
+
         # Lock for thread-safe operations
         self._lock = asyncio.Lock()
+
+    # ---- App channel -----------------------------------------------------
+
+    async def connect_app(self, websocket: WebSocket) -> WebSocketConnection:
+        """Register an app-channel connection (no session)."""
+        async with self._lock:
+            # The nil UUID marks "not a session"; nothing looks it up.
+            connection = WebSocketConnection(websocket, UUID(int=0))
+            self._app_connections.add(connection)
+            return connection
+
+    async def disconnect_app(self, connection: WebSocketConnection) -> None:
+        """Unregister an app-channel connection."""
+        async with self._lock:
+            self._app_connections.discard(connection)
+
+    async def broadcast_app(self, event: dict[str, Any]) -> int:
+        """Send an event to every app-channel client.
+
+        Deliberately unbuffered: these events describe the world right now
+        (devices present, levels, library contents). Replaying a stale
+        device list to a reconnecting client would be worse than silence --
+        it can re-fetch current state from the REST endpoints.
+        """
+        async with self._lock:
+            connections = set(self._app_connections)
+
+        sent = 0
+        failed = set()
+        for conn in connections:
+            if await conn.send_event(event):
+                sent += 1
+            else:
+                failed.add(conn)
+
+        if failed:
+            async with self._lock:
+                self._app_connections -= failed
+        return sent
+
+    async def get_app_connection_count(self) -> int:
+        """How many clients hold the app channel open."""
+        async with self._lock:
+            return len(self._app_connections)
 
     async def connect(
         self, websocket: WebSocket, session_id: UUID
@@ -193,27 +244,43 @@ class WebSocketManager:
             Number of connections successfully notified
 
         """
+        # Snapshot under the lock, send outside it -- same reason broadcast()
+        # does: holding the manager-wide lock across network sends lets one
+        # backpressured client stall delivery to everyone else.
         async with self._lock:
-            # Broadcast to all connections across all sessions
-            sent_count = 0
+            targets = [
+                (session_id, conn)
+                for session_id, connections in self._connections.items()
+                for conn in connections
+            ]
+            # App-channel clients are the real audience here: an idle gallery
+            # has no session, so before 2026-08-09 the watcher's events were
+            # broadcast only to clients that happened to be mid-decode.
+            app_targets = list(self._app_connections)
 
-            # Track failed connections for removal
-            failed_connections = set()
+        sent_count = 0
+        failed_session: set[tuple[UUID, WebSocketConnection]] = set()
+        for session_id, conn in targets:
+            if await conn.send_event(event):
+                sent_count += 1
+            else:
+                failed_session.add((session_id, conn))
 
-            for session_id, connections in self._connections.items():
-                for conn in connections:
-                    success = await conn.send_event(event)
-                    if success:
-                        sent_count += 1
-                    else:
-                        failed_connections.add((session_id, conn))
+        failed_app = set()
+        for conn in app_targets:
+            if await conn.send_event(event):
+                sent_count += 1
+            else:
+                failed_app.add(conn)
 
-            # Remove failed connections
-            for session_id, failed_conn in failed_connections:
-                if session_id in self._connections:
-                    self._connections[session_id].discard(failed_conn)
+        if failed_session or failed_app:
+            async with self._lock:
+                for session_id, failed_conn in failed_session:
+                    if session_id in self._connections:
+                        self._connections[session_id].discard(failed_conn)
+                self._app_connections -= failed_app
 
-            return sent_count
+        return sent_count
 
 
 # Global singleton instance

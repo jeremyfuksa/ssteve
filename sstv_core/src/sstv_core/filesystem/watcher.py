@@ -43,6 +43,18 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _public_image_id(db_id: int) -> str:
+    """DB row ID to the public UUID clients see everywhere else.
+
+    Library events carried the raw integer until 2026-08-09, which no other
+    part of the API exposes -- a client could not match the event to an
+    /images entry.
+    """
+    from sstv_core.api.image_ids import db_image_id_to_uuid
+
+    return str(db_image_id_to_uuid(db_id))
+
+
 # Supported image formats
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp"}
 
@@ -403,10 +415,10 @@ class ImageLibraryWatcher:
 
                     self._broadcast(
                         {
-                            "event": "library_updated",
+                            "event_type": "library_updated",
                             "action": "created",
                             "filepath": str(filepath),
-                            "image_id": image.id,
+                            "image_id": _public_image_id(image.id),
                             "metadata": image.to_dict(),
                             "timestamp": datetime.now(timezone.utc).isoformat(),
                         }
@@ -450,9 +462,10 @@ class ImageLibraryWatcher:
 
                     self._broadcast(
                         {
-                            "event": "image_modified",
+                            "event_type": "library_updated",
+                            "action": "modified",
                             "filepath": str(filepath),
-                            "image_id": image.id,
+                            "image_id": _public_image_id(image.id),
                             "metadata": image.to_dict(),
                             "timestamp": datetime.now(timezone.utc).isoformat(),
                         }
@@ -477,7 +490,9 @@ class ImageLibraryWatcher:
 
                     self._broadcast(
                         {
-                            "event": "image_deleted",
+                            "event_type": "library_updated",
+                            "action": "deleted",
+                            "image_id": None,
                             "filepath": str(filepath),
                             "timestamp": datetime.now(timezone.utc).isoformat(),
                         }

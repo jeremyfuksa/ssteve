@@ -833,6 +833,44 @@ class TransmitCompleteEvent(BaseModel):
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class DeviceChangedEvent(BaseModel):
+    """Audio devices appeared or disappeared.
+
+    PRODUCT.md's field-ops situation has gear plugged and unplugged mid-
+    session; AudioDeviceManager.refresh() was pull-only, so a client had to
+    poll to notice. Carries the counts and the changed IDs -- not the full
+    device list, which the client should re-fetch from GET /devices/audio
+    so there is one source of truth for device shape.
+    """
+
+    event_type: str = "device_changed"
+    added: list[str] = Field(default_factory=list, description="Device IDs that appeared")
+    removed: list[str] = Field(default_factory=list, description="Device IDs that vanished")
+    total: int = Field(ge=0, description="Device count after the change")
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class LibraryUpdatedEvent(BaseModel):
+    """An image entered, changed, or left the library on disk."""
+
+    event_type: str = "library_updated"
+    action: str = Field(pattern="^(created|modified|deleted)$")
+    image_id: UUID | None = Field(
+        default=None, description="Null for deletions of untracked files"
+    )
+    filepath: str
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class MonitorStateEvent(BaseModel):
+    """Input monitoring started or stopped on the app channel."""
+
+    event_type: str = "monitor_state"
+    monitoring: bool
+    device_id: str | None = None
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 class ErrorEvent(BaseModel):
     """Error event."""
 
