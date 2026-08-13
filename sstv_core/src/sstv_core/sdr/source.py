@@ -23,6 +23,39 @@ logger = logging.getLogger(__name__)
 
 CLIP_THRESHOLD = 0.99
 
+#: Fraction of the device's own gain ladder to use when the operator names
+#: no gain. A hardcoded index cannot be right for every radio -- the ladder
+#: length is per-device -- so the default is a position on it instead.
+#:
+#: 0.75 is calibrated on the Airspy HF+ (issue #90), which reports
+#: maximum_gain_index 8. It puts the default at index 6, measured on WWV
+#: 10 MHz as the cleanest of the sweep:
+#:
+#:     gain=0  rms=0.000231  peak/mean=  4.5   (deaf -- indistinguishable
+#:                                              from noise, and the old
+#:                                              default)
+#:     gain=4  rms=0.000721  peak/mean=158.8
+#:     gain=6  rms=0.004929  peak/mean=154.6   <- 0.75 * 8
+#:     gain=8  rms=0.006439  peak/mean=118.9   (peak/mean falling: the
+#:                                              front end is starting to
+#:                                              compress)
+#:
+#: Below the top of the ladder on purpose. Headroom matters more than raw
+#: level on HF, where a nearby signal has to be able to rise without
+#: driving the front end into compression.
+DEFAULT_GAIN_FRACTION = 0.75
+
+
+def default_gain_for(maximum_gain_index: int) -> int:
+    """Derive the gain to use when the operator named none.
+
+    Rounds rather than truncates so short ladders don't collapse to 0 --
+    the exact failure issue #90 reported. Never returns above the maximum.
+    """
+    if maximum_gain_index <= 0:
+        return 0
+    return min(maximum_gain_index, round(maximum_gain_index * DEFAULT_GAIN_FRACTION))
+
 
 class _Client(Protocol):
     """The client surface this source uses, so tests can supply a fake.
@@ -38,6 +71,8 @@ class _Client(Protocol):
     def dropped_frames(self) -> int: ...
     @property
     def stream_error(self) -> SpyServerError | None: ...
+    @property
+    def device_info(self) -> object | None: ...
 
     def connect(self) -> None: ...
     def tune(self, frequency_hz: int) -> None: ...
@@ -55,7 +90,8 @@ class SpyServerSource:
         host: SpyServer hostname or IP.
         port: SpyServer port.
         frequency_hz: Frequency to tune, in Hz.
-        gain: Device RF/IF gain index.
+        gain: Device RF/IF gain index, or None to derive one from the
+            device's own maximum_gain_index once connected.
         stall_timeout_sec: Seconds without IQ before the stream counts as stalled.
         client: Injected client (tests); a real one is built when omitted.
 
@@ -66,7 +102,7 @@ class SpyServerSource:
         host: str,
         port: int = 5555,
         frequency_hz: int = 14_230_000,
-        gain: int = 0,
+        gain: int | None = None,
         stall_timeout_sec: float = 5.0,
         client: _Client | None = None,
     ) -> None:
@@ -74,6 +110,10 @@ class SpyServerSource:
         self._port = port
         self._frequency_hz = frequency_hz
         self._gain = gain
+        # What we actually sent, once connect() has told us the ladder.
+        # Read by the CLI so it can report the derived number rather than
+        # "None".
+        self.resolved_gain: int | None = None
         self._stall_timeout_sec = stall_timeout_sec
         self._client = client
         self._demod: USBDemodulator | None = None
@@ -119,6 +159,43 @@ class SpyServerSource:
             self._dropped_frames = int(live)
         return self._dropped_frames
 
+    def _resolve_gain(self, client: _Client) -> int:
+        """Settle the gain index against the device's own ladder.
+
+        Only correct after connect(): maximum_gain_index arrives in
+        DeviceInfo, so nothing before that knows the real range. The CLI
+        keeps a cheap sanity check on the flag for obvious nonsense, but
+        this is the authoritative one -- a device-agnostic 0-63 bound
+        accepted 20 on a radio whose ladder stops at 8 (issue #90).
+
+        gain_stage_count is deliberately not consulted: this device
+        reports 0 stages alongside a maximum_gain_index of 8, so the two
+        do not correlate and treating a 0 there as "no gain control"
+        would refuse a working radio.
+        """
+        info = getattr(client, "device_info", None)
+        maximum = getattr(info, "maximum_gain_index", None)
+        if not isinstance(maximum, int):
+            # A client that never reports DeviceInfo (a fake, or a server
+            # that skipped it) leaves nothing to validate against. Sending
+            # an explicit gain unchanged beats refusing to run.
+            return self._gain if self._gain is not None else 0
+
+        if self._gain is None:
+            gain = default_gain_for(maximum)
+            logger.info(
+                "No gain given; using %d of this device's 0-%d range.", gain, maximum
+            )
+            return gain
+
+        if not 0 <= self._gain <= maximum:
+            raise SpyServerError(
+                f"I can't set the gain to {self._gain} -- this device's range "
+                f"is 0 to {maximum}.",
+                suggested_action=f"Use --gain between 0 and {maximum}.",
+            )
+        return self._gain
+
     def seconds_since_last_iq(self) -> float:
         if not self._last_iq_at:
             return 0.0
@@ -148,6 +225,10 @@ class SpyServerSource:
         self._dropped_frames = 0
         try:
             client.connect()
+            # After connect (DeviceInfo is in hand) and before streaming
+            # (the gain goes out with the stream settings).
+            gain = self._resolve_gain(client)
+            self.resolved_gain = gain
             client.tune(self._frequency_hz)
             # One demodulator per stream. It carries filter state, mixer
             # phase, and resampling phase between blocks, so building one
@@ -158,7 +239,7 @@ class SpyServerSource:
             )
             self._last_iq_at = time.monotonic()
             self._running = True
-            client.start_streaming(self._on_iq, gain=self._gain)
+            client.start_streaming(self._on_iq, gain=gain)
         except BaseException:
             # A half-open connection would leak a socket and hold one of
             # the server's client slots until this process dies. Tear it

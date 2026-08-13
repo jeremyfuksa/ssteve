@@ -48,7 +48,10 @@ def test_make_args_matches_the_real_parser_defaults():
     from sstv_core.cli.main import create_parser
 
     parsed = vars(create_parser().parse_args(["decode"]))
-    for key in ("command", "verbose", "json"):
+    # verbose/json exist twice over: once from the top-level parser
+    # (*_global) and once from the subparser, so --verbose works on either
+    # side of the subcommand (issue #91). main() merges them.
+    for key in ("command", "verbose", "json", "verbose_global", "json_global"):
         parsed.pop(key, None)
     # mode is the one deliberate difference: the parser defaults it to
     # None (auto-detect) while these tests pin a mode to decode with.
