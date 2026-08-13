@@ -20,12 +20,11 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Protocol
 
 import numpy as np
 
 from sstv_core.audio.bandpass_filter import BandpassPresets, SSTVBandpassFilter
-from sstv_core.audio.stream_manager import AudioStreamManager
 from sstv_core.decode.correlation_vis_detector import (
     CorrelationVISConfig,
     CorrelationVISDetector,
@@ -39,6 +38,22 @@ from sstv_core.decode.scottie_decoder import ScottieS1Config, ScottieS1Decoder
 from sstv_core.decode.sync_detector import SyncPulseDetector
 
 logger = logging.getLogger(__name__)
+
+
+class AudioSource(Protocol):
+    """The input surface RXManager actually uses.
+
+    Deliberately narrower than AudioStreamManager: SpyServerSource is a
+    network IQ source that implements exactly these four methods so the
+    decode stack works unchanged. The annotation was AudioStreamManager
+    until the SDR path shipped, which made every SDR caller a type error
+    for a compatibility the seam was built to provide.
+    """
+
+    def start_input(self, device_index: int | None = ...) -> None: ...
+    def stop_input(self) -> None: ...
+    def get_input_buffer(self) -> Any: ...
+    def get_input_levels(self) -> Any: ...
 
 
 class RXState(Enum):
@@ -88,7 +103,7 @@ class RXManager:
 
     def __init__(
         self,
-        stream_manager: AudioStreamManager,
+        stream_manager: AudioSource,
         sample_rate: int | None = None,
         save_directory: Path | None = None,
         slant_correction: bool = False,

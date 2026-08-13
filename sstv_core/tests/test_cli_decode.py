@@ -22,11 +22,28 @@ def make_args(**overrides) -> argparse.Namespace:
         "mode": "ScottieS1",
         "device": None,
         "file": None,
+        "spyserver": None,
+        "band": None,
+        "frequency": None,
+        "gain": 0,
         "timeout": 300,
         "output": None,
     }
     defaults.update(overrides)
     return argparse.Namespace(**defaults)
+
+
+def test_make_args_covers_every_decode_flag():
+    """The hand-built Namespace has to match the real parser.
+
+    These tests call cmd_decode() directly, so a flag added to the parser
+    but not here makes every one of them die of AttributeError instead of
+    testing anything. Adding --spyserver did exactly that.
+    """
+    from sstv_core.cli.main import create_parser
+
+    parsed = create_parser().parse_args(["decode"])
+    assert set(vars(parsed)) - {"command", "verbose", "json"} == set(vars(make_args()))
 
 
 class TestDecodeFromFile:
