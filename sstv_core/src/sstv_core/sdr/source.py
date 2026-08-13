@@ -159,15 +159,23 @@ class SpyServerSource:
             self._last_iq_at = time.monotonic()
             self._running = True
             client.start_streaming(self._on_iq, gain=self._gain)
-        except (SpyServerError, ValueError):
-            # A half-open connection would leak a socket and hold the
-            # server's client slot. Tear it down before the error escapes.
+        except BaseException:
+            # A half-open connection would leak a socket and hold one of
+            # the server's client slots until this process dies. Tear it
+            # down before the error escapes, whatever the error was.
             #
-            # ValueError belongs here too: USBDemodulator rejects a
-            # non-positive rate, and it is constructed after connect() and
-            # tune() have already succeeded. Catching only SpyServerError left
-            # a server reporting a bogus sample rate holding an open socket --
-            # the same leak this block exists to prevent.
+            # Deliberately not a list of exception types. That list was
+            # wrong twice: SpyServerError alone missed the ValueError
+            # USBDemodulator raises on a bogus sample rate, and adding
+            # ValueError still missed struct.error from an out-of-range
+            # gain (struct.error is not a ValueError), raw TimeoutError
+            # from a server that accepts TCP but never sends DeviceInfo,
+            # and ProtocolError from an over-large body size. Each leaked
+            # a connected socket. Guaranteeing teardown matters more than
+            # naming the cause, so this catches everything and re-raises
+            # unchanged -- callers still see the original exception, and
+            # the specific handling that turns known errors into good
+            # messages is untouched.
             self._running = False
             self._teardown()
             raise

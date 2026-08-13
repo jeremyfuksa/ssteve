@@ -364,6 +364,17 @@ def _resolve_spyserver_target(
         )
         return None
 
+    # Matches SpyServerSettings' own bounds. Config-sourced gain is
+    # already validated by Pydantic; the flag path bypassed it, where -1
+    # raised a bare struct.error and 99999 went silently onto the wire.
+    if args.gain is not None and not 0 <= args.gain <= 63:
+        log_event(
+            "error",
+            message=f"I can't set the gain to {args.gain}.",
+            suggested_action="Use a gain index between 0 and 63.",
+        )
+        return None
+
     if args.frequency is not None:
         frequency = args.frequency
         if not 0 <= frequency <= 4_294_967_295:

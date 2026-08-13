@@ -363,3 +363,55 @@ class TestFailureReporting:
 
         client.feed_tone()
         assert stops == []
+
+    @pytest.mark.parametrize(
+        ("name", "error"),
+        [
+            # An out-of-range gain packs badly. struct.error is NOT a
+            # ValueError, so the old (SpyServerError, ValueError) catch
+            # missed it entirely.
+            ("struct.error", __import__("struct").error("bad gain")),
+            # A server that accepts TCP but never sends DeviceInfo: the
+            # handshake loop reads until the socket timeout, and raw
+            # TimeoutError escapes.
+            ("TimeoutError", TimeoutError("timed out")),
+            # A header claiming an over-limit body size.
+            ("ProtocolError", None),
+        ],
+    )
+    def test_any_failure_after_connect_still_closes_the_client(self, name, error):
+        """Teardown must not depend on enumerating exception types.
+
+        Every one of these was measured escaping the old catch and leaking
+        a connected socket -- which holds one of the server's client slots
+        until the process dies.
+        """
+        if error is None:
+            from sstv_core.sdr.spyserver import protocol as p
+
+            error = p.ProtocolError("body size is over the limit")
+
+        class ExplodingClient(FakeClient):
+            def start_streaming(self, on_iq, gain: int = 0) -> None:
+                raise error
+
+        client = ExplodingClient()
+        src = _source(client)
+        with pytest.raises(type(error)):
+            src.start_input()
+        assert client.closed, f"{name} leaked a connected client"
+        assert not client.streaming
+
+    def test_a_failure_during_connect_still_closes_the_client(self):
+        """The same guarantee for a failure in connect() itself."""
+
+        class ExplodingClient(FakeClient):
+            def connect(self) -> None:
+                super().connect()
+                raise TimeoutError("timed out waiting for DeviceInfo")
+
+        client = ExplodingClient()
+        src = _source(client)
+        with pytest.raises(TimeoutError):
+            src.start_input()
+        assert client.closed

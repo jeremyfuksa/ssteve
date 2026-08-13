@@ -260,6 +260,27 @@ class TestArgumentHandling:
     def test_unreadable_port_is_rejected(self):
         assert main(["decode", "--spyserver", "host:notaport"]) == 1
 
+    @pytest.mark.parametrize("gain", [-1, 64, 99999])
+    def test_out_of_range_gain_is_rejected(self, gain, caplog):
+        """SpyServerSettings bounds gain 0-63; the flag path must too.
+
+        Unvalidated, -1 raised a bare struct.error (which is NOT a
+        ValueError) and 99999 went silently onto the wire as garbage.
+        """
+        with caplog.at_level("INFO"):
+            rc = main(["decode", "--spyserver", "host", "--gain", str(gain)])
+        assert rc == 1
+        assert "0 and 63" in caplog.text
+
+    @pytest.mark.parametrize("gain", [0, 63])
+    def test_gain_at_the_boundaries_is_accepted(self, gain, patched_source, tmp_path):
+        built = patched_source(_FakeSource())
+        main(
+            ["decode", "--spyserver", "host", "--gain", str(gain), "--timeout", "1",
+             "--output", str(tmp_path / "o.png")]
+        )
+        assert built["kwargs"]["gain"] == gain
+
     def test_band_selects_the_preset_frequency(self, patched_source, tmp_path):
         built = patched_source(_FakeSource())
         main(

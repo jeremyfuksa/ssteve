@@ -8,6 +8,7 @@ otherwise look like success.
 
 from __future__ import annotations
 
+import socket
 import struct
 import threading
 import time
@@ -549,3 +550,74 @@ class TestRetuneRace:
         with pytest.raises(SpyServerError, match="7171000|7,171,000|different"):
             client.tune(14_230_000)
         client.wait_for_stream_end(timeout=10.0)
+
+
+class TestStall:
+    """spec.md:269 -- stall is 'Connected but silent past timeout'.
+
+    It must stay distinct from a disconnect. spec.md:278 keeps three gap
+    causes apart because they point at different fixes; collapsing stall
+    into "the stream dropped" sends an operator whose antenna relay hung
+    off to debug a network that is fine.
+    """
+
+    class TimingOutSocket(FakeSocket):
+        """A server that holds the connection open and says nothing.
+
+        What a real socket does once settimeout() is set: recv raises
+        socket.timeout rather than parking forever or returning b"".
+        """
+
+        def recv(self, size: int) -> bytes:
+            with self._lock:
+                if self._pos < len(self._script):
+                    chunk = self._script[self._pos : self._pos + size]
+                    self._pos += len(chunk)
+                    return chunk
+            raise socket.timeout("timed out")
+
+    def _client(self, sock):
+        client = SpyServerClient("example.test", sock_factory=lambda: sock)
+        client._sock = sock
+        client._device_info = p.parse_device_info(_device_info_bytes())
+        client._client_sync = p.parse_client_sync(_client_sync_bytes())
+        client._decimation_stage = 0
+        return client
+
+    def test_stall_is_reported_in_the_specs_words(self):
+        payload = struct.pack("<2h", 1000, 0)
+        sock = self.TimingOutSocket(_message(p.MSG_INT16_IQ, payload, seq=0))
+        client = self._client(sock)
+
+        client.start_streaming(lambda _: None)
+        client.wait_for_stream_end(timeout=5.0)
+
+        assert client.stream_error is not None
+        message = client.stream_error.message
+        assert "silent" in message.lower(), message
+        assert "dropped" not in message.lower(), (
+            "a stall must not be reported as a dropped stream"
+        )
+        assert client.stream_error.suggested_action
+
+    def test_stall_and_disconnect_are_different_errors(self):
+        """The distinction spec.md:278 requires, asserted directly."""
+        payload = struct.pack("<2h", 1000, 0)
+
+        stalled = self._client(
+            self.TimingOutSocket(_message(p.MSG_INT16_IQ, payload, seq=0))
+        )
+        stalled.start_streaming(lambda _: None)
+        stalled.wait_for_stream_end(timeout=5.0)
+
+        dropped = self._client(FakeSocket(_message(p.MSG_INT16_IQ, payload, seq=0)))
+        dropped.start_streaming(lambda _: None)
+        dropped.wait_for_stream_end(timeout=5.0)
+
+        assert stalled.stream_error is not None
+        assert dropped.stream_error is not None
+        assert stalled.stream_error.message != dropped.stream_error.message
+        assert (
+            stalled.stream_error.suggested_action
+            != dropped.stream_error.suggested_action
+        ), "the two point at different fixes, so they need different advice"

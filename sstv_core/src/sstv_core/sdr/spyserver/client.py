@@ -369,6 +369,23 @@ class SpyServerClient:
             )
         except SpyServerError as exc:
             self.stream_error = exc
+        except TimeoutError:
+            # A stall, not a disconnect: the connection is fine and the
+            # server simply stopped sending. socket.timeout IS an
+            # OSError, so without this branch it fell into the handler
+            # below and read as "the stream dropped" -- sending an
+            # operator whose antenna relay or upstream SDR hung off to
+            # debug a network that was never the problem. spec.md:278
+            # keeps the gap causes distinct because the fixes differ.
+            self.stream_error = SpyServerError(
+                "Connected but silent past the timeout -- the server "
+                "stopped sending.",
+                suggested_action=(
+                    "The connection is fine, so check the radio end: the "
+                    "receiver, the antenna, and whether the server still "
+                    "has a device attached."
+                ),
+            )
         except (OSError, p.ProtocolError) as exc:
             self.stream_error = SpyServerError(
                 f"The stream dropped: {exc}",
