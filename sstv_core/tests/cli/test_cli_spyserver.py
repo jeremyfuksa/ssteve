@@ -82,6 +82,161 @@ def patched_source(monkeypatch):
     return install
 
 
+@pytest.fixture
+def stored_config(monkeypatch, tmp_path):
+    """Point the CLI at a real throwaway database and seed spyserver values.
+
+    A real SQLite file, not a stubbed ConfigManager: the point of the
+    fallback is that values an operator saved once are actually read back,
+    and only a real round trip proves that.
+    """
+
+    def install(**values):
+        from sstv_core.database import init_database
+
+        db_path = tmp_path / "config.db"
+        monkeypatch.setenv("SSTVE_DB_PATH", str(db_path))
+        _engine, factory = init_database(db_path=db_path)
+        if values:
+            from sstv_core.config.manager import ConfigManager
+
+            session = factory()
+            ConfigManager(session).update(
+                {f"spyserver.{k}": v for k, v in values.items()}
+            )
+            session.commit()
+            session.close()
+        return db_path
+
+    return install
+
+
+class TestConfigFallback:
+    """Flags win; stored settings fill the gaps."""
+
+    def test_flags_only_with_no_config_still_works(
+        self, patched_source, monkeypatch, tmp_path
+    ):
+        """A fully-specified command must not depend on a database at all."""
+        monkeypatch.setenv("SSTVE_DB_PATH", str(tmp_path / "absent.db"))
+        built = patched_source(_FakeSource())
+        main(
+            ["decode", "--spyserver", "flag.host:1234", "--band", "40m",
+             "--gain", "7", "--timeout", "1"]
+        )
+        assert built["kwargs"]["host"] == "flag.host"
+        assert built["kwargs"]["port"] == 1234
+        assert built["kwargs"]["frequency_hz"] == 7_171_000
+        assert built["kwargs"]["gain"] == 7
+
+    def test_config_only_with_no_flags(self, patched_source, stored_config):
+        """The whole point: stop retyping the host and frequency."""
+        stored_config(
+            host="stored.example.test",
+            port=6000,
+            frequency_hz=21_340_000,
+            gain=12,
+            stall_timeout_sec=9.5,
+        )
+        built = patched_source(_FakeSource())
+        rc = main(["decode", "--timeout", "1"])
+        assert rc == 2, "should have run and heard nothing, not failed to start"
+        assert built["kwargs"]["host"] == "stored.example.test"
+        assert built["kwargs"]["port"] == 6000
+        assert built["kwargs"]["frequency_hz"] == 21_340_000
+        assert built["kwargs"]["gain"] == 12
+
+    def test_stall_timeout_reaches_the_source(self, patched_source, stored_config):
+        """It has no flag, so config is its only route out of dead-config land."""
+        stored_config(host="stored.example.test", stall_timeout_sec=11.25)
+        built = patched_source(_FakeSource())
+        main(["decode", "--timeout", "1"])
+        assert built["kwargs"]["stall_timeout_sec"] == 11.25
+
+    def test_flag_overrides_a_differing_stored_value(
+        self, patched_source, stored_config
+    ):
+        stored_config(
+            host="stored.example.test", port=6000, frequency_hz=21_340_000, gain=12
+        )
+        built = patched_source(_FakeSource())
+        main(
+            ["decode", "--spyserver", "flag.host:1234", "--frequency", "14233000",
+             "--gain", "3", "--timeout", "1"]
+        )
+        assert built["kwargs"]["host"] == "flag.host"
+        assert built["kwargs"]["port"] == 1234
+        assert built["kwargs"]["frequency_hz"] == 14_233_000
+        assert built["kwargs"]["gain"] == 3
+
+    def test_band_flag_overrides_stored_frequency(
+        self, patched_source, stored_config
+    ):
+        stored_config(host="stored.example.test", frequency_hz=21_340_000)
+        built = patched_source(_FakeSource())
+        main(["decode", "--band", "80m", "--timeout", "1"])
+        assert built["kwargs"]["frequency_hz"] == 3_845_000
+
+    def test_spyserver_flag_with_no_host_anywhere_is_an_honest_error(
+        self, stored_config, caplog
+    ):
+        """--band asked for the SDR path, so name the missing piece."""
+        stored_config()  # database exists, host still ""
+        with caplog.at_level("INFO"):
+            rc = main(["decode", "--band", "20m", "--timeout", "1"])
+        assert rc == 1
+        assert "which server" in caplog.text
+
+    def test_bare_decode_with_nothing_stored_asks_for_a_source(
+        self, stored_config, caplog
+    ):
+        """No source named and none saved: the sound-card error is the
+        accurate one -- --device and --file are the likelier intent, and
+        it now mentions --spyserver too."""
+        stored_config()
+        with caplog.at_level("INFO"):
+            rc = main(["decode", "--timeout", "1"])
+        assert rc == 1
+        assert "--device" in caplog.text
+        assert "spyserver.host" in caplog.text
+
+    def test_gain_alone_does_not_hijack_a_file_decode(self, caplog):
+        """--gain is too weak a signal of intent to reroute a --file run.
+
+        It briefly did, which sent every --file test down the SpyServer
+        path. The file decode still runs; the ignored flag is announced.
+        """
+        with caplog.at_level("INFO"):
+            rc = main(["decode", "--file", "nope.wav", "--gain", "5"])
+        assert rc == 1
+        assert "couldn't find" in caplog.text, "should be a file error, not an SDR one"
+        assert "only applies to --spyserver" in caplog.text
+
+    def test_unreadable_config_does_not_kill_a_flag_only_run(
+        self, patched_source, monkeypatch, tmp_path
+    ):
+        """A broken database must not stop a command that needs nothing from it."""
+        # importlib, not `import sstv_core.cli.main as cli_main`: this
+        # module does `from sstv_core.cli.main import main`, so that form
+        # binds the FUNCTION and the setattr lands on the wrong object.
+        import importlib
+
+        cli_main = importlib.import_module("sstv_core.cli.main")
+
+        def explode(*a, **k):
+            raise RuntimeError("database is on fire")
+
+        monkeypatch.setattr(cli_main, "_read_spyserver_config", explode)
+        built = patched_source(_FakeSource())
+        rc = main(
+            ["decode", "--spyserver", "flag.host:1234", "--band", "40m",
+             "--gain", "7", "--timeout", "1"]
+        )
+        assert rc == 2, "flag-only run must survive a config read failure"
+        assert built["kwargs"]["host"] == "flag.host"
+        assert built["kwargs"]["frequency_hz"] == 7_171_000
+
+
 class TestArgumentHandling:
     def test_spyserver_and_device_together_is_an_error(self):
         assert main(["decode", "--spyserver", "host:5555", "--device", "ca_Test"]) == 1
