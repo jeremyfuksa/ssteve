@@ -354,6 +354,47 @@ class TestFailureReporting:
         assert "dropped" in caplog.text
         assert "didn't hear" not in caplog.text
 
+    def test_a_stall_is_not_reported_as_a_network_problem(
+        self, patched_source, caplog
+    ):
+        """A stall's three lines must not contradict each other.
+
+        The hardcoded detail asserted "that's a network problem" for
+        every failure. Once stall became distinct, a stalled stream said
+        the network both was and wasn't at fault -- the same collapse
+        spec.md:278 exists to prevent, one layer up in the reporting.
+        """
+        from sstv_core.sdr.spyserver.client import StreamStalledError
+
+        patched_source(_FakeSource(stream_failure=StreamStalledError()))
+        with caplog.at_level("INFO"):
+            rc = main(["decode", "--spyserver", "host", "--timeout", "1"])
+
+        assert rc == 1
+        assert "network problem" not in caplog.text, (
+            "a stall is not a network problem -- the connection is fine"
+        )
+        # The load-bearing part survives: still explicitly not a weak signal.
+        assert "weak signal" in caplog.text
+        assert "silent" in caplog.text.lower()
+
+    def test_a_disconnect_still_names_the_network(self, patched_source, caplog):
+        """The original detail was right for this case; keep it."""
+        patched_source(
+            _FakeSource(
+                stream_failure=SpyServerError(
+                    "The stream dropped: the server closed the connection.",
+                    suggested_action="Check the network, then try again.",
+                )
+            )
+        )
+        with caplog.at_level("INFO"):
+            rc = main(["decode", "--spyserver", "host", "--timeout", "1"])
+
+        assert rc == 1
+        assert "network problem" in caplog.text
+        assert "weak signal" in caplog.text
+
     def test_quiet_band_is_exit_2(self, patched_source, caplog):
         """With the stream healthy, no signal really is exit 2."""
         patched_source(_FakeSource())

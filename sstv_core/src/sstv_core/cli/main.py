@@ -426,7 +426,7 @@ def _decode_spyserver(args: argparse.Namespace) -> int:
 
     from sstv_core.decode.rx_manager import RXManager
     from sstv_core.sdr import source as source_module
-    from sstv_core.sdr.spyserver.client import SpyServerError
+    from sstv_core.sdr.spyserver.client import SpyServerError, StreamStalledError
 
     stored = _spyserver_settings()
     target = _resolve_spyserver_target(args, stored)
@@ -508,10 +508,24 @@ def _decode_spyserver(args: argparse.Namespace) -> int:
     # quiet band -- the one thing this command must never do.
     failure = src.stream_failure
     if failure is not None:
+        # The detail follows the failure. It was hardcoded to "that's a
+        # network problem" back when that was true of every stream
+        # failure; once stall became its own case, a stalled stream got
+        # three lines that contradicted each other -- the network both
+        # was and wasn't at fault. Both branches still say "not a weak
+        # signal", which is the confusion the ordering rule above exists
+        # to prevent.
+        if isinstance(failure, StreamStalledError):
+            detail = (
+                "The stream went silent -- that's the source or the radio, "
+                "not a weak signal."
+            )
+        else:
+            detail = "The stream failed -- that's a network problem, not a weak signal."
         log_event(
             "error",
             message=failure.message,
-            detail="The stream failed -- that's a network problem, not a weak signal.",
+            detail=detail,
             suggested_action=failure.suggested_action,
         )
         if result is None:

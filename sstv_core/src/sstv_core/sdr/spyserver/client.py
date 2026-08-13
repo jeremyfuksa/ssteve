@@ -45,6 +45,26 @@ class SpyServerError(Exception):
         self.suggested_action = suggested_action
 
 
+class StreamStalledError(SpyServerError):
+    """The server held the connection open and stopped sending.
+
+    Public and typed so the reporting layer can tell a stall from a
+    disconnect without matching on message text. spec.md:278 keeps the
+    gap causes distinct because they point at different fixes, and a
+    caller that can only see "some SpyServerError" is forced to flatten
+    them again -- which is exactly what the CLI did.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Connected but silent past the timeout -- the server stopped sending.",
+            suggested_action=(
+                "The connection is fine, so check the radio end: the receiver, "
+                "the antenna, and whether the server still has a device attached."
+            ),
+        )
+
+
 class _PeerClosedError(SpyServerError):
     """The server hung up.
 
@@ -377,15 +397,7 @@ class SpyServerClient:
             # operator whose antenna relay or upstream SDR hung off to
             # debug a network that was never the problem. spec.md:278
             # keeps the gap causes distinct because the fixes differ.
-            self.stream_error = SpyServerError(
-                "Connected but silent past the timeout -- the server "
-                "stopped sending.",
-                suggested_action=(
-                    "The connection is fine, so check the radio end: the "
-                    "receiver, the antenna, and whether the server still "
-                    "has a device attached."
-                ),
-            )
+            self.stream_error = StreamStalledError()
         except (OSError, p.ProtocolError) as exc:
             self.stream_error = SpyServerError(
                 f"The stream dropped: {exc}",
