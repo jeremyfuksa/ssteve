@@ -12,7 +12,11 @@ import time
 import numpy as np
 import pytest
 
-from sstv_core.sdr.demodulator import TARGET_RATE, USBDemodulator
+from sstv_core.sdr.demodulator import (
+    SLOWER_THAN_REALTIME_RATES,
+    TARGET_RATE,
+    USBDemodulator,
+)
 
 
 # Every rate a SpyServer can actually hand us, generated rather than listed.
@@ -40,11 +44,8 @@ HARDWARE_RATES = sorted(
 # Rates whose ratio to 48 kHz is not a whole number.
 FRACTIONAL_RATES = [2_048_000, 2_000_000, 100_000]
 
-# 312500 Hz and 625000 Hz factor as 2**k * 5**7 and 2**k * 5**6, so no front
-# decimation can remove the factors of five that force up=96. Both demodulate
-# correctly but run slower than realtime; see the report. Excluded from the
-# throughput budget deliberately rather than by oversight.
-SLOWER_THAN_REALTIME_RATES = (312_500, 625_000)
+# Excluded from the throughput budget deliberately rather than by oversight.
+# The rationale lives with the constant in demodulator.py.
 _REALTIME_RATES = [r for r in HARDWARE_RATES if r not in SLOWER_THAN_REALTIME_RATES]
 
 

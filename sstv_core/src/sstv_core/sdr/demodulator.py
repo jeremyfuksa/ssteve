@@ -14,6 +14,18 @@ from scipy import signal
 
 TARGET_RATE = 48000
 
+# Rates that demodulate correctly but cannot keep up with realtime.
+#
+# 312500 and 625000 factor as 2**k * 5**7 and 2**k * 5**6, so no front
+# decimation removes the factors of five that force the resampler to up=96.
+# The working rate that follows is enormous and the throughput lands around
+# 0.5x realtime -- correct output, arriving too late to be of use.
+#
+# A source choosing an IQ rate should skip these and take another stage: on
+# every device that offers them, faster stages exist above and below. Exposed
+# here rather than in the source so the two cannot drift apart.
+SLOWER_THAN_REALTIME_RATES = (312_500, 625_000)
+
 # The selective bandpass wants a low sample rate to be cheap and sharp, so the
 # wideband front stage decimates down to at most this before it runs.
 _MAX_INTERMEDIATE_RATE = 400_000

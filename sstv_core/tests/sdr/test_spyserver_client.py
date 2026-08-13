@@ -15,6 +15,7 @@ import time
 import numpy as np
 import pytest
 
+from sstv_core.sdr.demodulator import SLOWER_THAN_REALTIME_RATES
 from sstv_core.sdr.spyserver import protocol as p
 from sstv_core.sdr.spyserver.client import (
     SpyServerClient,
@@ -266,21 +267,49 @@ class TestTuning:
 
 class TestDecimationChoice:
     def test_picks_the_lowest_stage_at_or_above_the_target_rate(self):
+        """An Airspy R2: lowest rate wins, since it costs the least."""
         stage, rate = choose_decimation_stage(
             maximum_sample_rate=10_000_000, decimation_stage_count=9, min_iq_decimation=0
         )
         assert rate >= 48000
         assert 0 <= stage <= 9
-        # Lower rate means less network traffic and less CPU, so the lowest
-        # qualifying stage wins. 10 MHz >> 7 == 78125; >> 8 == 39062 (< 48000).
-        assert rate == 78125
-        assert stage == 7
+        # 10 MHz >> 7 == 78125; >> 8 == 39062, below the 48 kHz floor. There
+        # is no divisibility requirement -- 78125 is not a multiple of 48000
+        # and the demodulator resamples it anyway.
+        assert (stage, rate) == (7, 78125)
 
     def test_honors_the_minimum_stage(self):
         stage, _ = choose_decimation_stage(
             maximum_sample_rate=10_000_000, decimation_stage_count=9, min_iq_decimation=3
         )
         assert stage >= 3
+
+    def test_skips_rates_that_cannot_run_in_realtime(self):
+        """625000 and 312500 demodulate correctly but at ~0.5x realtime.
+
+        This fixture stops at stage 5, so the lowest rate by arithmetic
+        alone is 312500. Taking it would hand the decoder correct audio
+        too late to use, so the next fastest stage wins instead.
+        """
+        stage, rate = choose_decimation_stage(
+            maximum_sample_rate=10_000_000, decimation_stage_count=5, min_iq_decimation=0
+        )
+        assert rate not in SLOWER_THAN_REALTIME_RATES
+        assert (stage, rate) == (3, 1_250_000)
+
+    def test_never_returns_a_too_slow_rate_for_any_airspy_r2_stage_count(self):
+        for stages in range(10):
+            try:
+                _, rate = choose_decimation_stage(
+                    maximum_sample_rate=10_000_000,
+                    decimation_stage_count=stages,
+                    min_iq_decimation=0,
+                )
+            except SpyServerError:
+                continue
+            assert rate not in SLOWER_THAN_REALTIME_RATES, (
+                f"stage_count={stages} selected {rate} Hz"
+            )
 
     def test_raises_when_no_stage_can_reach_the_target(self):
         with pytest.raises(SpyServerError, match="rate"):

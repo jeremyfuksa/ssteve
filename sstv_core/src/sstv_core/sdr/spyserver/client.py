@@ -16,6 +16,7 @@ from typing import Protocol
 
 import numpy as np
 
+from sstv_core.sdr.demodulator import SLOWER_THAN_REALTIME_RATES, TARGET_RATE
 from sstv_core.sdr.spyserver import protocol as p
 
 logger = logging.getLogger(__name__)
@@ -32,7 +33,7 @@ class _Socket(Protocol):
 
 #: The demodulator cannot resample upward into a passband that isn't
 #: there, so this is a hard floor on the IQ rate we can accept.
-MINIMUM_IQ_RATE = 48000
+MINIMUM_IQ_RATE = TARGET_RATE
 
 
 class SpyServerError(Exception):
@@ -65,27 +66,31 @@ def choose_decimation_stage(
     min_iq_decimation: int,
     target_rate: int = MINIMUM_IQ_RATE,
 ) -> tuple[int, int]:
-    """Pick the lowest IQ rate that still clears the audio rate.
+    """Pick the lowest IQ rate the demodulator can keep up with.
 
     Decimation is a stage index, not a rate:
     rate = maximum_sample_rate / (1 << stage). A lower rate means less
     data over the network and less CPU, so the lowest qualifying stage
-    wins. The demodulator resamples whatever arrives down to 48 kHz, so
-    the rate need not divide evenly -- it only has to be high enough to
-    still contain the passband.
+    wins. The demodulator resamples fractionally, so the rate need not
+    divide evenly into the audio rate -- it only has to clear the floor
+    and not be one of the rates that runs slower than realtime.
     """
     best: tuple[int, int] | None = None
     for stage in range(min_iq_decimation, decimation_stage_count + 1):
         rate = maximum_sample_rate >> stage
         if rate < target_rate:
             continue
+        if rate in SLOWER_THAN_REALTIME_RATES:
+            # Correct output arriving at half speed is no use on a live
+            # signal. Every device offering these has a faster stage.
+            continue
         if best is None or rate < best[1]:
             best = (stage, rate)
     if best is None:
         raise SpyServerError(
-            f"This server's sample rate never gets above {target_rate} Hz "
-            f"(its maximum is {maximum_sample_rate} Hz), so there's no usable "
-            f"rate for me to work with.",
+            f"I couldn't find a usable sample rate on this server "
+            f"(its maximum is {maximum_sample_rate} Hz, and I need at least "
+            f"{target_rate} Hz).",
             suggested_action="Try a different SpyServer.",
         )
     return best
