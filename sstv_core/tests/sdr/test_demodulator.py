@@ -7,19 +7,45 @@ at +1500 Hz from center must land at 1500 Hz in the audio; a tone at
 
 from __future__ import annotations
 
+import time
+
 import numpy as np
 import pytest
 
 from sstv_core.sdr.demodulator import TARGET_RATE, USBDemodulator
 
 
-# Rates a SpyServer can actually hand us. SpyServer offers max_rate >> stage,
-# so this spans the integer-ratio rates and the fractional ones that halving
-# can never reduce to a multiple of 48 kHz (2.048 MHz, 2.0 MHz).
-HARDWARE_RATES = [192_000, 480_000, 960_000, 2_048_000, 2_000_000, 2_400_000, 6_000_000]
+# Every rate a SpyServer can actually hand us, generated rather than listed.
+# The server advertises a maximum and the client picks a decimation stage, so
+# the selectable rates are max_rate >> stage -- not just the stage-0 rates. An
+# earlier hand-picked list held only stage-0 rates and therefore could not see
+# a whole class of failure that lives on the lower stages.
+_MAX_RATES = [
+    10_000_000,  # Airspy R2
+    6_000_000,  # Airspy Mini
+    2_400_000,  # RTL-SDR
+    2_048_000,  # RTL-SDR, alternate crystal
+    2_000_000,  # SDRplay
+    768_000,  # Airspy HF+
+]
+HARDWARE_RATES = sorted(
+    {
+        rate
+        for maximum in _MAX_RATES
+        for stage in range(8)
+        if (rate := maximum >> stage) >= 4 * TARGET_RATE
+    }
+)
 
 # Rates whose ratio to 48 kHz is not a whole number.
 FRACTIONAL_RATES = [2_048_000, 2_000_000, 100_000]
+
+# 312500 Hz and 625000 Hz factor as 2**k * 5**7 and 2**k * 5**6, so no front
+# decimation can remove the factors of five that force up=96. Both demodulate
+# correctly but run slower than realtime; see the report. Excluded from the
+# throughput budget deliberately rather than by oversight.
+SLOWER_THAN_REALTIME_RATES = (312_500, 625_000)
+_REALTIME_RATES = [r for r in HARDWARE_RATES if r not in SLOWER_THAN_REALTIME_RATES]
 
 
 def _tone_iq(offset_hz: float, rate: int, duration: float = 0.25) -> np.ndarray:
@@ -219,6 +245,26 @@ class TestBlockContinuity:
         rms = float(np.sqrt(np.mean(whole[:n] ** 2)))
         error = float(np.sqrt(np.mean((whole[:n] - blocked[:n]) ** 2)))
         assert error < rms * 0.01
+
+
+class TestThroughput:
+    """A demodulator that cannot keep up starves the ring buffer.
+
+    That failure looks like a dead band rather than a slow CPU, so the budget
+    is asserted rather than left to be noticed on the air.
+    """
+
+    @pytest.mark.parametrize("rate", _REALTIME_RATES)
+    def test_demodulation_beats_realtime(self, rate: int):
+        seconds = 0.1
+        iq = _tone_iq(1500.0, rate, duration=seconds)
+        demod = USBDemodulator(input_rate=rate)
+
+        start = time.perf_counter()
+        demod.demodulate(iq)
+        elapsed = time.perf_counter() - start
+
+        assert elapsed < seconds
 
 
 class TestFractionalRates:

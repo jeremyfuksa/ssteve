@@ -42,9 +42,10 @@ def _plan_stages(input_rate: int, output_rate: int) -> tuple[int, int, int, int]
         if input_rate % front:
             continue
         intermediate = input_rate // front
-        if front > 1 and not (
-            4 * output_rate <= intermediate <= _MAX_INTERMEDIATE_RATE
-        ):
+        # The window applies to every candidate, front == 1 included. Exempting
+        # the undecimated case let it win on a small `up` and leave the narrow
+        # filter at megahertz rates, which is the one thing this must not do.
+        if not (4 * output_rate <= intermediate <= _MAX_INTERMEDIATE_RATE):
             continue
         divisor = gcd(intermediate, output_rate)
         candidates.append(
@@ -129,7 +130,13 @@ class USBDemodulator:
         # Stage 3 -- rational resample from the intermediate rate to the output
         # rate: zero-stuff by `up`, filter, keep every `down`th sample.
         if (self._up, self._down) != (1, 1):
-            resample_taps = 128 * self._up + 1
+            # Fixed length, not a multiple of `up`. Stage 2 already narrowed the
+            # signal to bandwidth_hz, so the images this has to suppress sit
+            # hundreds of kHz away and 257 taps clears them by three orders of
+            # magnitude. Scaling with `up` instead would put 12289 taps at a
+            # 30 MHz working rate for a 625 kHz input -- 87x slower than
+            # realtime, for no benefit.
+            resample_taps = 257
             self._resample_taps: np.ndarray | None = (
                 signal.firwin(
                     resample_taps,
