@@ -36,8 +36,6 @@ class USBDemodulator:
                 f"{output_rate} Hz audio rate."
             )
         self._input_rate = input_rate
-        self._output_rate = output_rate
-        self._bandwidth_hz = bandwidth_hz
         self._decimation = input_rate // output_rate
         # A complex bandpass over 0..bandwidth_hz, built by shifting a real
         # lowpass prototype up by half the bandwidth. Real taps would be
@@ -64,6 +62,14 @@ class USBDemodulator:
             * np.exp(2j * np.pi * (bandwidth_hz / 2.0) * centering / input_rate)
         ).astype(np.complex128)
 
+        # The runtime hands us one network block at a time, so a continuous
+        # signal arrives split across calls. Both the filter delay line and
+        # the mixer phase have to survive between them: a fresh filter state
+        # would ring in at every block head, and a mixer restarting at t=0
+        # would step the local-oscillator phase at every seam.
+        self._zi: np.ndarray = np.zeros(num_taps - 1, dtype=np.complex128)
+        self._sample_index = 0
+
     @property
     def decimation(self) -> int:
         return self._decimation
@@ -75,19 +81,27 @@ class USBDemodulator:
 
         # Shift the wanted signal down so the passband starts at DC. For USB
         # the audio sits just above the tuned frequency, so shifting by
-        # offset_hz places that content at baseband.
+        # offset_hz places that content at baseband. The time base continues
+        # from the running sample count so the oscillator stays phase-
+        # continuous across block boundaries.
         if offset_hz:
-            t = np.arange(len(iq)) / self._input_rate
+            t = (
+                np.arange(self._sample_index, self._sample_index + len(iq))
+                / self._input_rate
+            )
             iq = iq * np.exp(-2j * np.pi * offset_hz * t)
+        self._sample_index += len(iq)
 
         # Complex bandpass: keeps the upper sideband, rejects the lower.
-        filtered = signal.lfilter(self._taps, [1.0], iq)
+        filtered, self._zi = signal.lfilter(self._taps, [1.0], iq, zi=self._zi)
         decimated = filtered[:: self._decimation]
 
         # Real part of the analytic signal is the demodulated audio.
         audio = np.real(decimated).astype(np.float32)
 
-        peak = float(np.max(np.abs(audio))) if len(audio) else 0.0
-        if peak > 1.0:
-            audio = audio / peak
-        return np.asarray(audio, dtype=np.float32)
+        # Clamp rather than normalize. Dividing each block by its own peak is
+        # uncontrolled AGC: every block gets a different gain. SSTV maps
+        # brightness to frequency, so block-varying gain distorts the image.
+        # Clamping keeps relative amplitude intact across blocks and only
+        # touches samples that are genuinely over unity.
+        return np.asarray(np.clip(audio, -1.0, 1.0), dtype=np.float32)
