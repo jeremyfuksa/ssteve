@@ -95,6 +95,17 @@ class ExperimentalSettings(BaseModel):
     telemetry_export_enabled: bool = False
 
 
+class SpyServerSettings(BaseModel):
+    """SpyServer connection settings from advanced_settings_json."""
+
+    host: str = ""
+    port: int = Field(default=5555, ge=1, le=65535)
+    # The protocol carries frequency as a uint32 in Hz.
+    frequency_hz: int = Field(default=14_230_000, ge=0, le=4_294_967_295)
+    gain: int = Field(default=0, ge=0, le=63)
+    stall_timeout_sec: float = Field(default=5.0, gt=0.0, le=120.0)
+
+
 class AdvancedSettings(BaseModel):
     """Complete advanced settings structure (stored as JSON in DB)."""
 
@@ -104,6 +115,7 @@ class AdvancedSettings(BaseModel):
     audio: AudioAdvancedSettings = Field(default_factory=AudioAdvancedSettings)
     accessibility: AccessibilitySettings = Field(default_factory=AccessibilitySettings)
     experimental: ExperimentalSettings = Field(default_factory=ExperimentalSettings)
+    spyserver: SpyServerSettings = Field(default_factory=SpyServerSettings)
 
 
 class ConfigValidation(BaseModel):

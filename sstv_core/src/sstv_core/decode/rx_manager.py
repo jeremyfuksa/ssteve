@@ -20,12 +20,11 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Protocol
 
 import numpy as np
 
 from sstv_core.audio.bandpass_filter import BandpassPresets, SSTVBandpassFilter
-from sstv_core.audio.stream_manager import AudioStreamManager
 from sstv_core.decode.correlation_vis_detector import (
     CorrelationVISConfig,
     CorrelationVISDetector,
@@ -39,6 +38,22 @@ from sstv_core.decode.scottie_decoder import ScottieS1Config, ScottieS1Decoder
 from sstv_core.decode.sync_detector import SyncPulseDetector
 
 logger = logging.getLogger(__name__)
+
+
+class AudioSource(Protocol):
+    """The input surface RXManager actually uses.
+
+    Deliberately narrower than AudioStreamManager: SpyServerSource is a
+    network IQ source that implements exactly these four methods so the
+    decode stack works unchanged. The annotation was AudioStreamManager
+    until the SDR path shipped, which made every SDR caller a type error
+    for a compatibility the seam was built to provide.
+    """
+
+    def start_input(self, device_index: int | None = ...) -> None: ...
+    def stop_input(self) -> None: ...
+    def get_input_buffer(self) -> Any: ...
+    def get_input_levels(self) -> Any: ...
 
 
 class RXState(Enum):
@@ -88,8 +103,8 @@ class RXManager:
 
     def __init__(
         self,
-        stream_manager: AudioStreamManager,
-        sample_rate: int = 48000,
+        stream_manager: AudioSource,
+        sample_rate: int | None = None,
         save_directory: Path | None = None,
         slant_correction: bool = False,
         auto_afc: bool = True,
@@ -98,7 +113,16 @@ class RXManager:
         squelch_threshold_db: float = -40.0,
     ):
         self._stream_manager = stream_manager
-        self._sample_rate = sample_rate
+        stream_rate = getattr(stream_manager, "sample_rate", None)
+        if sample_rate is None:
+            self._sample_rate = stream_rate if stream_rate is not None else 48000
+        else:
+            if stream_rate is not None and stream_rate != sample_rate:
+                raise ValueError(
+                    f"Conflicting sample rate: I was given {sample_rate} Hz but the "
+                    f"audio source runs at {stream_rate} Hz. They have to match."
+                )
+            self._sample_rate = sample_rate
         self._save_directory = save_directory or Path.home() / "sstv_images"
         self._state = RXState.IDLE
         self._progress_callback: Callable | None = None
@@ -113,7 +137,7 @@ class RXManager:
         # templates were the wrong length for any other rate -- the same class
         # of bug that made the decoders unusable at 11025 and 22050 Hz.
         self._correlation_vis = CorrelationVISDetector(
-            CorrelationVISConfig(sample_rate=sample_rate)
+            CorrelationVISConfig(sample_rate=self._sample_rate)
         )
 
         # Hough slant corrector, opt-in. See the decision recorded at the call
@@ -134,7 +158,7 @@ class RXManager:
         # Rolling window of RAW input for on-demand analysis (session-based
         # mode detection). ~15s covers >30 scanlines of every mode.
         self._analysis_window = np.zeros(0, dtype=np.float32)
-        self._analysis_window_samples = sample_rate * 15
+        self._analysis_window_samples = self._sample_rate * 15
 
         # AFC: correct the video frequency mapping by the measured sync
         # offset. Manual override is auto_afc=False -- auto-only AFC is

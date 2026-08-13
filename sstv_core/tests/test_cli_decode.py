@@ -22,11 +22,40 @@ def make_args(**overrides) -> argparse.Namespace:
         "mode": "ScottieS1",
         "device": None,
         "file": None,
+        "spyserver": None,
+        "band": None,
+        "frequency": None,
+        "gain": None,
         "timeout": 300,
         "output": None,
     }
     defaults.update(overrides)
     return argparse.Namespace(**defaults)
+
+
+def test_make_args_matches_the_real_parser_defaults():
+    """The hand-built Namespace has to match the real parser.
+
+    These tests call cmd_decode() directly, so a flag added to the parser
+    but not here makes every one of them die of AttributeError instead of
+    testing anything. Adding --spyserver did exactly that.
+
+    Defaults are compared too, not just names: --gain's default later
+    changed from 0 to None (0 is a legal gain, so it can't mean "unset"),
+    and a names-only check let that divergence route real --file runs down
+    the SpyServer path instead.
+    """
+    from sstv_core.cli.main import create_parser
+
+    parsed = vars(create_parser().parse_args(["decode"]))
+    for key in ("command", "verbose", "json"):
+        parsed.pop(key, None)
+    # mode is the one deliberate difference: the parser defaults it to
+    # None (auto-detect) while these tests pin a mode to decode with.
+    parsed.pop("mode")
+    defaults = vars(make_args())
+    defaults.pop("mode")
+    assert parsed == defaults
 
 
 class TestDecodeFromFile:

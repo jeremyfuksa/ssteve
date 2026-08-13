@@ -18,6 +18,24 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# SSTV calling frequencies per band (PRODUCT.md "Push-button band access").
+# HF only: FM demodulation is out of scope, so the 2m entries -- 145.500
+# simplex and the 145.800 ARISS downlink -- are deliberately absent rather
+# than tuned and mis-demodulated as SSB. 20m resolves to 14.230; the other
+# common 20m frequency, 14.233, is reachable via --frequency.
+BAND_PRESETS: dict[str, int] = {
+    "80m": 3_845_000,
+    "40m": 7_171_000,
+    "20m": 14_230_000,
+    "15m": 21_340_000,
+    "10m": 28_680_000,
+}
+
+#: Bands we can name but not demodulate. Called out by name so the error
+#: says why, instead of "unknown band" for a frequency an operator can
+#: plainly see is a real SSTV calling frequency.
+FM_BANDS: frozenset[str] = frozenset({"2m"})
+
 
 class JSONFormatter(logging.Formatter):
     """JSON log formatter for screen reader accessibility."""
@@ -97,11 +115,49 @@ def cmd_decode(args: argparse.Namespace) -> int:
     """
     from sstv_core.audio.device_manager import AudioDeviceManager
 
+    # A tuning flag means the SDR path even without --spyserver itself:
+    # --band and --frequency are only meaningful there, so decoding from a
+    # sound card instead would be a lie. --gain deliberately does NOT
+    # count -- it's a SpyServer setting, but on its own it's too weak a
+    # signal of intent to hijack a --file or --device run.
+    wants_spyserver = bool(
+        args.spyserver or args.band is not None or args.frequency is not None
+    )
+    if wants_spyserver:
+        if args.file or args.device:
+            log_event(
+                "error",
+                message="I can only listen to one source at a time.",
+                suggested_action="Use --spyserver, --device, or --file -- not more than one.",
+            )
+            return 1
+        return _decode_spyserver(args)
+
+    if args.gain is not None and (args.file or args.device):
+        # Saying so beats silently ignoring it: --gain is a SpyServer
+        # setting and does nothing on a file or sound-card decode.
+        log_event(
+            "warning",
+            message="--gain only applies to --spyserver, so I'm ignoring it here.",
+        )
+
     if args.file:
         return _decode_file(args)
 
     if not args.device:
-        log_event("error", message="I need either --device or --file to decode")
+        # No source named at all. A stored SpyServer host is a real
+        # answer to "listen to what?", so use it before complaining --
+        # that's the point of saving one.
+        if _spyserver_settings()["host"]:
+            return _decode_spyserver(args)
+        log_event(
+            "error",
+            message="I need either --device or --file to decode",
+            suggested_action=(
+                "Pass --device, --file, or --spyserver -- or save a server "
+                "as spyserver.host in your settings."
+            ),
+        )
         return 1
 
     log_event("decode_start", mode=args.mode, device=args.device)
@@ -199,6 +255,299 @@ def _decode_live(args: argparse.Namespace, device_index: int | None) -> int:
     if args.output and Path(result) != output:
         shutil.move(str(result), str(output))
 
+    log_event("decode_complete", output_path=str(output))
+    return 0
+
+
+#: What SpyServerSettings gives us when there's no database to read.
+#: Mirrors the model's own defaults (config/manager.py SpyServerSettings);
+#: an empty host means "the operator hasn't saved one".
+_SPYSERVER_CONFIG_DEFAULTS: dict[str, Any] = {
+    "host": "",
+    "port": 5555,
+    "frequency_hz": 14_230_000,
+    "gain": 0,
+    "stall_timeout_sec": 5.0,
+}
+
+
+def _read_spyserver_config() -> dict[str, Any]:
+    """Read stored SpyServer settings, following DSPManager's pattern.
+
+    Synchronous where DSPManager._read_decode_config is async -- the CLI
+    has no event loop -- but the same shape: a defaults dict, one
+    ConfigManager, dot-notation keys, and the documented defaults when
+    there's no usable database.
+    """
+    import os
+
+    from sstv_core.config.manager import ConfigManager
+    from sstv_core.database import init_database
+
+    _engine, session_factory = init_database(db_path=os.environ.get("SSTVE_DB_PATH"))
+    with session_factory() as db_session:
+        config = ConfigManager(db_session)
+        return {
+            key: config.get(f"spyserver.{key}", default)
+            for key, default in _SPYSERVER_CONFIG_DEFAULTS.items()
+        }
+
+
+def _spyserver_settings() -> dict[str, Any]:
+    """Return stored settings, or the defaults when the database can't be read.
+
+    A config failure must never stop a command that specified everything
+    on the command line, so this never raises -- callers that genuinely
+    need a stored value (an absent --spyserver) fail later, on the empty
+    host, with an error that names the real problem.
+    """
+    try:
+        return _read_spyserver_config()
+    except Exception as exc:
+        logger.warning("Couldn't read stored SpyServer settings: %s", exc)
+        return dict(_SPYSERVER_CONFIG_DEFAULTS)
+
+
+def _resolve_spyserver_target(
+    args: argparse.Namespace, stored: dict[str, Any]
+) -> tuple[str, int, int] | None:
+    """Resolve the target to (host, port, frequency_hz).
+
+    Flags always win; stored settings fill whatever a flag didn't specify,
+    so an operator who saved a host and frequency once can just run
+    `decode`. Returns None when nothing names a target we can tune; the
+    error has already been logged.
+
+    --band is validated here rather than with argparse `choices=`, which
+    aborts the process with SystemExit(2) before main() can return an exit
+    code or say anything in our voice.
+    """
+    if args.spyserver:
+        host, _, port_text = args.spyserver.partition(":")
+        if not host:
+            log_event(
+                "error",
+                message="I need a hostname for --spyserver.",
+                suggested_action="Pass --spyserver host or --spyserver host:port.",
+            )
+            return None
+        try:
+            port = int(port_text) if port_text else int(stored["port"])
+        except ValueError:
+            log_event(
+                "error",
+                message=f"I couldn't read '{port_text}' as a port number.",
+                suggested_action=(
+                    "Use --spyserver host:port, for example sdr.example.com:5555."
+                ),
+            )
+            return None
+    else:
+        host = str(stored["host"])
+        port = int(stored["port"])
+        if not host:
+            log_event(
+                "error",
+                message="I don't know which server to connect to.",
+                suggested_action=(
+                    "Pass --spyserver host:port, or save one in your settings "
+                    "as spyserver.host."
+                ),
+            )
+            return None
+
+    if not 1 <= port <= 65535:
+        log_event(
+            "error",
+            message=f"Port {port} is outside the range I can connect to.",
+            suggested_action="Use a port between 1 and 65535.",
+        )
+        return None
+
+    # Matches SpyServerSettings' own bounds. Config-sourced gain is
+    # already validated by Pydantic; the flag path bypassed it, where -1
+    # raised a bare struct.error and 99999 went silently onto the wire.
+    if args.gain is not None and not 0 <= args.gain <= 63:
+        log_event(
+            "error",
+            message=f"I can't set the gain to {args.gain}.",
+            suggested_action="Use a gain index between 0 and 63.",
+        )
+        return None
+
+    if args.frequency is not None:
+        frequency = args.frequency
+        if not 0 <= frequency <= 4_294_967_295:
+            log_event(
+                "error",
+                message=f"I can't tune {frequency} Hz.",
+                suggested_action="Give --frequency in Hz, for example 14230000 for 20m.",
+            )
+            return None
+    elif args.band is not None:
+        band = args.band.lower()
+        if band in FM_BANDS:
+            log_event(
+                "error",
+                message=f"I can't listen on {args.band} yet -- it's FM, and I only demodulate SSB.",
+                suggested_action=(
+                    "Use an HF band for now: " + ", ".join(sorted(BAND_PRESETS)) + "."
+                ),
+            )
+            return None
+        if band not in BAND_PRESETS:
+            log_event(
+                "error",
+                message=f"I don't know a calling frequency for '{args.band}'.",
+                suggested_action=(
+                    "Try one of: "
+                    + ", ".join(sorted(BAND_PRESETS))
+                    + " -- or give --frequency in Hz."
+                ),
+            )
+            return None
+        frequency = BAND_PRESETS[band]
+    else:
+        # Neither flag given: the stored frequency, whose own default is
+        # the 20m calling frequency.
+        frequency = int(stored["frequency_hz"])
+
+    return host, port, frequency
+
+
+def _decode_spyserver(args: argparse.Namespace) -> int:
+    """Decode from a SpyServer network stream.
+
+    Same RXManager the sound-card path uses: the source is swapped, the
+    decode stack is not.
+    """
+    import asyncio
+    import shutil
+
+    from sstv_core.decode.rx_manager import RXManager
+    from sstv_core.sdr import source as source_module
+    from sstv_core.sdr.spyserver.client import SpyServerError, StreamStalledError
+
+    stored = _spyserver_settings()
+    target = _resolve_spyserver_target(args, stored)
+    if target is None:
+        return 1
+    host, port, frequency = target
+
+    # --gain defaults to 0, which is also a legal gain, so "was it given?"
+    # can't be read off the value. Only an explicit flag overrides config.
+    gain = args.gain if args.gain is not None else int(stored["gain"])
+
+    save_directory = (
+        Path(args.output).resolve().parent if args.output else Path.home() / "sstv_images"
+    )
+    save_directory.mkdir(parents=True, exist_ok=True)
+
+    # Looked up on the module at call time, not bound at import: the tests
+    # substitute SpyServerSource here, and a direct import would give them
+    # the real class and a real socket.
+    src = source_module.SpyServerSource(
+        host=host,
+        port=port,
+        frequency_hz=frequency,
+        gain=gain,
+        # No flag for this one -- config is its only route in.
+        stall_timeout_sec=float(stored["stall_timeout_sec"]),
+    )
+    log_event(
+        "decode_start",
+        mode=args.mode,
+        spyserver=f"{host}:{port}",
+        frequency_hz=frequency,
+        gain=gain,
+    )
+
+    # RXManager starts the source itself. Starting it here too would build
+    # a second ring buffer that RXManager then replaces -- the audio would
+    # land in the discarded one.
+    rx = RXManager(stream_manager=src, save_directory=save_directory)
+
+    def on_progress(progress) -> None:
+        log_event(
+            "rx_progress",
+            state=progress.state.value,
+            mode=progress.mode,
+            line=progress.current_line,
+            total=progress.total_lines,
+            percent=round(progress.percent_complete, 1),
+        )
+
+    rx.set_progress_callback(on_progress)
+
+    result: Path | None = None
+    try:
+        result = asyncio.run(
+            rx.receive(mode=args.mode, timeout_sec=float(args.timeout), save_image=True)
+        )
+    except SpyServerError as exc:
+        log_event("error", message=exc.message, suggested_action=exc.suggested_action)
+        return 1
+    except KeyboardInterrupt:
+        log_event("decode_stopped", message="Stopped by user.")
+        return 130
+    except Exception as exc:
+        log_event(
+            "error",
+            message="The SpyServer decode failed.",
+            detail=str(exc),
+            suggested_action="Check the server address and frequency, then try again.",
+        )
+        return 1
+    finally:
+        # RXManager stops the source in its own finally block; this covers
+        # a failure before receive() got that far. stop_input never raises.
+        src.stop_input()
+
+    # Order matters: a stream that dropped mid-decode also returns None.
+    # Checking `result is None` first would report a dead TCP link as a
+    # quiet band -- the one thing this command must never do.
+    failure = src.stream_failure
+    if failure is not None:
+        # The detail follows the failure. It was hardcoded to "that's a
+        # network problem" back when that was true of every stream
+        # failure; once stall became its own case, a stalled stream got
+        # three lines that contradicted each other -- the network both
+        # was and wasn't at fault. Both branches still say "not a weak
+        # signal", which is the confusion the ordering rule above exists
+        # to prevent.
+        if isinstance(failure, StreamStalledError):
+            detail = (
+                "The stream went silent -- that's the source or the radio, "
+                "not a weak signal."
+            )
+        else:
+            detail = "The stream failed -- that's a network problem, not a weak signal."
+        log_event(
+            "error",
+            message=failure.message,
+            detail=detail,
+            suggested_action=failure.suggested_action,
+        )
+        if result is None:
+            return 1
+    if src.dropped_frames:
+        log_event(
+            "stream_warning",
+            message=f"The server dropped {src.dropped_frames} frames.",
+            suggested_action="Any gaps in the image came from the stream, not the signal.",
+        )
+
+    if result is None:
+        log_event(
+            "error",
+            message="I didn't hear an SSTV transmission before the timeout.",
+            suggested_action="Check the frequency and the band, or raise --timeout.",
+        )
+        return 2
+
+    output = Path(args.output) if args.output else Path(result)
+    if args.output and Path(result) != output:
+        shutil.move(str(result), str(output))
     log_event("decode_complete", output_path=str(output))
     return 0
 
@@ -601,6 +950,12 @@ Examples:
   # Decode with specific mode
   sstv-cli decode --mode ScottieS1 --device "USB Audio"
 
+  # Decode from a SpyServer instead of a sound card (HF/SSB only)
+  sstv-cli decode --spyserver sdr.example.com:5555 --band 20m
+
+  # With a server saved in settings, no flags are needed at all
+  sstv-cli decode
+
   # Encode and transmit image
   sstv-cli encode --image photo.jpg --mode ScottieS1 --device "USB Audio"
 
@@ -648,6 +1003,36 @@ Examples:
         type=str,
         default=None,
         help="Decode a WAV file instead of listening to a device",
+    )
+    decode_parser.add_argument(
+        "--spyserver",
+        type=str,
+        default=None,
+        help="SpyServer to receive from, as host or host:port. Use instead of "
+        "--device or --file. Defaults to the stored spyserver.host/port "
+        "settings, so a saved server needs no flag at all.",
+    )
+    decode_parser.add_argument(
+        "--band",
+        type=str,
+        default=None,
+        help="Tune --spyserver to a band's SSTV calling frequency: "
+        + ", ".join(sorted(BAND_PRESETS)),
+    )
+    decode_parser.add_argument(
+        "--frequency",
+        type=int,
+        default=None,
+        help="Tune --spyserver to this frequency in Hz (overrides --band). "
+        "Defaults to the stored spyserver.frequency_hz setting "
+        "(14230000, the 20m calling frequency, until you change it).",
+    )
+    decode_parser.add_argument(
+        "--gain",
+        type=int,
+        default=None,
+        help="SpyServer RF/IF gain index, 0-63 (default: the stored "
+        "spyserver.gain setting, or 0)",
     )
     decode_parser.add_argument(
         "--timeout",
