@@ -41,11 +41,20 @@ class _FakeSource:
 
     sample_rate = 48000
 
-    def __init__(self, start_error=None, stream_failure=None, dropped_frames=0):
+    def __init__(
+        self,
+        start_error=None,
+        stream_failure=None,
+        dropped_frames=0,
+        rms=0.0,
+        resolved_gain=6,
+    ):
         self._start_error = start_error
         self.stream_failure = stream_failure
         self.dropped_frames = dropped_frames
         self.stopped = False
+        self._rms = rms
+        self.resolved_gain = resolved_gain
 
     def start_input(self, device_index=None, callback=None, buffer_size=480000):
         if self._start_error is not None:
@@ -60,7 +69,7 @@ class _FakeSource:
         return AudioRingBuffer(max_samples=48000)
 
     def get_input_levels(self):
-        return SimpleNamespace(rms=0.0, peak=0.0, is_clipping=False)
+        return SimpleNamespace(rms=self._rms, peak=self._rms * 4, is_clipping=False)
 
 
 @pytest.fixture
@@ -261,16 +270,20 @@ class TestArgumentHandling:
         assert main(["decode", "--spyserver", "host:notaport"]) == 1
 
     @pytest.mark.parametrize("gain", [-1, 64, 99999])
-    def test_out_of_range_gain_is_rejected(self, gain, caplog):
-        """SpyServerSettings bounds gain 0-63; the flag path must too.
+    def test_obviously_bogus_gain_is_rejected_before_connecting(self, gain, caplog):
+        """A cheap pre-flight check, kept so nonsense costs no round trip.
 
         Unvalidated, -1 raised a bare struct.error (which is NOT a
-        ValueError) and 99999 went silently onto the wire as garbage.
+        ValueError) and 99999 went silently onto the wire as garbage. The
+        AUTHORITATIVE range is the device's own maximum_gain_index and is
+        enforced after connect -- see tests/sdr/test_source.py -- so this
+        message deliberately no longer promises a fixed 0-63.
         """
         with caplog.at_level("INFO"):
             rc = main(["decode", "--spyserver", "host", "--gain", str(gain)])
         assert rc == 1
-        assert "0 and 63" in caplog.text
+        assert f"can't set the gain to {gain}" in caplog.text
+        assert "once I connect" in caplog.text
 
     @pytest.mark.parametrize("gain", [0, 63])
     def test_gain_at_the_boundaries_is_accepted(self, gain, patched_source, tmp_path):
@@ -413,3 +426,108 @@ class TestFailureReporting:
         with caplog.at_level("INFO"):
             main(["decode", "--spyserver", "host", "--timeout", "1"])
         assert "42" in caplog.text
+
+
+class TestListeningLevel:
+    """A quiet band and a deaf receiver must not read the same (issue #90).
+
+    The RMS figures are the ones measured on an Airspy HF+ against WWV
+    10 MHz: 0.000231 at the old default gain of 0, and 0.004929/0.006439
+    at the gains that produced a clean carrier.
+    """
+
+    def test_the_listening_level_is_reported_while_listening(
+        self, patched_source, caplog
+    ):
+        """Otherwise the operator watches a blank terminal for 120 seconds."""
+        patched_source(_FakeSource(rms=0.006439))
+        with caplog.at_level("INFO"):
+            main(["decode", "--spyserver", "host", "--timeout", "1"])
+        assert "listening_level" in caplog.text
+
+    def test_a_deaf_receiver_reads_as_silent_not_as_a_bare_number(
+        self, patched_source, caplog
+    ):
+        """"0.000231" tells a human nothing; "silent" does."""
+        patched_source(_FakeSource(rms=0.000231))
+        with caplog.at_level("INFO"):
+            main(["decode", "--spyserver", "host", "--timeout", "1"])
+        assert "'signal_level': 'silent'" in caplog.text
+
+    def test_a_working_level_reads_as_healthy(self, patched_source, caplog):
+        patched_source(_FakeSource(rms=0.006439))
+        with caplog.at_level("INFO"):
+            main(["decode", "--spyserver", "host", "--timeout", "1"])
+        assert "'signal_level': 'healthy'" in caplog.text
+
+    def test_the_level_event_does_not_shadow_the_log_severity(self):
+        """`level` is JSONFormatter's own key for INFO/WARNING/ERROR.
+
+        Naming the audio reading `level` overwrote the severity with
+        "silent", so a screen reader parsing severity got the wrong field.
+        """
+        import json
+        import logging
+
+        from sstv_core.cli.main import JSONFormatter
+
+        record = logging.LogRecord(
+            "t", logging.INFO, "p", 1, "listening_level", None, None
+        )
+        record.event_type = "listening_level"
+        record.data = {"signal_level": "silent", "rms": 0.000231}
+        payload = json.loads(JSONFormatter().format(record))
+        assert payload["level"] == "INFO"
+        assert payload["signal_level"] == "silent"
+
+    def test_a_deaf_timeout_says_so_and_points_at_the_gain(
+        self, patched_source, caplog
+    ):
+        """The message that cost the live session its first decode."""
+        patched_source(_FakeSource(rms=0.000231, resolved_gain=6))
+        with caplog.at_level("INFO"):
+            rc = main(["decode", "--spyserver", "host", "--timeout", "1"])
+        assert rc == 2
+        assert "barely heard anything at all" in caplog.text
+        assert "deaf receiver rather than a quiet band" in caplog.text
+        assert "Raise --gain" in caplog.text
+        assert "I used 6" in caplog.text
+
+    def test_a_healthy_timeout_keeps_the_original_wording(
+        self, patched_source, caplog
+    ):
+        """When the level is fine, "raise the gain" would be bad advice."""
+        patched_source(_FakeSource(rms=0.006439))
+        with caplog.at_level("INFO"):
+            rc = main(["decode", "--spyserver", "host", "--timeout", "1"])
+        assert rc == 2
+        assert "didn't hear an SSTV transmission before the timeout." in caplog.text
+        assert "Raise --gain" not in caplog.text
+        assert "Check the frequency and the band" in caplog.text
+
+    def test_the_two_timeouts_do_not_read_the_same(self, patched_source, caplog):
+        """The whole defect in one assertion."""
+        patched_source(_FakeSource(rms=0.000231))
+        with caplog.at_level("INFO"):
+            main(["decode", "--spyserver", "host", "--timeout", "1"])
+        deaf = caplog.text
+        caplog.clear()
+
+        patched_source(_FakeSource(rms=0.006439))
+        with caplog.at_level("INFO"):
+            main(["decode", "--spyserver", "host", "--timeout", "1"])
+        healthy = caplog.text
+
+        assert deaf != healthy
+
+    def test_the_heartbeat_does_not_spam_a_long_listen(self, patched_source, caplog):
+        """A line per progress callback is unusable over ten minutes.
+
+        The loop polls every 100 ms, so an unthrottled report would emit
+        ~10 lines a second. The heartbeat is on a 5-second timer.
+        """
+        patched_source(_FakeSource(rms=0.006439))
+        with caplog.at_level("INFO"):
+            main(["decode", "--spyserver", "host", "--timeout", "3"])
+        emitted = caplog.text.count("listening_level")
+        assert emitted <= 3, f"{emitted} level lines in a 3-second listen is spam"

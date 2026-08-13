@@ -12,7 +12,15 @@ def test_defaults_are_sane():
     s = SpyServerSettings()
     assert s.port == 5555
     assert s.stall_timeout_sec == 5.0
-    assert s.gain == 0
+    # None, not 0: 0 is a legal gain AND a deaf one on the Airspy HF+
+    # (issue #90), so "unset" needs its own value. The source derives a
+    # gain from the device's maximum_gain_index when nobody chose.
+    assert s.gain is None
+
+
+def test_gain_zero_is_still_storable_and_distinct_from_unset():
+    """An operator who really wants 0 must be able to say so."""
+    assert SpyServerSettings(gain=0).gain == 0
 
 
 def test_registered_on_advanced_settings():

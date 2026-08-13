@@ -173,6 +173,104 @@ class TestAudioFlow:
         assert client.gain == 12
         src.stop_input()
 
+
+class _DeviceInfoClient(FakeClient):
+    """A client that reports DeviceInfo, like a real server does.
+
+    maximum_gain_index 8 and gain_stage_count 0 are the Airspy HF+'s
+    actual numbers (issue #90) -- deliberately non-correlating, because
+    code that infers "no gain control" from 0 stages would refuse a radio
+    that plainly has 8 gain steps.
+    """
+
+    def __init__(self, maximum_gain_index: int = 8, **kwargs) -> None:
+        super().__init__(**kwargs)
+        from sstv_core.sdr.spyserver.protocol import DeviceInfo
+
+        self.device_info = DeviceInfo(
+            device_type=1,
+            device_serial=0,
+            maximum_sample_rate=768_000,
+            maximum_bandwidth=768_000,
+            decimation_stage_count=8,
+            gain_stage_count=0,
+            maximum_gain_index=maximum_gain_index,
+            minimum_frequency=0,
+            maximum_frequency=31_000_000,
+            resolution=16,
+            min_iq_decimation=1,
+            forced_iq_format=1,
+        )
+
+
+class TestGainAgainstTheDeviceLadder:
+    """Gain is per-device, and only DeviceInfo knows the range (issue #90)."""
+
+    def test_default_is_three_quarters_of_the_ladder_not_zero(self):
+        """The old default of 0 measured as deaf on real hardware.
+
+        On this device 0.75 * 8 == 6, which is the gain that produced a
+        clean 155:1 WWV carrier in the issue's sweep.
+        """
+        client = _DeviceInfoClient(maximum_gain_index=8)
+        src = SpyServerSource("example.test", client=client)
+        src.start_input()
+        assert client.gain == 6
+        assert src.resolved_gain == 6
+        src.stop_input()
+
+    def test_an_explicit_gain_still_wins(self):
+        client = _DeviceInfoClient(maximum_gain_index=8)
+        src = SpyServerSource("example.test", gain=3, client=client)
+        src.start_input()
+        assert client.gain == 3
+        src.stop_input()
+
+    def test_zero_is_honored_when_the_operator_actually_asks_for_it(self):
+        """0 is a legal gain. Only "unset" gets derived."""
+        client = _DeviceInfoClient(maximum_gain_index=8)
+        src = SpyServerSource("example.test", gain=0, client=client)
+        src.start_input()
+        assert client.gain == 0
+        src.stop_input()
+
+    def test_gain_above_the_device_maximum_is_refused_naming_the_real_range(self):
+        """20 passed the old device-agnostic 0-63 check on an 8-step radio."""
+        client = _DeviceInfoClient(maximum_gain_index=8)
+        src = SpyServerSource("example.test", gain=20, client=client)
+        with pytest.raises(SpyServerError) as excinfo:
+            src.start_input()
+        assert "0 to 8" in excinfo.value.message
+        assert "0 and 8" in excinfo.value.suggested_action
+        # Never started streaming with a gain the device can't take.
+        assert client.gain is None
+
+    def test_a_refused_gain_still_tears_the_connection_down(self):
+        """Otherwise a rejected gain leaks a socket and a server slot."""
+        client = _DeviceInfoClient(maximum_gain_index=8)
+        src = SpyServerSource("example.test", gain=20, client=client)
+        with pytest.raises(SpyServerError):
+            src.start_input()
+        assert client.closed
+
+    @pytest.mark.parametrize(
+        "maximum,expected", [(8, 6), (63, 47), (1, 1), (2, 2), (0, 0)]
+    )
+    def test_the_derived_default_never_exceeds_the_ladder(self, maximum, expected):
+        """Rounding, not truncation: a 1-step ladder must not collapse to 0."""
+        from sstv_core.sdr.source import default_gain_for
+
+        assert default_gain_for(maximum) == expected
+        assert default_gain_for(maximum) <= max(maximum, 0)
+
+    def test_a_client_without_device_info_still_runs(self):
+        """A server that never reported DeviceInfo leaves nothing to check."""
+        client = FakeClient()  # no device_info attribute at all
+        src = SpyServerSource("example.test", gain=12, client=client)
+        src.start_input()
+        assert client.gain == 12
+        src.stop_input()
+
     def test_stop_input_closes_the_client(self):
         client = FakeClient()
         src = _source(client)

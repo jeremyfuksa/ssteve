@@ -1,9 +1,14 @@
 """SpyServer client: connection, tuning, and IQ streaming.
 
 The protocol has no error message type. A rejected or out-of-range tune
-is never reported -- the server clamps or ignores it and the next
-ClientSync reflects reality. So every setting is verified against the
-sync that follows it, and never assumed.
+is never reported -- the server clamps or ignores it, and a ClientSync
+is the only evidence of what actually happened.
+
+Real firmware will not always give us even that. The Airspy HF+ answers
+IQ_FREQUENCY with nothing at all (issue #89), so tuning cannot wait on a
+confirmation and still work. Requests are sent and checked against
+whatever sync later arrives: a contradicting one is a real mistune and
+gets reported, while silence is normal and is not an error.
 """
 
 from __future__ import annotations
@@ -29,11 +34,16 @@ class _Socket(Protocol):
     def sendall(self, data: bytes, /) -> None: ...
     def recv(self, size: int, /) -> bytes: ...
     def settimeout(self, timeout: float | None, /) -> None: ...
+    def shutdown(self, how: int, /) -> None: ...
     def close(self) -> None: ...
 
 #: The demodulator cannot resample upward into a passband that isn't
 #: there, so this is a hard floor on the IQ rate we can accept.
 MINIMUM_IQ_RATE = TARGET_RATE
+
+#: Slack for a stream to end on its own before its socket is torn down,
+#: and for a woken thread to finish unwinding after it is.
+_GRACE_SEC = 1.0
 
 
 class SpyServerError(Exception):
@@ -135,14 +145,12 @@ class SpyServerClient:
         port: int = p.DEFAULT_PORT,
         client_name: str = "SSTeVe",
         stall_timeout_sec: float = 5.0,
-        tune_timeout_sec: float = 5.0,
         sock_factory: Callable[[], _Socket] | None = None,
     ) -> None:
         self._host = host
         self._port = port
         self._client_name = client_name
         self._stall_timeout_sec = stall_timeout_sec
-        self._tune_timeout_sec = tune_timeout_sec
         self._sock_factory = sock_factory or (
             lambda: socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         )
@@ -156,13 +164,13 @@ class SpyServerClient:
         self._stop = threading.Event()
         self._ended = threading.Event()
         self._last_sequence: int | None = None
-        # Retune handshake. Once the receive thread starts it owns the
-        # socket's read side, so tune() publishes a request here and waits
-        # for the loop to hand back the ClientSync it saw.
+        # The frequency most recently asked for and not yet seen echoed
+        # back. Checked against each arriving ClientSync; see tune().
         self._tune_lock = threading.Lock()
         self._tune_pending: int | None = None
-        self._tune_seen: p.ClientSync | None = None
-        self._tune_answered = threading.Event()
+        # Whether any sync has arrived since the pending tune was sent.
+        # Without it a stale sync would be mistaken for an answer.
+        self._tune_answered = False
         self.dropped_frames = 0
         self.stream_error: SpyServerError | None = None
 
@@ -246,23 +254,30 @@ class SpyServerClient:
                 suggested_action="Try a server running a current SpyServer build.",
             )
 
-    def _verify_tuned(self, sync: p.ClientSync, frequency_hz: int) -> None:
-        """Reject a tune the server silently clamped."""
-        actual = sync.iq_center_frequency
-        if actual != frequency_hz:
-            raise SpyServerError(
-                f"I asked for {frequency_hz} Hz but the server put me on {actual} Hz.",
-                suggested_action=(
-                    "This server may be locked to one frequency by its owner."
-                ),
-            )
+    def _mistune_error(self, requested: int, actual: int) -> SpyServerError:
+        return SpyServerError(
+            f"I asked for {requested} Hz but the server put me on {actual} Hz.",
+            suggested_action=(
+                "This server may be locked to one frequency by its owner."
+            ),
+        )
 
     def tune(self, frequency_hz: int) -> None:
+        """Ask the server for a frequency. Does not wait for confirmation.
+
+        Real firmware (Airspy HF+, issue #89) sends no ClientSync in
+        answer to IQ_FREQUENCY -- not idle, not streaming. It sends one
+        only when streaming is first enabled. Blocking on a confirmation
+        this server never sends made tuning impossible, so the request is
+        fire-and-return and the check moves to whatever sync does arrive.
+        """
         sync = self._client_sync
         if sync is None:
             raise SpyServerError(
                 "I'm not connected yet.", suggested_action="Connect first."
             )
+        # The range check needs no cooperation from the server, so it is
+        # still an immediate error rather than a deferred one.
         low, high = sync.minimum_iq_center_frequency, sync.maximum_iq_center_frequency
         if not (low <= frequency_hz <= high):
             raise SpyServerError(
@@ -271,53 +286,12 @@ class SpyServerClient:
                 suggested_action=f"Pick a frequency between {low} and {high} Hz.",
             )
 
-        # While streaming, the receive thread is the only reader. Register
-        # the request before sending so the reply cannot arrive first.
-        if self._streaming:
-            with self._tune_lock:
-                self._tune_pending = frequency_hz
-                self._tune_seen = None
-                self._tune_answered.clear()
-            self._send(p.build_set_setting(p.SETTING_IQ_FREQUENCY, frequency_hz))
-            if not self._tune_answered.wait(self._tune_timeout_sec):
-                with self._tune_lock:
-                    self._tune_pending = None
-                raise SpyServerError(
-                    f"I asked for {frequency_hz} Hz but the server didn't confirm "
-                    f"the change.",
-                    suggested_action=(
-                        "Check the connection is still up, then try tuning again."
-                    ),
-                )
-            with self._tune_lock:
-                seen = self._tune_seen
-                self._tune_pending = None
-            if seen is None:
-                # The loop ended before any ClientSync arrived, so it woke
-                # us on its way out. Unverified is not tuned.
-                raise SpyServerError(
-                    f"I asked for {frequency_hz} Hz but the stream ended before "
-                    f"the server confirmed the change.",
-                    suggested_action=(
-                        "Check the connection is still up, then try tuning again."
-                    ),
-                )
-            self._verify_tuned(seen, frequency_hz)
-            return
-
+        # Record before sending: while streaming the receive thread may see
+        # the answering sync before sendall() has even returned.
+        with self._tune_lock:
+            self._tune_pending = frequency_hz
+            self._tune_answered = False
         self._send(p.build_set_setting(p.SETTING_IQ_FREQUENCY, frequency_hz))
-        header, body = self._read_message()
-        if header.msg_type == p.MSG_CLIENT_SYNC:
-            self._client_sync = p.parse_client_sync(body)
-            self._verify_tuned(self._client_sync, frequency_hz)
-        else:
-            raise SpyServerError(
-                f"I asked for {frequency_hz} Hz but the server didn't confirm "
-                f"the change.",
-                suggested_action=(
-                    "Check the connection is still up, then try tuning again."
-                ),
-            )
 
     def _send(self, data: bytes) -> None:
         self._require_sock().sendall(data)
@@ -330,7 +304,14 @@ class SpyServerClient:
                 "I'm not connected yet.", suggested_action="Connect first."
             )
         self._on_iq = on_iq
-        self._send(p.build_set_setting(p.SETTING_IQ_FORMAT, p.FORMAT_INT16))
+        # INT16 has the dynamic range weak-signal HF work wants, but a
+        # server can pin the format and ignore the request -- the Airspy
+        # HF+ forces UINT8 and sends it regardless (issue #89). Ask for
+        # what we will actually receive. The receive loop dispatches on
+        # each message's own type either way, so this changes the request
+        # rather than the decoding.
+        iq_format = self._device_info.forced_iq_format or p.FORMAT_INT16
+        self._send(p.build_set_setting(p.SETTING_IQ_FORMAT, iq_format))
         self._send(p.build_set_setting(p.SETTING_IQ_DECIMATION, self._decimation_stage))
         self._send(p.build_set_setting(p.SETTING_STREAMING_MODE, p.STREAM_MODE_IQ_ONLY))
         self._send(p.build_set_setting(p.SETTING_GAIN, gain))
@@ -349,12 +330,58 @@ class SpyServerClient:
         self._thread.start()
 
     def _note_client_sync(self, body: bytes) -> None:
+        """Record a sync. A matching one settles any tune still pending.
+
+        This server batches syncs at stream start -- the stale frequency
+        first, then the current one (issue #89). Judging on the first
+        would call every such pair a mistune, so a match clears the
+        pending tune and anything else is left for _settle_pending_tune()
+        to rule on once the batch is over.
+        """
         sync = p.parse_client_sync(body)
         self._client_sync = sync
         with self._tune_lock:
-            if self._tune_pending is not None:
-                self._tune_seen = sync
-                self._tune_answered.set()
+            if self._tune_pending is None:
+                return
+            self._tune_answered = True
+            if sync.iq_center_frequency == self._tune_pending:
+                self._tune_pending = None
+
+    def _settle_pending_tune(self) -> None:
+        """Rule on a tune once the syncs have stopped arriving.
+
+        Called at the first IQ message after a sync, which is where the
+        batch ends. A frequency still pending here was contradicted by
+        every sync in it, so the server really did put us elsewhere.
+
+        A tune the server has not answered at all is left pending rather
+        than judged: this firmware usually says nothing (issue #89), and
+        the stale sync from before the request is no evidence about it.
+        """
+        with self._tune_lock:
+            pending = self._tune_pending
+            if pending is None or not self._tune_answered:
+                return
+            self._tune_pending = None
+            self._tune_answered = False
+            current = self._client_sync
+            if current is None or current.iq_center_frequency == pending:
+                return
+            mismatch = self._mistune_error(pending, current.iq_center_frequency)
+        # Reported like any other stream failure: tune() has long since
+        # returned, so there is no call left to raise out of.
+        logger.warning("SpyServer %s", mismatch.message)
+        self._report_stream_error(mismatch)
+
+    def _report_stream_error(self, error: SpyServerError) -> None:
+        """Keep the first failure reported, not the last.
+
+        A mistune is followed by the stream ending like any other, and
+        "the stream dropped" would otherwise overwrite the reason it
+        dropped. The first error is the diagnosis; the rest is fallout.
+        """
+        if self.stream_error is None:
+            self.stream_error = error
 
     def _receive_loop(self) -> None:
         try:
@@ -370,6 +397,9 @@ class SpyServerClient:
                     p.MSG_INT24_IQ,
                 ):
                     continue
+                # IQ resuming means the sync batch is over, so whatever
+                # tune is still outstanding can now be judged.
+                self._settle_pending_tune()
                 if self._last_sequence is not None:
                     gap = header.sequence_number - self._last_sequence - 1
                     if gap > 0:
@@ -383,12 +413,14 @@ class SpyServerClient:
             # Mid-stream this is a dropped stream, not the connect-time
             # "server closed" case. The distinction is what stops a lost
             # link from reading as a weak signal.
-            self.stream_error = SpyServerError(
-                "The stream dropped: the server closed the connection.",
-                suggested_action="Check the network, then try again.",
+            self._report_stream_error(
+                SpyServerError(
+                    "The stream dropped: the server closed the connection.",
+                    suggested_action="Check the network, then try again.",
+                )
             )
         except SpyServerError as exc:
-            self.stream_error = exc
+            self._report_stream_error(exc)
         except TimeoutError:
             # A stall, not a disconnect: the connection is fine and the
             # server simply stopped sending. socket.timeout IS an
@@ -397,15 +429,15 @@ class SpyServerClient:
             # operator whose antenna relay or upstream SDR hung off to
             # debug a network that was never the problem. spec.md:278
             # keeps the gap causes distinct because the fixes differ.
-            self.stream_error = StreamStalledError()
+            self._report_stream_error(StreamStalledError())
         except (OSError, p.ProtocolError) as exc:
-            self.stream_error = SpyServerError(
-                f"The stream dropped: {exc}",
-                suggested_action="Check the network, then try again.",
+            self._report_stream_error(
+                SpyServerError(
+                    f"The stream dropped: {exc}",
+                    suggested_action="Check the network, then try again.",
+                )
             )
         finally:
-            # Never leave tune() parked on a stream that has ended.
-            self._tune_answered.set()
             self._ended.set()
 
     def _deliver(self, iq: np.ndarray) -> None:
@@ -445,9 +477,14 @@ class SpyServerClient:
             # A reader parked in recv() never sees the stop flag, so close
             # the socket first to force it to return. Without this the
             # join times out and the thread outlives the call.
-            if not self._ended.wait(timeout=1.0):
+            if not self._ended.wait(timeout=_GRACE_SEC):
                 self._close_socket()
-            thread.join(timeout=2.0)
+            # shutdown() should wake the reader immediately, so this budget
+            # is slack rather than the expected wait. It still clears the
+            # socket timeout, because that is how long the thread needs to
+            # notice on its own if shutdown ever fails to interrupt it --
+            # a shorter budget turns that fallback into a false alarm.
+            thread.join(timeout=self._stall_timeout_sec + _GRACE_SEC)
             if thread.is_alive():
                 # Say so through state rather than dropping the handle and
                 # reporting success -- a leaked thread that looks stopped is
@@ -462,11 +499,25 @@ class SpyServerClient:
             self._thread = None
 
     def _close_socket(self) -> None:
-        if self._sock is not None:
-            try:
-                self._sock.close()
-            except OSError:
-                pass
+        sock = self._sock
+        if sock is None:
+            return
+        # shutdown() before close(), because the receive thread holds its
+        # own reference to this socket and close() alone does not reliably
+        # wake a reader already parked in recv() on macOS or BSD -- it
+        # stayed blocked until the 5s socket timeout fired, outliving the
+        # join and reporting a wedged thread that was merely slow (#89).
+        # shutdown() tears down the connection itself, so the parked call
+        # returns at once.
+        try:
+            sock.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            # Already closed, never connected, or the peer beat us to it.
+            pass
+        try:
+            sock.close()
+        except OSError:
+            pass
 
     def close(self) -> None:
         self.stop_streaming()

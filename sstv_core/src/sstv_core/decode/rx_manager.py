@@ -101,6 +101,11 @@ class RXProgress:
 class RXManager:
     """Manages complete SSTV reception pipeline."""
 
+    #: How often the listening phase reports input level while waiting for
+    #: VIS. Slow enough that a 10-minute listen stays readable, frequent
+    #: enough that a deaf receiver is obvious long before the timeout.
+    LISTENING_HEARTBEAT_SEC: ClassVar[float] = 5.0
+
     def __init__(
         self,
         stream_manager: AudioSource,
@@ -340,10 +345,32 @@ class RXManager:
                 # Wait for VIS detection using correlation detector
                 vis_start = time.time()
                 vis_result = None
+                # Heartbeat for the listening phase. Without it the only
+                # progress events in a 120-second listen were one before
+                # start_input (levels necessarily zero) and one at the
+                # timeout, so nothing downstream could tell a quiet band
+                # from a deaf receiver while there was still time to fix
+                # the gain (issue #90). Emitted on a timer, not per poll:
+                # the loop turns every 100 ms.
+                last_heartbeat = vis_start
 
                 while time.time() - vis_start < timeout_sec and not self._cancel_requested:
                     await asyncio.sleep(0.1)
                     samples = ring_buffer.pop(len(ring_buffer))
+
+                    # Before the len() guard and before the squelch
+                    # `continue` below, so the heartbeat keeps beating on
+                    # exactly the runs that need explaining: a silent
+                    # source produces no samples at all, and a squelched
+                    # one skips the rest of the body.
+                    now = time.time()
+                    if now - last_heartbeat >= self.LISTENING_HEARTBEAT_SEC:
+                        last_heartbeat = now
+                        self._emit_progress(
+                            None, 0.0, 0, 0, 0, now - start_time, 0,
+                            "Listening for signal...",
+                            audio_levels=self._stream_manager.get_input_levels(),
+                        )
 
                     if len(samples) > 0:
                         stream_position += len(samples)

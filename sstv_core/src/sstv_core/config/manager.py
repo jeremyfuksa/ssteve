@@ -102,7 +102,14 @@ class SpyServerSettings(BaseModel):
     port: int = Field(default=5555, ge=1, le=65535)
     # The protocol carries frequency as a uint32 in Hz.
     frequency_hz: int = Field(default=14_230_000, ge=0, le=4_294_967_295)
-    gain: int = Field(default=0, ge=0, le=63)
+    # None means "I haven't chosen one" -- the source then derives a gain
+    # from the device's own maximum_gain_index once connected. It has to be
+    # distinguishable from a deliberately saved 0, because 0 is both a
+    # legal gain and (on the Airspy HF+) a deaf one: the old default of 0
+    # made a working receiver look broken (issue #90). The upper bound
+    # stays a loose sanity check; the real per-device limit is enforced
+    # after connect.
+    gain: int | None = Field(default=None, ge=0, le=63)
     stall_timeout_sec: float = Field(default=5.0, gt=0.0, le=120.0)
 
 

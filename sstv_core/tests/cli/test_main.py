@@ -103,19 +103,33 @@ class TestArgumentParser:
 
         assert args.command == "list-devices"
 
-    def test_global_verbose_flag(self):
-        """Global --verbose flag works."""
-        parser = create_parser()
-        args = parser.parse_args(["--verbose", "list-devices"])
+    @pytest.mark.parametrize(
+        "argv",
+        [
+            ["--verbose", "list-devices"],
+            ["list-devices", "--verbose"],
+        ],
+    )
+    def test_global_verbose_flag_works_on_either_side_of_the_subcommand(self, argv):
+        """The flag is registered twice, so the parse lands in two dests.
 
-        assert args.verbose is True
+        Before/after the subcommand are separate arguments to argparse;
+        main() ORs them. Asserting on the merged value here would test
+        nothing, so this checks the pair the way main() reads it.
+        """
+        args = create_parser().parse_args(argv)
+        assert bool(args.verbose or args.verbose_global) is True
 
-    def test_global_json_flag(self):
-        """Global --json flag works."""
-        parser = create_parser()
-        args = parser.parse_args(["--json", "list-devices"])
-
-        assert args.json is True
+    @pytest.mark.parametrize(
+        "argv",
+        [
+            ["--json", "list-devices"],
+            ["list-devices", "--json"],
+        ],
+    )
+    def test_global_json_flag_works_on_either_side_of_the_subcommand(self, argv):
+        args = create_parser().parse_args(argv)
+        assert bool(args.json or args.json_global) is True
 
 
 class TestLogging:

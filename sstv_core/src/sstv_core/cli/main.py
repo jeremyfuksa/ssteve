@@ -37,6 +37,36 @@ BAND_PRESETS: dict[str, int] = {
 FM_BANDS: frozenset[str] = frozenset({"2m"})
 
 
+#: RMS below which the receiver is effectively deaf rather than merely on
+#: a quiet band. Measured on an Airspy HF+ against WWV 10 MHz (issue #90):
+#: gain 0 gave rms 0.000231 with a spectral peak/mean of 4.5 -- noise, with
+#: no carrier distinguishable in it -- while gain 6 gave rms 0.004929 and a
+#: clean 155:1 carrier. This sits an order of magnitude above the deaf
+#: reading and an order below the working noise floor, so neither
+#: measurement lands near the boundary.
+DEAF_RMS = 0.0005
+
+#: RMS at or above which the input level is not the problem. The working
+#: noise floor at a usable gain measured ~0.005; at or above that, "raise
+#: the gain" would be bad advice.
+HEALTHY_RMS = 0.005
+
+
+def describe_level(rms: float) -> str:
+    """Describe an RMS figure in one word.
+
+    A bare float doesn't tell an operator whether 0.0002 is fine. These
+    three words are the whole point of the listening heartbeat: they make
+    "I'm hearing nothing at all" different from "I'm hearing noise" at a
+    glance (issue #90).
+    """
+    if rms < DEAF_RMS:
+        return "silent"
+    if rms < HEALTHY_RMS:
+        return "faint"
+    return "healthy"
+
+
 class JSONFormatter(logging.Formatter):
     """JSON log formatter for screen reader accessibility."""
 
@@ -266,7 +296,9 @@ _SPYSERVER_CONFIG_DEFAULTS: dict[str, Any] = {
     "host": "",
     "port": 5555,
     "frequency_hz": 14_230_000,
-    "gain": 0,
+    # None, not 0: 0 is a legal gain and a deaf one, so "unset" has to be
+    # its own value. The source derives a gain from the device's ladder.
+    "gain": None,
     "stall_timeout_sec": 5.0,
 }
 
@@ -364,14 +396,20 @@ def _resolve_spyserver_target(
         )
         return None
 
-    # Matches SpyServerSettings' own bounds. Config-sourced gain is
-    # already validated by Pydantic; the flag path bypassed it, where -1
-    # raised a bare struct.error and 99999 went silently onto the wire.
+    # A cheap sanity check only. The authoritative range is the device's
+    # own maximum_gain_index, which doesn't arrive until connect(), so
+    # SpyServerSource._resolve_gain does the real check and names the
+    # actual range. This one just keeps obvious nonsense off the wire
+    # without a round trip -- unvalidated, -1 raised a bare struct.error
+    # (which is NOT a ValueError) and 99999 went silently onto the wire.
     if args.gain is not None and not 0 <= args.gain <= 63:
         log_event(
             "error",
             message=f"I can't set the gain to {args.gain}.",
-            suggested_action="Use a gain index between 0 and 63.",
+            suggested_action=(
+                "Use a gain index of 0 or more; your device's real upper "
+                "limit is reported once I connect."
+            ),
         )
         return None
 
@@ -434,9 +472,14 @@ def _decode_spyserver(args: argparse.Namespace) -> int:
         return 1
     host, port, frequency = target
 
-    # --gain defaults to 0, which is also a legal gain, so "was it given?"
-    # can't be read off the value. Only an explicit flag overrides config.
-    gain = args.gain if args.gain is not None else int(stored["gain"])
+    # Flag beats stored setting; None from both means "nobody chose", and
+    # SpyServerSource derives one from the device's own gain ladder once
+    # it has connected. Passing 0 here instead would be the deaf default
+    # issue #90 is about.
+    stored_gain = stored["gain"]
+    gain = args.gain if args.gain is not None else (
+        int(stored_gain) if stored_gain is not None else None
+    )
 
     save_directory = (
         Path(args.output).resolve().parent if args.output else Path.home() / "sstv_images"
@@ -459,7 +502,7 @@ def _decode_spyserver(args: argparse.Namespace) -> int:
         mode=args.mode,
         spyserver=f"{host}:{port}",
         frequency_hz=frequency,
-        gain=gain,
+        gain=gain if gain is not None else "auto",
     )
 
     # RXManager starts the source itself. Starting it here too would build
@@ -467,7 +510,33 @@ def _decode_spyserver(args: argparse.Namespace) -> int:
     # land in the discarded one.
     rx = RXManager(stream_manager=src, save_directory=save_directory)
 
+    # The loudest level seen while listening. The timeout message needs it:
+    # "I heard nothing" and "I heard noise but no SSTV" call for different
+    # advice, and only a measurement separates them. Peak rather than last,
+    # so one quiet moment can't mask a band that was alive earlier.
+    loudest_listening_rms = 0.0
+
     def on_progress(progress) -> None:
+        nonlocal loudest_listening_rms
+        listening = progress.state.value == "listening"
+        rms = getattr(progress.audio_levels, "rms", None)
+        if listening and rms is not None:
+            loudest_listening_rms = max(loudest_listening_rms, float(rms))
+            # Its own event, not a field on rx_progress: this is the line
+            # the operator watches during a long listen, and log_event
+            # keeps it structured for --json screen-reader output.
+            # `signal_level`, not `level`: JSONFormatter already emits
+            # `level` for the log severity, and reusing the name
+            # overwrote INFO with "silent" -- a screen reader parsing
+            # severity would have read the audio reading instead.
+            log_event(
+                "listening_level",
+                signal_level=describe_level(float(rms)),
+                rms=round(float(rms), 6),
+                elapsed_sec=round(progress.elapsed_sec, 1),
+            )
+            return
+
         log_event(
             "rx_progress",
             state=progress.state.value,
@@ -538,11 +607,35 @@ def _decode_spyserver(args: argparse.Namespace) -> int:
         )
 
     if result is None:
-        log_event(
-            "error",
-            message="I didn't hear an SSTV transmission before the timeout.",
-            suggested_action="Check the frequency and the band, or raise --timeout.",
-        )
+        # A quiet band and a deaf receiver produced identical wording
+        # until now, which is what cost the first live session its first
+        # decode (issue #90). The measured level separates them, so say
+        # which one it was.
+        if loudest_listening_rms < DEAF_RMS:
+            log_event(
+                "error",
+                message=(
+                    "I didn't hear an SSTV transmission before the timeout -- "
+                    "and I barely heard anything at all."
+                ),
+                detail=(
+                    f"Input stayed at {loudest_listening_rms:.6f} RMS the whole "
+                    f"time, which reads as a deaf receiver rather than a quiet band."
+                ),
+                suggested_action=(
+                    f"Raise --gain (I used {src.resolved_gain}) and try again."
+                ),
+            )
+        else:
+            log_event(
+                "error",
+                message="I didn't hear an SSTV transmission before the timeout.",
+                detail=(
+                    f"Input level was fine -- {loudest_listening_rms:.6f} RMS at its "
+                    f"loudest -- so I was hearing the band, just no SSTV on it."
+                ),
+                suggested_action="Check the frequency and the band, or raise --timeout.",
+            )
         return 2
 
     output = Path(args.output) if args.output else Path(result)
@@ -931,6 +1024,38 @@ def cmd_list_devices(args: argparse.Namespace) -> int:
     return 0
 
 
+def _add_global_flags(
+    parser: argparse.ArgumentParser, *, dest_suffix: str = ""
+) -> None:
+    """Register --verbose/--json on a parser.
+
+    Called once for the top-level parser and once per subparser, and the
+    two copies must not collide. argparse merges the subparser's results
+    over the top-level namespace, so sharing a dest loses the earlier
+    flag: with a `store_true` default of False, `--verbose decode` comes
+    back False, and even `default=None` only downgrades True to None.
+    Verified both ways before settling on separate dests.
+
+    So the top-level copy stores to `verbose_global`/`json_global` and the
+    subparser copy keeps the plain names; main() ORs the pair. `--verbose`
+    then means the same thing on either side of the subcommand.
+    """
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        default=None,
+        dest=f"verbose{dest_suffix}",
+        help="Enable verbose logging (DEBUG level)",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        default=None,
+        dest=f"json{dest_suffix}",
+        help="Output logs in JSON format (for screen readers)",
+    )
+
+
 def create_parser() -> argparse.ArgumentParser:
     """Create argument parser for CLI.
 
@@ -967,23 +1092,21 @@ Examples:
 """,
     )
 
-    # Global options
-    parser.add_argument(
-        "--verbose",
-        action="store_true",
-        help="Enable verbose logging (DEBUG level)",
-    )
-    parser.add_argument(
-        "--json",
-        action="store_true",
-        help="Output logs in JSON format (for screen readers)",
-    )
+    # Global options. Added to the top-level parser AND to every subparser
+    # (see _add_global_flags): argparse only accepts a top-level flag
+    # BEFORE the subcommand, and the console scripts -- sstv-decode,
+    # sstv-encode -- prepend the subcommand, so the user's argv always
+    # lands after it. Registering both places makes `--verbose` and
+    # `--json` work in either position, which is what --json being the
+    # screen-reader output path requires (issue #91).
+    _add_global_flags(parser, dest_suffix="_global")
 
     # Subcommands
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     # Decode command
     decode_parser = subparsers.add_parser("decode", help="Decode SSTV signal from audio input")
+    _add_global_flags(decode_parser)
     decode_parser.add_argument(
         "--mode",
         type=str,
@@ -1031,8 +1154,9 @@ Examples:
         "--gain",
         type=int,
         default=None,
-        help="SpyServer RF/IF gain index, 0-63 (default: the stored "
-        "spyserver.gain setting, or 0)",
+        help="SpyServer RF/IF gain index. The usable range is per-device and "
+        "reported once I connect. Default: the stored spyserver.gain "
+        "setting, or three-quarters of the device's own gain range.",
     )
     decode_parser.add_argument(
         "--timeout",
@@ -1049,6 +1173,7 @@ Examples:
 
     # Encode command
     encode_parser = subparsers.add_parser("encode", help="Encode image and transmit as SSTV")
+    _add_global_flags(encode_parser)
     encode_parser.add_argument(
         "--image",
         type=str,
@@ -1081,7 +1206,9 @@ Examples:
     )
 
     # List devices command
-    subparsers.add_parser("list-devices", help="List available audio devices")
+    _add_global_flags(
+        subparsers.add_parser("list-devices", help="List available audio devices")
+    )
 
     return parser
 
@@ -1098,6 +1225,12 @@ def main(argv: list[str] | None = None) -> int:
     """
     parser = create_parser()
     args = parser.parse_args(argv)
+
+    # Collapse the before- and after-subcommand copies of each global flag
+    # into the plain name, so everything downstream (cmd_list_devices reads
+    # args.json) sees one merged value however the operator typed it.
+    args.verbose = bool(args.verbose or args.verbose_global)
+    args.json = bool(args.json or args.json_global)
 
     # Setup logging
     setup_logging(verbose=args.verbose, json_mode=args.json)
