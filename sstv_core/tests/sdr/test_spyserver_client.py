@@ -200,15 +200,52 @@ class TestTuning:
         client.tune(14_230_000)
         assert struct.pack("<II", p.SETTING_IQ_FREQUENCY, 14_230_000) in sock.sent
 
-    def test_silent_mismatch_is_surfaced(self):
-        """The server clamps and says nothing; ClientSync is the only truth."""
-        script = _handshake() + _message(
-            p.MSG_CLIENT_SYNC, _client_sync_bytes(iq_freq=7_171_000)
+    def test_tune_returns_promptly_when_the_server_never_answers(self):
+        """Real firmware sends no sync for IQ_FREQUENCY (issue #89).
+
+        The Airspy HF+ answers the tune command with nothing at all, so
+        anything that waits for confirmation cannot tune this radio.
+        """
+        client, sock = _client(_handshake())
+        client.connect()
+        started = time.monotonic()
+        client.tune(14_230_000)
+        elapsed = time.monotonic() - started
+        assert elapsed < 1.0, f"tune() blocked for {elapsed:.1f}s with no answer"
+        assert struct.pack("<II", p.SETTING_IQ_FREQUENCY, 14_230_000) in sock.sent
+
+    def test_a_silent_server_is_not_treated_as_an_error(self):
+        """No answer is this firmware's normal behavior, not a failure."""
+        payload = struct.pack("<2h", 1000, 0)
+        script = _handshake() + b"".join(
+            _message(p.MSG_INT16_IQ, payload, seq=i) for i in range(4)
         )
         client, _ = _client(script)
         client.connect()
-        with pytest.raises(SpyServerError, match="7171000|7,171,000|different"):
-            client.tune(14_230_000)
+        received: list[np.ndarray] = []
+        client.start_streaming(received.append)
+        client.tune(14_230_000)
+        client.wait_for_stream_end(timeout=5.0)
+        # The stream carries on; the only error is the scripted disconnect.
+        assert len(received) == 4
+        assert client.stream_error is not None
+        assert "dropped" in client.stream_error.message.lower()
+
+    def test_the_stream_survives_a_tune_the_server_ignores(self):
+        """Tuning must not disturb IQ delivery when the server stays quiet."""
+        payload = struct.pack("<64h", *([1000] * 64))
+        blocks = 40
+        script = _handshake() + b"".join(
+            _message(p.MSG_INT16_IQ, payload, seq=i) for i in range(blocks)
+        )
+        client, _ = _client(script)
+        client.connect()
+        received: list[np.ndarray] = []
+        client.start_streaming(received.append)
+        client.tune(7_171_000)
+        client.wait_for_stream_end(timeout=5.0)
+        assert len(received) == blocks
+        assert client.dropped_frames == 0
 
     def test_out_of_range_is_refused_before_sending(self):
         client, sock = _client(_handshake())
@@ -217,53 +254,99 @@ class TestTuning:
             client.tune(500_000_000)
         assert struct.pack("<II", p.SETTING_IQ_FREQUENCY, 500_000_000) not in sock.sent
 
-    def test_unconfirmed_tune_times_out_rather_than_hanging(self):
-        """A tune the server never acknowledges must fail, not block forever.
+    def test_tune_returns_promptly_against_a_wedged_server(self):
+        """A server that goes silent mid-stream must not stall a retune.
 
-        The server stays connected and simply says nothing back, so this
-        is distinct from the peer hanging up.
+        This is the case that hung against real hardware: the reader is
+        parked with nothing arriving, and tuning has to stay usable.
         """
         payload = struct.pack("<2h", 1000, 0)
-        sock = SilentSocket(
-            _handshake() + _message(p.MSG_INT16_IQ, payload, seq=0)
-        )
-        client = SpyServerClient(
-            "example.test", sock_factory=lambda: sock, tune_timeout_sec=0.2
-        )
+        sock = SilentSocket(_handshake() + _message(p.MSG_INT16_IQ, payload, seq=0))
+        client = SpyServerClient("example.test", sock_factory=lambda: sock)
         client.connect()
         client.start_streaming(lambda _: None)
         assert sock.recv_parked.wait(timeout=5.0)
 
         started = time.monotonic()
-        with pytest.raises(SpyServerError, match="didn't confirm|confirm"):
-            client.tune(14_230_000)
-        assert time.monotonic() - started < 5.0
+        client.tune(14_230_000)
+        elapsed = time.monotonic() - started
+        assert elapsed < 1.0, f"tune() blocked for {elapsed:.1f}s against a wedged server"
         client.close()
 
+    def test_teardown_is_quiet_after_a_tune_the_server_ignored(self):
+        """issue #89: a wedged tune also made stop_streaming() raise.
 
-    def test_tune_fails_when_the_stream_ends_before_confirming(self):
-        """The loop waking tune() on its way out is not a confirmation.
-
-        The receive thread is held mid-stream so tune() genuinely takes
-        the streaming path, then released so the loop exits while tune()
-        is still waiting on its answer.
+        That was downstream of tune() blocking. With tuning no longer
+        waiting, teardown should be clean.
         """
         payload = struct.pack("<2h", 1000, 0)
-        sock = SilentSocket(
-            _handshake() + _message(p.MSG_INT16_IQ, payload, seq=0)
-        )
-        client = SpyServerClient(
-            "example.test", sock_factory=lambda: sock, tune_timeout_sec=5.0
-        )
+        sock = SilentSocket(_handshake() + _message(p.MSG_INT16_IQ, payload, seq=0))
+        client = SpyServerClient("example.test", sock_factory=lambda: sock)
         client.connect()
         client.start_streaming(lambda _: None)
         assert sock.recv_parked.wait(timeout=5.0)
+        client.tune(14_230_000)
+        client.close()  # must not raise
 
-        # Release the parked reader shortly after tune() starts waiting, so
-        # the loop ends without ever sending a ClientSync.
-        threading.Timer(0.2, sock.close).start()
-        with pytest.raises(SpyServerError, match="stream ended|confirm"):
-            client.tune(14_230_000)
+
+class TestBatchedSyncs:
+    """issue #89: at stream start this server sends the stale sync, then the new one."""
+
+    def test_a_stale_sync_before_the_real_one_is_not_a_mistune(self):
+        payload = struct.pack("<2h", 1000, 0)
+        script = (
+            _handshake()
+            # Exactly the observed order: the old frequency, then the one
+            # our pre-streaming tune asked for.
+            + _message(p.MSG_CLIENT_SYNC, _client_sync_bytes(iq_freq=100_000_000))
+            + _message(p.MSG_CLIENT_SYNC, _client_sync_bytes(iq_freq=14_230_000))
+            + _message(p.MSG_INT16_IQ, payload, seq=0)
+        )
+        client, _ = _client(script)
+        client.connect()
+        client.tune(14_230_000)
+        client.start_streaming(lambda _: None)
+        client.wait_for_stream_end(timeout=5.0)
+        assert client.stream_error is not None
+        assert "put me on" not in client.stream_error.message
+
+    def test_a_mistune_is_still_caught_when_it_arrives_second(self):
+        payload = struct.pack("<2h", 1000, 0)
+        script = (
+            _handshake()
+            + _message(p.MSG_CLIENT_SYNC, _client_sync_bytes(iq_freq=100_000_000))
+            + _message(p.MSG_CLIENT_SYNC, _client_sync_bytes(iq_freq=7_171_000))
+            + _message(p.MSG_INT16_IQ, payload, seq=0)
+        )
+        client, _ = _client(script)
+        client.connect()
+        client.tune(14_230_000)
+        client.start_streaming(lambda _: None)
+        client.wait_for_stream_end(timeout=5.0)
+        assert client.stream_error is not None
+        assert "7171000" in client.stream_error.message
+
+
+class TestForcedFormat:
+    def test_a_pinned_format_is_requested_rather_than_int16(self):
+        """issue #89: the Airspy HF+ forces UINT8 and ignores our request."""
+        info = _device_info_bytes(forced_format=p.FORMAT_UINT8)
+        script = _message(p.MSG_DEVICE_INFO, info) + _message(
+            p.MSG_CLIENT_SYNC, _client_sync_bytes()
+        )
+        client, sock = _client(script)
+        client.connect()
+        client.start_streaming(lambda _: None)
+        client.wait_for_stream_end(timeout=5.0)
+        assert struct.pack("<II", p.SETTING_IQ_FORMAT, p.FORMAT_UINT8) in sock.sent
+        assert struct.pack("<II", p.SETTING_IQ_FORMAT, p.FORMAT_INT16) not in sock.sent
+
+    def test_int16_is_still_requested_when_nothing_is_pinned(self):
+        client, sock = _client(_handshake())
+        client.connect()
+        client.start_streaming(lambda _: None)
+        client.wait_for_stream_end(timeout=5.0)
+        assert struct.pack("<II", p.SETTING_IQ_FORMAT, p.FORMAT_INT16) in sock.sent
 
 
 class TestDecimationChoice:
@@ -547,9 +630,14 @@ class TestRetuneRace:
 
         client.start_streaming(lambda _: None)
         threading.Timer(0.05, sock.release).start()
-        with pytest.raises(SpyServerError, match="7171000|7,171,000|different"):
-            client.tune(14_230_000)
+        client.tune(14_230_000)
         client.wait_for_stream_end(timeout=10.0)
+
+        # tune() has already returned, so a clamp cannot be raised out of
+        # it. It surfaces the way other stream failures do.
+        assert client.stream_error is not None
+        assert "7171000" in client.stream_error.message
+        assert "14230000" in client.stream_error.message
 
 
 class TestStall:
