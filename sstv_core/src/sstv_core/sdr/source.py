@@ -159,9 +159,15 @@ class SpyServerSource:
             self._last_iq_at = time.monotonic()
             self._running = True
             client.start_streaming(self._on_iq, gain=self._gain)
-        except SpyServerError:
+        except (SpyServerError, ValueError):
             # A half-open connection would leak a socket and hold the
             # server's client slot. Tear it down before the error escapes.
+            #
+            # ValueError belongs here too: USBDemodulator rejects a
+            # non-positive rate, and it is constructed after connect() and
+            # tune() have already succeeded. Catching only SpyServerError left
+            # a server reporting a bogus sample rate holding an open socket --
+            # the same leak this block exists to prevent.
             self._running = False
             self._teardown()
             raise

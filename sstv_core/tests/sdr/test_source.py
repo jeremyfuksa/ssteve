@@ -332,6 +332,25 @@ class TestFailureReporting:
         assert client.closed
         assert not client.streaming
 
+    def test_a_bad_sample_rate_still_closes_the_client(self):
+        """The demodulator is built after connect() and tune() succeed.
+
+        USBDemodulator raises ValueError on a non-positive rate, so a server
+        reporting one leaves a connected socket open unless the teardown
+        covers that path too -- the same leak as a failed tune.
+        """
+
+        class ZeroRateClient(FakeClient):
+            def __init__(self) -> None:
+                super().__init__(sample_rate=0)
+
+        client = ZeroRateClient()
+        src = _source(client)
+        with pytest.raises(ValueError):
+            src.start_input()
+        assert client.closed
+        assert not client.streaming
+
     def test_decoder_faults_do_not_silently_stop_the_stream(self):
         """_on_iq must never call stop_streaming: from inside the receive
         thread that self-joins and raises RuntimeError."""
