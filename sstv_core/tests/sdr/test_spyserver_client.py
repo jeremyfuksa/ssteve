@@ -21,6 +21,7 @@ from sstv_core.sdr.spyserver import protocol as p
 from sstv_core.sdr.spyserver.client import (
     SpyServerClient,
     SpyServerError,
+    StreamStalledError,
     choose_decimation_stage,
 )
 
@@ -86,6 +87,9 @@ class FakeSocket:
     def settimeout(self, timeout) -> None:
         pass
 
+    def shutdown(self, how) -> None:
+        pass
+
     def close(self) -> None:
         self.closed = True
 
@@ -117,6 +121,46 @@ class SilentSocket(FakeSocket):
     def close(self) -> None:
         self.closed = True
         self._released.set()
+
+
+class UninterruptibleByCloseSocket(FakeSocket):
+    """A socket that close() does NOT wake, the way BSD really behaves.
+
+    SilentSocket releases its parked reader on close(), which is the
+    assumption that hid issue #89: on macOS a close() from another thread
+    left the reader blocked until the socket timeout fired. Only
+    shutdown() interrupts it. This models that, so a client relying on
+    close() alone is held until the timeout and fails the test.
+
+    The waits are bounded so a failing test times out rather than hanging.
+    """
+
+    def __init__(self, script: bytes = b"", timeout_sec: float = 5.0) -> None:
+        super().__init__(script)
+        self._shutdown = threading.Event()
+        self._timeout_sec = timeout_sec
+        self.recv_parked = threading.Event()
+        self.shutdown_calls: list[int] = []
+
+    def recv(self, size: int) -> bytes:
+        with self._lock:
+            if self._pos < len(self._script):
+                chunk = self._script[self._pos : self._pos + size]
+                self._pos += len(chunk)
+                return chunk
+        self.recv_parked.set()
+        # Only shutdown() releases early; otherwise this is the socket
+        # timeout elapsing, which is what made the bug look like a wedge.
+        if self._shutdown.wait(timeout=self._timeout_sec):
+            return b""
+        raise TimeoutError("timed out")
+
+    def shutdown(self, how: int) -> None:
+        self.shutdown_calls.append(how)
+        self._shutdown.set()
+
+    def close(self) -> None:
+        self.closed = True  # deliberately does not wake a parked recv
 
 
 class InterleavingSocket(FakeSocket):
@@ -497,6 +541,67 @@ class TestThreadLifecycle:
         assert elapsed < 5.0, f"stop_streaming took {elapsed:.1f}s"
         assert not thread.is_alive(), "receive thread outlived stop_streaming()"
         assert client._thread is None
+
+
+class TestParkedReaderTeardown:
+    """issue #89: close() alone left the reader blocked until the timeout."""
+
+    def _streaming_client(
+        self, sock: UninterruptibleByCloseSocket
+    ) -> SpyServerClient:
+        client = SpyServerClient(
+            "example.test", sock_factory=lambda: sock, stall_timeout_sec=5.0
+        )
+        client.connect()
+        client.start_streaming(lambda _: None)
+        assert sock.recv_parked.wait(timeout=5.0), "never reached the blocking recv"
+        return client
+
+    def test_stop_streaming_interrupts_a_parked_reader(self):
+        payload = struct.pack("<2h", 1000, 0)
+        sock = UninterruptibleByCloseSocket(
+            _handshake() + _message(p.MSG_INT16_IQ, payload, seq=0)
+        )
+        client = self._streaming_client(sock)
+        thread = client._thread
+        assert thread is not None
+
+        started = time.monotonic()
+        client.stop_streaming()
+        elapsed = time.monotonic() - started
+
+        # The whole bug: this took ~3s and raised, because it waited out
+        # the join instead of interrupting the reader.
+        assert elapsed < 2.0, f"stop_streaming took {elapsed:.2f}s"
+        assert not thread.is_alive(), "receive thread survived stop_streaming()"
+        assert client._thread is None
+        assert sock.shutdown_calls, "close() alone will not wake a parked recv"
+
+    def test_close_is_quiet_with_a_parked_reader(self):
+        payload = struct.pack("<2h", 1000, 0)
+        sock = UninterruptibleByCloseSocket(
+            _handshake() + _message(p.MSG_INT16_IQ, payload, seq=0)
+        )
+        client = self._streaming_client(sock)
+        started = time.monotonic()
+        client.close()  # must not raise
+        assert time.monotonic() - started < 2.0
+
+    def test_a_stalled_stream_is_still_reported_as_a_stall(self):
+        """Interrupting teardown must not relabel a genuine stall."""
+        payload = struct.pack("<2h", 1000, 0)
+        sock = UninterruptibleByCloseSocket(
+            _handshake() + _message(p.MSG_INT16_IQ, payload, seq=0),
+            timeout_sec=0.2,
+        )
+        client = SpyServerClient(
+            "example.test", sock_factory=lambda: sock, stall_timeout_sec=0.2
+        )
+        client.connect()
+        client.start_streaming(lambda _: None)
+        assert client.wait_for_stream_end(timeout=5.0)
+        assert isinstance(client.stream_error, StreamStalledError)
+        client.close()
 
 
 class TestCallbackFailure:

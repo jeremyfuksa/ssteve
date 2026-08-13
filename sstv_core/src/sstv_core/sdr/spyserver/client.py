@@ -34,11 +34,16 @@ class _Socket(Protocol):
     def sendall(self, data: bytes, /) -> None: ...
     def recv(self, size: int, /) -> bytes: ...
     def settimeout(self, timeout: float | None, /) -> None: ...
+    def shutdown(self, how: int, /) -> None: ...
     def close(self) -> None: ...
 
 #: The demodulator cannot resample upward into a passband that isn't
 #: there, so this is a hard floor on the IQ rate we can accept.
 MINIMUM_IQ_RATE = TARGET_RATE
+
+#: Slack for a stream to end on its own before its socket is torn down,
+#: and for a woken thread to finish unwinding after it is.
+_GRACE_SEC = 1.0
 
 
 class SpyServerError(Exception):
@@ -472,9 +477,14 @@ class SpyServerClient:
             # A reader parked in recv() never sees the stop flag, so close
             # the socket first to force it to return. Without this the
             # join times out and the thread outlives the call.
-            if not self._ended.wait(timeout=1.0):
+            if not self._ended.wait(timeout=_GRACE_SEC):
                 self._close_socket()
-            thread.join(timeout=2.0)
+            # shutdown() should wake the reader immediately, so this budget
+            # is slack rather than the expected wait. It still clears the
+            # socket timeout, because that is how long the thread needs to
+            # notice on its own if shutdown ever fails to interrupt it --
+            # a shorter budget turns that fallback into a false alarm.
+            thread.join(timeout=self._stall_timeout_sec + _GRACE_SEC)
             if thread.is_alive():
                 # Say so through state rather than dropping the handle and
                 # reporting success -- a leaked thread that looks stopped is
@@ -489,11 +499,25 @@ class SpyServerClient:
             self._thread = None
 
     def _close_socket(self) -> None:
-        if self._sock is not None:
-            try:
-                self._sock.close()
-            except OSError:
-                pass
+        sock = self._sock
+        if sock is None:
+            return
+        # shutdown() before close(), because the receive thread holds its
+        # own reference to this socket and close() alone does not reliably
+        # wake a reader already parked in recv() on macOS or BSD -- it
+        # stayed blocked until the 5s socket timeout fired, outliving the
+        # join and reporting a wedged thread that was merely slow (#89).
+        # shutdown() tears down the connection itself, so the parked call
+        # returns at once.
+        try:
+            sock.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            # Already closed, never connected, or the peer beat us to it.
+            pass
+        try:
+            sock.close()
+        except OSError:
+            pass
 
     def close(self) -> None:
         self.stop_streaming()
