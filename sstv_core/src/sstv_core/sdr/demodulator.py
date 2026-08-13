@@ -19,7 +19,8 @@ class USBDemodulator:
     Args:
         input_rate: IQ sample rate from the source, in Hz.
         output_rate: Audio rate to produce. The engine is 48 kHz end to end.
-        bandwidth_hz: SSB passband width.
+        bandwidth_hz: SSB passband width. Wider than a voice SSB filter on
+            purpose -- see the note on the filter below.
 
     """
 
@@ -27,7 +28,7 @@ class USBDemodulator:
         self,
         input_rate: int,
         output_rate: int = TARGET_RATE,
-        bandwidth_hz: float = 2400.0,
+        bandwidth_hz: float = 3000.0,
     ) -> None:
         if input_rate % output_rate:
             raise ValueError(
@@ -44,6 +45,12 @@ class USBDemodulator:
         # not USB. The complex taps are what reject the lower sideband.
         # Applied at the input rate, before decimation, so nothing above the
         # output Nyquist folds back in.
+        #
+        # The default width is 3000 Hz, not the classic 2400 Hz voice SSB
+        # filter: SSTV maps brightness to frequency (1500 Hz black through
+        # 2300 Hz white), so the whole video band needs flat response. At
+        # 2400 Hz, 2300 Hz droops to 0.60 and whites come out dim -- which
+        # reads as poor propagation rather than a filter artifact.
         num_taps = 257
         prototype = signal.firwin(
             num_taps,
