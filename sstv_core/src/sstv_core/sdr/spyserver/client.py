@@ -76,6 +76,7 @@ def choose_decimation_stage(
     and not be one of the rates that runs slower than realtime.
     """
     best: tuple[int, int] | None = None
+    skipped_for_speed = False
     for stage in range(min_iq_decimation, decimation_stage_count + 1):
         rate = maximum_sample_rate >> stage
         if rate < target_rate:
@@ -83,9 +84,18 @@ def choose_decimation_stage(
         if rate in SLOWER_THAN_REALTIME_RATES:
             # Correct output arriving at half speed is no use on a live
             # signal. Every device offering these has a faster stage.
+            skipped_for_speed = True
             continue
         if best is None or rate < best[1]:
             best = (stage, rate)
+    if best is None and skipped_for_speed:
+        # Blaming the floor here would misdirect: the rate cleared it and
+        # was skipped for being too slow to keep up.
+        raise SpyServerError(
+            "The only sample rates this server offers me are ones I can't "
+            "decode fast enough to keep up with the signal.",
+            suggested_action="Try a different SpyServer.",
+        )
     if best is None:
         raise SpyServerError(
             f"I couldn't find a usable sample rate on this server "

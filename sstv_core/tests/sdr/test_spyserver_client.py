@@ -317,6 +317,21 @@ class TestDecimationChoice:
                 maximum_sample_rate=8000, decimation_stage_count=2, min_iq_decimation=0
             )
 
+    def test_a_too_slow_only_server_is_not_blamed_on_the_floor(self):
+        """625000 clears 48 kHz, so "I need at least 48000" would misdirect.
+
+        No real device lands here -- it takes a server offering stage 4 of
+        a 10 MHz radio and nothing else -- but the wrong sentence would
+        send someone hunting a rate problem that isn't there.
+        """
+        with pytest.raises(SpyServerError, match="fast enough|keep up") as caught:
+            choose_decimation_stage(
+                maximum_sample_rate=10_000_000,
+                decimation_stage_count=4,
+                min_iq_decimation=4,
+            )
+        assert "48000" not in caught.value.message
+
 
 class TestStreamFailures:
     def test_sequence_gap_counts_dropped_frames(self):
@@ -498,3 +513,39 @@ class TestRetuneRace:
             assert client.dropped_frames == 0, (
                 f"trial {trial}: {client.dropped_frames} phantom drops"
             )
+
+    def test_silent_mismatch_is_surfaced_while_streaming(self):
+        """The clamp check must hold on the retune path, not just at connect.
+
+        Retuning mid-stream is the documented normal path, and it is the
+        one where a clamped frequency is least visible: IQ keeps flowing,
+        the images keep decoding, and they are of the wrong band. The
+        non-streaming test cannot cover this -- it exercises the other
+        branch entirely.
+        """
+        payload = struct.pack("<64h", *([1000] * 64))
+        blocks = 50
+        script = (
+            b"".join(_message(p.MSG_INT16_IQ, payload, seq=i) for i in range(blocks))
+            # The server clamps to a frequency we did not ask for and says
+            # nothing about it. This sync is the only evidence.
+            + _message(p.MSG_CLIENT_SYNC, _client_sync_bytes(iq_freq=7_171_000))
+            + b"".join(
+                _message(p.MSG_INT16_IQ, payload, seq=i)
+                for i in range(blocks, blocks * 2)
+            )
+        )
+        gate_at = len(_message(p.MSG_INT16_IQ, payload, seq=0)) * blocks // 2
+
+        sock = InterleavingSocket(script, gate_at=gate_at)
+        client = SpyServerClient("example.test", sock_factory=lambda: sock)
+        client._sock = sock
+        client._device_info = p.parse_device_info(_device_info_bytes())
+        client._client_sync = p.parse_client_sync(_client_sync_bytes())
+        client._decimation_stage = 0
+
+        client.start_streaming(lambda _: None)
+        threading.Timer(0.05, sock.release).start()
+        with pytest.raises(SpyServerError, match="7171000|7,171,000|different"):
+            client.tune(14_230_000)
+        client.wait_for_stream_end(timeout=10.0)
