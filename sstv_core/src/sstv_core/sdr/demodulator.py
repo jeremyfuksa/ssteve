@@ -90,11 +90,18 @@ class USBDemodulator:
                 / self._input_rate
             )
             iq = iq * np.exp(-2j * np.pi * offset_hz * t)
+        block_start = self._sample_index
         self._sample_index += len(iq)
 
         # Complex bandpass: keeps the upper sideband, rejects the lower.
         filtered, self._zi = signal.lfilter(self._taps, [1.0], iq, zi=self._zi)
-        decimated = filtered[:: self._decimation]
+
+        # Decimate on a grid anchored to the stream, not to this block. Network
+        # blocks are not guaranteed to be a multiple of the decimation factor,
+        # and restarting the grid at each block head would emit extra samples
+        # and desynchronize the audio.
+        offset = (-block_start) % self._decimation
+        decimated = filtered[offset :: self._decimation]
 
         # Real part of the analytic signal is the demodulated audio.
         audio = np.real(decimated).astype(np.float32)

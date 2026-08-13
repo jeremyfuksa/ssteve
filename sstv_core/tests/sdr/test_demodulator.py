@@ -118,16 +118,40 @@ class TestBlockContinuity:
         assert error < rms * 0.01
 
     def test_offset_stays_phase_continuous_across_blocks(self):
-        """The local oscillator must not restart its phase on each block."""
+        """The local oscillator must not restart its phase on each block.
+
+        The block size matters: at 1024 samples the 1500 Hz oscillator
+        advances exactly 8.0 cycles, so a phase reset would be invisible.
+        996 samples is 7.78 cycles, which makes a reset show up.
+        """
         rate = 192_000
         iq = _tone_iq(3000.0, rate, duration=0.25)
 
         whole = USBDemodulator(input_rate=rate).demodulate(iq, offset_hz=1500.0)
         blocked = self._blocked(
-            USBDemodulator(input_rate=rate), iq, 1024, offset_hz=1500.0
+            USBDemodulator(input_rate=rate), iq, 996, offset_hz=1500.0
         )
 
         assert np.max(np.abs(whole - blocked)) < 0.01
+
+    @pytest.mark.parametrize("block", [777, 999, 1024, 3])
+    def test_block_size_need_not_divide_the_decimation_factor(self, block: int):
+        """SpyServer blocks carry no guarantee of being a multiple of 4.
+
+        The decimation grid is anchored to the stream, so a block that ends
+        mid-stride must not restart it -- that would emit extra samples and
+        desynchronize the audio.
+        """
+        rate = 192_000
+        iq = _tone_iq(1500.0, rate, duration=0.25)
+
+        whole = USBDemodulator(input_rate=rate).demodulate(iq)
+        blocked = self._blocked(USBDemodulator(input_rate=rate), iq, block)
+
+        assert len(blocked) == len(whole)
+        rms = float(np.sqrt(np.mean(whole**2)))
+        error = float(np.sqrt(np.mean((whole - blocked) ** 2)))
+        assert error < rms * 0.01
 
     def test_blocked_offset_tone_still_lands_on_frequency(self):
         """A seam-free block stream resolves to the same audio tone."""
