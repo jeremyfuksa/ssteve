@@ -28,6 +28,7 @@ def make_args(**overrides) -> argparse.Namespace:
         "gain": None,
         "timeout": 300,
         "output": None,
+        "monitor_stream": None,
     }
     defaults.update(overrides)
     return argparse.Namespace(**defaults)

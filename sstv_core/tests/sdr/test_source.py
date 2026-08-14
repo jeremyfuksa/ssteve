@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import socket
+import time
+
 import numpy as np
 import pytest
 
@@ -513,3 +516,90 @@ class TestFailureReporting:
         with pytest.raises(TimeoutError):
             src.start_input()
         assert client.closed
+
+
+class TestAudioMonitor:
+    """The optional monitor tee, and its promise not to cost a decode."""
+
+    def test_absent_by_default(self):
+        """The default path must be exactly what it was before the tee."""
+        src = _source(FakeClient())
+        assert src.audio_monitor is None
+
+    def test_monitor_receives_the_same_audio_as_the_ring_buffer(self):
+        client = FakeClient()
+        src = SpyServerSource(
+            "example.test", frequency_hz=14_230_000, client=client,
+            monitor_port=0,
+        )
+        src.start_input()
+        monitor = src.audio_monitor
+        assert monitor is not None
+        assert monitor.port > 0
+
+        sock = socket.create_connection(("127.0.0.1", monitor.port), timeout=2.0)
+        sock.settimeout(2.0)
+        deadline = time.monotonic() + 2.0
+        while monitor.client_count == 0 and time.monotonic() < deadline:
+            time.sleep(0.01)
+        try:
+            client.feed_tone(duration=0.2)
+            received = sock.recv(4096)
+            # Real audio, not silence: the tone has to survive to the wire.
+            assert len(received) > 0
+            samples = np.frombuffer(received, dtype="<i2")
+            assert np.max(np.abs(samples)) > 100
+        finally:
+            sock.close()
+            src.stop_input()
+
+    def test_ring_buffer_still_fills_with_a_monitor_attached(self):
+        """The decode is the product; the tee must not divert its audio."""
+        client = FakeClient()
+        src = SpyServerSource(
+            "example.test", frequency_hz=14_230_000, client=client,
+            monitor_port=0,
+        )
+        src.start_input()
+        client.feed_tone(duration=0.2)
+        buffer = src.get_input_buffer()
+        assert buffer is not None and len(buffer) > 0
+        src.stop_input()
+
+    def test_a_broken_monitor_does_not_stop_the_decode(self):
+        """The whole reason the tee swallows its errors."""
+        client = FakeClient()
+        src = SpyServerSource(
+            "example.test", frequency_hz=14_230_000, client=client,
+            monitor_port=0,
+        )
+        src.start_input()
+
+        class ExplodingMonitor:
+            def broadcast(self, audio):
+                raise RuntimeError("monitor fell over")
+
+            def stop(self):
+                pass
+
+        src._monitor = ExplodingMonitor()  # type: ignore[assignment]
+        client.feed_tone(duration=0.2)
+        buffer = src.get_input_buffer()
+        assert buffer is not None and len(buffer) > 0, (
+            "a failing monitor stopped audio reaching the decoder"
+        )
+        src.stop_input()
+
+    def test_stop_input_closes_the_monitor(self):
+        client = FakeClient()
+        src = SpyServerSource(
+            "example.test", frequency_hz=14_230_000, client=client,
+            monitor_port=0,
+        )
+        src.start_input()
+        monitor = src.audio_monitor
+        assert monitor is not None
+        port = monitor.port
+        src.stop_input()
+        with pytest.raises(OSError):
+            socket.create_connection(("127.0.0.1", port), timeout=1.0).close()
