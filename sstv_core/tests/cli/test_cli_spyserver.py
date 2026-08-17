@@ -531,3 +531,32 @@ class TestListeningLevel:
             main(["decode", "--spyserver", "host", "--timeout", "3"])
         emitted = caplog.text.count("listening_level")
         assert emitted <= 3, f"{emitted} level lines in a 3-second listen is spam"
+
+
+class TestMonitorStreamFlag:
+    """--monitor-stream reaches the source, and its absence changes nothing."""
+
+    def test_flag_is_passed_through_as_monitor_port(self, patched_source, stored_config):
+        stored_config(host="airspy.local")
+        built = patched_source(_FakeSource())
+        main(["decode", "--spyserver", "host:5555", "--monitor-stream", "8781",
+              "--timeout", "0"])
+        assert built["kwargs"]["monitor_port"] == 8781
+
+    def test_absent_flag_means_no_monitor(self, patched_source, stored_config):
+        """The default decode path must be untouched by this feature."""
+        stored_config(host="airspy.local")
+        built = patched_source(_FakeSource())
+        main(["decode", "--spyserver", "host:5555", "--timeout", "0"])
+        assert built["kwargs"]["monitor_port"] is None
+
+    def test_port_zero_is_passed_through_not_treated_as_absent(
+        self, patched_source, stored_config
+    ):
+        """0 means "pick a port for me", which is a different request from
+        no flag at all. A falsy check here would silently disable the tee."""
+        stored_config(host="airspy.local")
+        built = patched_source(_FakeSource())
+        main(["decode", "--spyserver", "host:5555", "--monitor-stream", "0",
+              "--timeout", "0"])
+        assert built["kwargs"]["monitor_port"] == 0

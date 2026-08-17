@@ -16,6 +16,7 @@ import numpy as np
 
 from sstv_core.audio.ring_buffer import AudioRingBuffer
 from sstv_core.audio.stream_manager import AudioLevels
+from sstv_core.sdr.audio_stream import AudioMonitorServer
 from sstv_core.sdr.demodulator import TARGET_RATE, USBDemodulator
 from sstv_core.sdr.spyserver.client import SpyServerClient, SpyServerError
 
@@ -105,11 +106,16 @@ class SpyServerSource:
         gain: int | None = None,
         stall_timeout_sec: float = 5.0,
         client: _Client | None = None,
+        monitor_port: int | None = None,
     ) -> None:
         self._host = host
         self._port = port
         self._frequency_hz = frequency_hz
         self._gain = gain
+        # None means no tee at all -- the default path is unchanged. 0 asks
+        # the OS for a free port, which is what the tests use.
+        self._monitor_port = monitor_port
+        self._monitor: AudioMonitorServer | None = None
         # What we actually sent, once connect() has told us the ladder.
         # Read by the CLI so it can report the derived number rather than
         # "None".
@@ -133,6 +139,15 @@ class SpyServerSource:
     def sample_rate(self) -> int:
         """Always the engine rate -- the demodulator resamples to it."""
         return TARGET_RATE
+
+    @property
+    def audio_monitor(self) -> AudioMonitorServer | None:
+        """The live-audio tee, or None when monitoring wasn't asked for.
+
+        Exposed so the caller can report the bound port -- with
+        monitor_port=0 the OS picks it, and it isn't known until start.
+        """
+        return self._monitor
 
     @property
     def stream_failure(self) -> SpyServerError | None:
@@ -237,6 +252,14 @@ class SpyServerSource:
             self._buffer = AudioRingBuffer(
                 max_samples=buffer_size, sample_rate=TARGET_RATE
             )
+            # Before start_streaming, so the first block already has
+            # somewhere to go. Inside the try: a monitor that can't bind
+            # its port tears the client down like any other startup
+            # failure rather than leaving a half-open connection.
+            if self._monitor_port is not None:
+                monitor = AudioMonitorServer(port=self._monitor_port)
+                monitor.start()
+                self._monitor = monitor
             self._last_iq_at = time.monotonic()
             self._running = True
             client.start_streaming(self._on_iq, gain=gain)
@@ -277,6 +300,18 @@ class SpyServerSource:
         self._last_iq_at = time.monotonic()
         self._levels = self._calculate_levels(audio)
         self._buffer.add(audio)
+        # After the ring buffer, never before: the decoder is the product
+        # and gets the audio first. broadcast() neither blocks nor raises
+        # (see audio_stream), so this can't cost an image -- but the
+        # ordering means even a future bug there can't get in front of the
+        # decode. The try is belt-and-braces for a monitor swapped in from
+        # outside this class.
+        monitor = self._monitor
+        if monitor is not None:
+            try:
+                monitor.broadcast(audio)
+            except Exception:
+                logger.debug("Audio monitor failed; continuing", exc_info=True)
 
     @staticmethod
     def _calculate_levels(samples: np.ndarray) -> AudioLevels:
@@ -296,6 +331,18 @@ class SpyServerSource:
         it: the operator needs to know the stream dropped, not that clearing
         the wreckage was awkward.
         """
+        # Before the client check, which returns early when there is no
+        # client: a monitor that bound its port and then hit a startup
+        # failure would otherwise keep the port held for the life of the
+        # process, and the next cycle couldn't bind it.
+        monitor = self._monitor
+        self._monitor = None
+        if monitor is not None:
+            try:
+                monitor.stop()
+            except Exception:
+                logger.debug("Audio monitor teardown failed", exc_info=True)
+
         client = self._client
         if client is None:
             return

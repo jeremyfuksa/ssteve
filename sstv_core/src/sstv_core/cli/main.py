@@ -496,6 +496,7 @@ def _decode_spyserver(args: argparse.Namespace) -> int:
         gain=gain,
         # No flag for this one -- config is its only route in.
         stall_timeout_sec=float(stored["stall_timeout_sec"]),
+        monitor_port=getattr(args, "monitor_stream", None),
     )
     log_event(
         "decode_start",
@@ -516,8 +517,30 @@ def _decode_spyserver(args: argparse.Namespace) -> int:
     # so one quiet moment can't mask a band that was alive earlier.
     loudest_listening_rms = 0.0
 
+    # The monitor's port is only known after RXManager has started the
+    # source -- with --monitor-stream 0 the OS assigns it. The first
+    # progress callback is the earliest point it can be read, and the
+    # flag says the number is "reported once bound", so report it there.
+    monitor_reported = False
+
     def on_progress(progress) -> None:
-        nonlocal loudest_listening_rms
+        nonlocal loudest_listening_rms, monitor_reported
+        if not monitor_reported:
+            # getattr, not attribute access: the source here is duck-typed
+            # (AudioStreamManager is the other implementation, and tests
+            # substitute their own), and only SpyServerSource carries a
+            # monitor. A bare src.audio_monitor turned every such source
+            # into a failed decode.
+            monitor = getattr(src, "audio_monitor", None)
+            if monitor is not None:
+                monitor_reported = True
+                log_event(
+                    "monitor_stream",
+                    port=monitor.port,
+                    sample_rate=src.sample_rate,
+                    encoding="pcm_s16le",
+                    channels=1,
+                )
         listening = progress.state.value == "listening"
         rms = getattr(progress.audio_levels, "rms", None)
         if listening and rms is not None:
@@ -1163,6 +1186,16 @@ Examples:
         type=int,
         default=300,
         help="Timeout in seconds (default: 300)",
+    )
+    decode_parser.add_argument(
+        "--monitor-stream",
+        type=int,
+        default=None,
+        metavar="PORT",
+        help="Serve the demodulated audio live on this TCP port while "
+        "decoding, so you can hear the band the decoder is hearing. "
+        "Raw 48 kHz signed 16-bit mono PCM, loopback only. Use 0 to let "
+        "the OS pick a port (reported once bound). SpyServer only.",
     )
     decode_parser.add_argument(
         "--output",
