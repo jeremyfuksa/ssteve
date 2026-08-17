@@ -122,6 +122,17 @@ class RXManager:
     #: toward that run. Matches the tolerance the decoders themselves accept.
     IMAGE_START_TOLERANCE: ClassVar[float] = 0.12
 
+    #: Multiple of a mode's nominal transmission time allowed before the
+    #: decode phase is abandoned (issue #94). 3x is deliberately loose: a
+    #: real decode finishes at ~1x, and the guard exists to catch a loop
+    #: that will never finish, not to police a slow one.
+    DECODE_BUDGET_FACTOR: ClassVar[float] = 3.0
+
+    #: Floor for that budget, so the fastest modes still get a sane
+    #: allowance. Robot 36 is ~36s nominal, which 3x would put at 108s;
+    #: this only binds for anything shorter.
+    MIN_DECODE_BUDGET_SEC: ClassVar[float] = 60.0
+
     def __init__(
         self,
         stream_manager: AudioSource,
@@ -539,9 +550,40 @@ class RXManager:
             line_duration_sec = decoder.config.total_line_samples / self._sample_rate
             end_of_signal_sec = max(2.0, 3.0 * line_duration_sec)
 
+            # Wall-clock ceiling for the whole decode phase (issue #94).
+            #
+            # The end-of-signal guard above only fires when audio stops
+            # arriving. On a live SpyServer it does not: a weak Martin M1 on
+            # 20m kept the buffer fed while the loop found no usable sync,
+            # and the decode sat at line 0/256 for 350+ seconds -- no
+            # progress, no error, no timeout -- holding the server's single
+            # client slot the whole time. The two guards cover opposite
+            # failures and neither replaces the other.
+            #
+            # Sized off the mode itself rather than a constant: a decode
+            # legitimately takes seconds_per_line * total_lines, and
+            # anything past a generous multiple of that is not slow, it is
+            # stuck. Martin M1 (114s nominal) gets ~340s before this fires,
+            # so a healthy decode never sees it.
+            decode_deadline = time.monotonic() + max(
+                self.MIN_DECODE_BUDGET_SEC,
+                line_duration_sec * total_lines * self.DECODE_BUDGET_FACTOR,
+            )
+
             # Decoding loop
             while line_number < total_lines and not self._cancel_requested:
                 await asyncio.sleep(0.05)  # Allow cancellation
+
+                # Checked before consuming, so a permanently-fed buffer
+                # cannot keep the loop alive past its budget.
+                if time.monotonic() > decode_deadline:
+                    logger.warning(
+                        "Decode ran past its time budget at %d/%d lines; "
+                        "giving up rather than hanging.",
+                        line_number,
+                        total_lines,
+                    )
+                    break
 
                 # Consume each input sample exactly once.
                 if ring_buffer.dropped_samples > 0:
