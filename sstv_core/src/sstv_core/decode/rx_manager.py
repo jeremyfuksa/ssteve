@@ -110,6 +110,18 @@ class RXManager:
     #: enough that a deaf receiver is obvious long before the timeout.
     LISTENING_HEARTBEAT_SEC: ClassVar[float] = 5.0
 
+    #: Consecutive one-line sync intervals that mark the start of a picture
+    #: (#102). Twelve because it has to outlast noise that happens to look
+    #: regular for a moment: measured on ten real transmissions, 12 and 8
+    #: agree on the start while 4 fires early on static (landing at pulse 1,
+    #: 3 and 17 instead of 89, 117 and 143). Cheap to be conservative -- the
+    #: audio is buffered, so the pulses spent confirming still get decoded.
+    IMAGE_START_RUN: ClassVar[int] = 12
+
+    #: How far a sync interval may sit from exactly one line and still count
+    #: toward that run. Matches the tolerance the decoders themselves accept.
+    IMAGE_START_TOLERANCE: ClassVar[float] = 0.12
+
     def __init__(
         self,
         stream_manager: AudioSource,
@@ -504,6 +516,10 @@ class RXManager:
             stream_audio = vis_tail.copy()
             stream_base_position = stream_position - len(vis_tail)
             line_number = 0
+            image_started = False
+            # Every accepted pulse, kept only long enough to test whether the
+            # last IMAGE_START_RUN of them are one line apart (#102).
+            candidate_run: list[int] = []
             last_audio_time = time.monotonic()
 
             # How long a silent source means the transmission is over, rather
@@ -633,6 +649,7 @@ class RXManager:
                             )
                             sync_intervals_ms.append(interval_ms)
                         sync_positions.append(pulse.position_samples)
+                        candidate_run.append(pulse.position_samples)
 
                         # AFC: the sync pulse is a known 1200 Hz reference,
                         # so its measured frequency IS the receiver's offset.
@@ -659,6 +676,55 @@ class RXManager:
                             "AFC: correcting video mapping by %+.1f Hz "
                             "(measured %+.1f)", clamped, measured
                         )
+
+                # Hold off decoding until the sync train proves it is a
+                # picture rather than noise that momentarily looked like
+                # 1200 Hz (#102).
+                #
+                # Before a transmission the detector still produces pulses --
+                # picture content from other signals, static -- and taking
+                # sync_positions[0] as line 0 filled the top half of every
+                # image with pre-transmission noise and then ran out of lines
+                # partway through the real picture. Measured across two
+                # captures, content began at a median row of 131/256 and
+                # 143/256.
+                #
+                # A real picture is the only thing that produces a sustained
+                # run of pulses exactly one line apart, so that run is the
+                # image start. This is checked causally -- on pulses already
+                # received -- because a live decoder cannot look ahead, and
+                # the buffered audio means the lines used to confirm the run
+                # are still decoded rather than discarded.
+                if not image_started:
+                    nominal = decoder.config.total_line_samples
+                    # Track the run against every pulse seen, not against
+                    # sync_positions: the decode loop below drains that list
+                    # to one or two entries, so a window of 12 never forms
+                    # in it.
+                    while len(candidate_run) > self.IMAGE_START_RUN + 1:
+                        candidate_run.pop(0)
+                    if len(candidate_run) > self.IMAGE_START_RUN:
+                        steps = (
+                            np.diff(np.asarray(candidate_run, dtype=np.float64))
+                            / nominal
+                        )
+                        if np.all(np.abs(steps - 1.0) < self.IMAGE_START_TOLERANCE):
+                            image_started = True
+                            # The run's first pulse is line 0; anything the
+                            # detector found before it was pre-signal noise.
+                            start = candidate_run[0]
+                            dropped = sum(1 for p in sync_positions if p < start)
+                            if dropped:
+                                logger.info(
+                                    "Image starts %d pulses in; discarding "
+                                    "earlier detections as pre-signal noise",
+                                    dropped,
+                                )
+                            sync_positions = [
+                                p for p in sync_positions if p >= start
+                            ]
+                    if not image_started:
+                        continue
 
                 # Decode every complete frame currently buffered.
                 while len(sync_positions) >= 2 and line_number < total_lines:
