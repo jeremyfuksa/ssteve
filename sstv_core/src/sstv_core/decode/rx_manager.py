@@ -34,7 +34,11 @@ from sstv_core.decode.image_saver import ImageSaver
 from sstv_core.decode.martin_decoder import MartinM1Config, MartinM1Decoder
 from sstv_core.decode.robot_decoder import Robot36Config, Robot36Decoder
 from sstv_core.decode.rsv import DecodeMetrics
-from sstv_core.decode.scottie_decoder import ScottieS1Config, ScottieS1Decoder
+from sstv_core.decode.scottie_decoder import (
+    ScottieS1Config,
+    ScottieS1Decoder,
+    ScottieS2Config,
+)
 from sstv_core.decode.sync_detector import SyncPulseDetector
 
 logger = logging.getLogger(__name__)
@@ -500,7 +504,24 @@ class RXManager:
             stream_audio = vis_tail.copy()
             stream_base_position = stream_position - len(vis_tail)
             line_number = 0
-            last_sync_time = time.monotonic()
+            last_audio_time = time.monotonic()
+
+            # How long a silent source means the transmission is over, rather
+            # than the stream merely being between chunks.
+            #
+            # This used to key off the last sync pulse against a flat 2.0s,
+            # which fails on any real-time stream (#99): the loop polls faster
+            # than a source delivers, so an empty buffer is routine, and syncs
+            # are further apart than the timeout anyway -- a Scottie S1 line is
+            # 428ms and Scottie DX is 1050ms, so with detection latency a
+            # healthy stream regularly goes 2s between pulses. Feeding faster
+            # than realtime hid both, which is why this survived until a
+            # wall-clock replay.
+            #
+            # Audio arrival is the honest signal: a live source keeps
+            # delivering whether or not the decoder can find sync in it.
+            line_duration_sec = decoder.config.total_line_samples / self._sample_rate
+            end_of_signal_sec = max(2.0, 3.0 * line_duration_sec)
 
             # Decoding loop
             while line_number < total_lines and not self._cancel_requested:
@@ -517,8 +538,8 @@ class RXManager:
                     )
                 samples = ring_buffer.pop(len(ring_buffer))
                 if len(samples) == 0:
-                    stalled_sec = time.monotonic() - last_sync_time
-                    if stalled_sec > 2.0 and line_number > 0:
+                    stalled_sec = time.monotonic() - last_audio_time
+                    if stalled_sec > end_of_signal_sec and line_number > 0:
                         # The signal has ended. A line only completes when
                         # the NEXT sync arrives, so the final line has no
                         # closer -- silence follows the transmission. Flush
@@ -555,10 +576,18 @@ class RXManager:
                             )
                             break
                         continue
-                    if stalled_sec > 5.0:
-                        raise TimeoutError("No scanline sync received for 5 seconds")
+                    # Reached only before the first line completes, where the
+                    # flush above cannot help. Scaled off the same line time so
+                    # a slow mode is not held to a timeout shorter than one of
+                    # its own scanlines.
+                    if stalled_sec > 2.0 * end_of_signal_sec:
+                        raise TimeoutError(
+                            f"Audio stopped arriving for {stalled_sec:.1f}s "
+                            f"before any scanline completed"
+                        )
                     continue
 
+                last_audio_time = time.monotonic()
                 self._extend_analysis_window(samples)
 
                 # Peak level from the RAW audio -- the filter would hide
@@ -587,7 +616,6 @@ class RXManager:
                     position=chunk_position,
                 )
                 if new_syncs:
-                    last_sync_time = time.monotonic()
                     # Drop pulses arriving well inside the current line: those
                     # are picture content that momentarily looked like 1200 Hz,
                     # and treating them as line starts tears the image. The
@@ -636,8 +664,22 @@ class RXManager:
                 while len(sync_positions) >= 2 and line_number < total_lines:
                     sync_pos = sync_positions[0]
                     next_sync = sync_positions[1]
-                    line_start = sync_pos - stream_base_position
-                    line_end = next_sync - stream_base_position
+
+                    # Where a line starts relative to its sync pulse is the
+                    # decoder's business, not this loop's: Scottie slices
+                    # from just after the pulse (its decode_scanline expects
+                    # the buffer to open on the RED channel), while Martin
+                    # and Robot include the pulse and skip it internally.
+                    #
+                    # This loop used to hardcode sync-to-sync, which is right
+                    # for two modes of three. For Scottie it left the 9 ms
+                    # pulse at the head of every line and shifted the image
+                    # (#101) -- 20.8 px of 320 on S1, 32.7 px on S2, the
+                    # "about 10% wrapped to the left" that made callsigns
+                    # read as XE2UDD and 4A2MAXS.
+                    line_offset = getattr(decoder, "line_start_offset", 0)
+                    line_start = sync_pos + line_offset - stream_base_position
+                    line_end = next_sync + line_offset - stream_base_position
 
                     if line_start < 0:
                         sync_positions.pop(0)
@@ -834,7 +876,12 @@ class RXManager:
     }
 
     # The subset _get_decoder can actually return a decoder for.
-    DECODABLE_MODES: ClassVar[tuple[str, ...]] = ("ScottieS1", "MartinM1", "Robot36")
+    DECODABLE_MODES: ClassVar[tuple[str, ...]] = (
+        "ScottieS1",
+        "ScottieS2",
+        "MartinM1",
+        "Robot36",
+    )
 
     @staticmethod
     def _mode_name(mode: Any) -> str:
@@ -858,6 +905,9 @@ class RXManager:
 
         if mode_lower == "scotties1":
             return ScottieS1Decoder(ScottieS1Config(sample_rate=rate))
+        elif mode_lower == "scotties2":
+            # Same decoder, different timing -- see ScottieS2Config.
+            return ScottieS1Decoder(ScottieS2Config(sample_rate=rate))
         elif mode_lower == "martinm1":
             return MartinM1Decoder(MartinM1Config(sample_rate=rate))
         elif mode_lower == "robot36":

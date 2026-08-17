@@ -190,38 +190,68 @@ class BandpassPresets:
 
     @staticmethod
     def standard() -> BandpassConfig:
-        """Return the standard SSTV bandpass (1200-2300 Hz).
+        """Return the standard SSTV bandpass (1000-2400 Hz).
 
-        Suitable for most SSTV reception conditions with normal noise levels.
+        The lower edge sits below the 1200 Hz sync tone rather than on it.
+        This was 1200 Hz until #100, which put sync exactly on the corner
+        where a 4th-order Butterworth is already -3 dB: measured on a real
+        20m transmission, filtering before sync detection cut raw pulse
+        detections from 2945 to 189 and stopped every live decode around
+        half the frame.
+
+        Sweeping the lower edge on that recording, counting accepted line
+        starts and how many were one clean line apart:
+
+            none    kept=427  clean 82%
+            1200    kept=103  clean 54%
+            1100    kept=353  clean 76%
+            1000    kept=430  clean 87%   <- here
+             900    kept=447  clean 78%
+             800    kept=458  clean 67%
+
+        1000 Hz scores better than no filter at all, which is the point of
+        having one. Below 900 the passband admits enough noise to generate
+        spurious pulses, so lower is not simply better.
         """
         return BandpassConfig(
-            low_freq=1200.0,
-            high_freq=2300.0,
+            low_freq=1000.0,
+            high_freq=2400.0,
             filter_order=4,
         )
 
     @staticmethod
     def aggressive_noise_reduction() -> BandpassConfig:
-        """Aggressive noise reduction (1300-2200 Hz).
+        """Aggressive noise reduction (1100-2200 Hz).
 
         Narrower passband for extremely noisy environments
         (contest stations, urban locations).
+
+        The lower edge was 1300 Hz until #100, which excluded the 1200 Hz
+        sync tone outright -- and with order 6 rather than 4, so the pulse
+        the decoder needs most was attenuated hardest exactly when the signal
+        could least afford it. 1100 Hz keeps sync inside the passband; the
+        noise rejection this preset exists for comes from the steeper rolloff
+        and the narrow top end, not from cutting into the sync.
         """
         return BandpassConfig(
-            low_freq=1300.0,
+            low_freq=1100.0,
             high_freq=2200.0,
             filter_order=6,  # Higher order = steeper rolloff
         )
 
     @staticmethod
     def weak_signal() -> BandpassConfig:
-        """Wide bandpass for weak signal detection (1100-2400 Hz).
+        """Wide bandpass for weak signal detection (900-2400 Hz).
 
         Wider passband preserves more signal energy when signal is
         very weak but may admit more noise.
+
+        900 rather than 1100 (see #100): on a weak signal the sync pulse is
+        the first thing to disappear, so the preset meant for weak signals
+        should give it the most margin, not the least.
         """
         return BandpassConfig(
-            low_freq=1100.0,
+            low_freq=900.0,
             high_freq=2400.0,
             filter_order=3,  # Lower order = less phase distortion
         )
@@ -237,6 +267,12 @@ class BandpassPresets:
 
         This preset adds additional low-frequency cutoff to suppress
         wind and room modes.
+
+        Unused today, and not safe to wire into the decode path as it stands:
+        the 1500 Hz lower edge excludes the 1200 Hz sync tone entirely, which
+        is the failure #100 was. Rejecting wind means cutting where sync
+        lives, so this needs a different approach -- a notch or a highpass
+        below 1000 Hz -- rather than a passband that starts above it.
         """
         return BandpassConfig(
             low_freq=1500.0,  # Higher low cutoff to reject wind

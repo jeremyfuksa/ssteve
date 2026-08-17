@@ -1,4 +1,4 @@
-"""Scottie S1 SSTV mode decoder.
+"""Scottie SSTV mode decoders.
 
 Scottie S1 specifications:
 - Resolution: 320x256 pixels
@@ -7,6 +7,10 @@ Scottie S1 specifications:
 - Scanline time per color: 138.24ms
 - Total line time: ~428.22ms
 - Frequency mapping: 1500 Hz = black, 2300 Hz = white
+
+Scottie S2 is the same structure at a faster scan: 88.064ms per colour,
+~277.692ms per line. `ScottieS1Decoder` reads every timing value from its
+config, so S2 needs a config rather than a decoder of its own.
 """
 
 from __future__ import annotations
@@ -64,6 +68,20 @@ class ScottieS1Config:
             + self.sync_duration_ms
         )
         return int(self.sample_rate * line_ms / 1000)
+
+
+@dataclass
+class ScottieS2Config(ScottieS1Config):
+    """Scottie S2 mode configuration.
+
+    Identical to S1 apart from the colour scan duration, which is what makes
+    S2 the faster mode (~71s per frame against S1's ~110s). Subclassing keeps
+    the line-structure arithmetic in one place: `total_line_samples` sums the
+    parts, so 88.064ms here yields the published 277.692ms line time without
+    that figure being written down anywhere it could drift.
+    """
+
+    color_scan_duration_ms: float = 88.064
 
 
 @dataclass
@@ -135,6 +153,18 @@ class ScottieS1Decoder:
         self._lines_decoded = 0
         self._quality_sum = 0.0
         self._decode_start_time = 0.0
+
+    @property
+    def line_start_offset(self) -> int:
+        """Samples from a detected sync pulse to the start of its line.
+
+        Scottie's `decode_scanline` expects the buffer to open on the RED
+        channel, which begins once the sync pulse has finished -- so a caller
+        slicing lines out of a stream has to skip the pulse. Martin and Robot
+        take the opposite convention and skip it internally, which is why
+        this is per-decoder rather than a constant in the caller (#101).
+        """
+        return self._config.samples_per_sync
 
     @property
     def config(self) -> ScottieS1Config:

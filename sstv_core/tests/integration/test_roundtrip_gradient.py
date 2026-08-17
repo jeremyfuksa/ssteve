@@ -18,14 +18,26 @@ import pytest
 
 from sstv_core.decode.martin_decoder import MartinM1Config, MartinM1Decoder
 from sstv_core.decode.robot_decoder import Robot36Config, Robot36Decoder
-from sstv_core.decode.scottie_decoder import ScottieS1Config, ScottieS1Decoder
+from sstv_core.decode.scottie_decoder import (
+    ScottieS1Config,
+    ScottieS1Decoder,
+    ScottieS2Config,
+)
 from sstv_core.decode.sync_detector import SyncPulseDetector
 from sstv_core.encode.martin_encoder import MartinM1Encoder
 from sstv_core.encode.robot_encoder import Robot36Encoder
-from sstv_core.encode.scottie_encoder import ScottieS1Encoder
+from sstv_core.encode.scottie_encoder import (
+    ScottieS1Encoder,
+    ScottieS2Encoder,
+    ScottieS2EncoderConfig,
+)
 
 MODES = [
     pytest.param(ScottieS1Encoder, ScottieS1Config, ScottieS1Decoder, 0.95, id="ScottieS1"),
+    # Scottie S2 shares S1's structure and decoder; only the scan duration
+    # differs. It was the dominant mode on 20m in the 2026-08-16 capture (18
+    # of 24 transmissions) and had no decoder at all until #96.
+    pytest.param(ScottieS2Encoder, ScottieS2Config, ScottieS1Decoder, 0.95, id="ScottieS2"),
     pytest.param(MartinM1Encoder, MartinM1Config, MartinM1Decoder, 0.95, id="MartinM1"),
     # Robot 36 subsamples chroma across line pairs, so color ramps lose a
     # little fidelity even through a perfect channel.

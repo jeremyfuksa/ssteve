@@ -50,6 +50,17 @@ class ScottieS1EncoderConfig:
 
 
 @dataclass
+class ScottieS2EncoderConfig(ScottieS1EncoderConfig):
+    """Scottie S2 encoder configuration.
+
+    Mirrors `decode.scottie_decoder.ScottieS2Config`; the two are kept in
+    step by `tests/decode/test_scottie_s2.py`.
+    """
+
+    color_scan_duration_ms: float = 88.064
+
+
+@dataclass
 class EncoderProgress:
     lines_encoded: int
     total_lines: int
@@ -67,6 +78,12 @@ class EncoderProgress:
 
 class ScottieS1Encoder:
     """Encodes RGB images to Scottie S1 SSTV audio."""
+
+    # The mode this encoder announces in its VIS header. Subclasses override
+    # it; it cannot come from the timing config, because the config carries
+    # durations and the VIS code is an identifier. Getting it wrong means a
+    # conforming receiver decodes our transmission with the wrong geometry.
+    vis_mode = SSTVMode.SCOTTIE_S1
 
     def __init__(self, config: ScottieS1EncoderConfig | None = None):
         self._config = config or ScottieS1EncoderConfig()
@@ -175,7 +192,7 @@ class ScottieS1Encoder:
             # Without one no receiver can auto-detect what we are sending,
             # and until 2026-08-07 no SSTeVe encoder emitted it.
             header = VISGenerator(sample_rate=self._config.sample_rate).generate(
-                SSTVMode.SCOTTIE_S1
+                self.vis_mode
             )
             audio_parts.insert(0, header.astype(audio_parts[0].dtype))
 
@@ -211,3 +228,16 @@ class ScottieS1Encoder:
         line_samples = (cfg.samples_per_color_line * 3 + cfg.samples_per_sync +
                        cfg.samples_per_separator * 3)
         return (cfg.height * line_samples) / cfg.sample_rate
+
+
+class ScottieS2Encoder(ScottieS1Encoder):
+    """Encodes RGB images to Scottie S2 SSTV audio.
+
+    Same line structure as S1 at a faster scan, so only the default config and
+    the VIS code differ.
+    """
+
+    vis_mode = SSTVMode.SCOTTIE_S2
+
+    def __init__(self, config: ScottieS2EncoderConfig | None = None):
+        super().__init__(config or ScottieS2EncoderConfig())
