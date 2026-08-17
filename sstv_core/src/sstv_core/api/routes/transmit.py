@@ -18,7 +18,10 @@ from sstv_core.api.models import (
     TransmitState,
     TransmitStatusResponse,
 )
-from sstv_core.api.session_manager import session_manager
+from sstv_core.api.session_manager import (
+    concurrent_operation_detail,
+    session_manager,
+)
 
 router = APIRouter(prefix="/transmit", tags=["transmit"])
 
@@ -114,11 +117,7 @@ async def start_transmit(
         if "already active" in str(e) or "half-duplex" in str(e):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail={
-                    "error": "SESSION_CONFLICT",
-                    "message": str(e),
-                    "suggested_action": "Stop the active session before starting a new one",
-                },
+                detail=concurrent_operation_detail(str(e)),
             ) from e
         raise
     except Exception as e:

@@ -405,15 +405,25 @@ POST /decode/start
     status: "listening"
 
 GET /decode/status/{session_id}
-  Response:
-    status: "listening" | "decoding" | "complete"
-    mode: string
-    progress: int (0-100)
-    scanline: int
-    total_scanlines: int
+  Response:                          # field names as implemented; see openapi.json
+    session_id: uuid
+    state: "listening" | "vis_detected" | "decoding" | "completed"
+           | "failed" | "stopped"
+    mode: string | null
+    mode_confidence: float | null
+    progress_percent: float (0-100)
+    scanlines_received: int
+    total_scanlines: int | null      # null before a mode is known
     vis_detected: boolean
-    vis_confidence: float
-    signal_quality: float (0-1)
+    signal_quality: float (0-1) | null   # decoder estimate, NOT calibrated SNR
+    snr_db: float | null
+    frequency_offset_hz: float | null    # measured offset; null until AFC locks
+    afc_locked: boolean
+    afc_correction_applied_hz: float | null
+    image_id: uuid | null
+    error: string | null
+    started_at: datetime
+    completed_at: datetime | null
 
 POST /decode/stop/{session_id}
   Response:
@@ -421,6 +431,20 @@ POST /decode/stop/{session_id}
     image_id: int | null
     filepath: string | null
 ```
+
+> **Reading AFC lock (PRODUCT.md #5 requires it be verifiable).** Three states,
+> which is why this is two fields rather than one boolean:
+>
+> | State | `afc_locked` | `frequency_offset_hz` | `afc_correction_applied_hz` |
+> |---|---|---|---|
+> | Searching | `false` | `null` | `null` |
+> | Locked, corrected | `true` | measured | same as measured (clamped) |
+> | Locked, not applied | `true` | measured | `0.0` |
+>
+> The third row is `auto_afc` off — Doppler and satellite work, where the
+> operator wants the offset *reported* and the video mapping *untouched*.
+> Render it distinctly: "40 Hz off, not correcting" is different information
+> from "still searching."
 
 #### Transmit Operations
 
@@ -477,15 +501,17 @@ GET /images/{id}
 
 ```yaml
 GET /devices/audio
-  Response:
-    inputs: array of AudioDevice
-    outputs: array of AudioDevice
+  Response: array of AudioDevice
 
   AudioDevice:
-    id: string
+    device_id: string
     name: string
     channels: int
-    sample_rates: array of int
+    sample_rate: int            # preferred rate (48000 when supported)
+    sample_rates: array of int  # every probed rate, ascending
+    is_input: bool
+    is_output: bool
+    is_default: bool
 
 GET /devices/serial
   Response:
@@ -496,6 +522,14 @@ GET /devices/serial
     description: string
     manufacturer: string | null
 ```
+
+> **`GET /devices/audio` returns a flat array, not `{inputs, outputs}`.** This
+> section specified the split shape until 2026-08-09; the implementation never
+> had it, and the spec was corrected rather than the code. `is_input` /
+> `is_output` carry strictly more information than the partition would: a
+> duplex device is honestly both, where the split shape must either duplicate
+> it across two arrays or pick one arbitrarily. Clients that want the split
+> can filter on the flags.
 
 #### Configuration
 

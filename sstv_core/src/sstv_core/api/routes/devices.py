@@ -255,6 +255,11 @@ async def list_audio_devices() -> list[AudioDevice]:
                 name=device.name,
                 channels=device.channels,
                 sample_rate=_pick_sample_rate(device.sample_rates),
+                # device_manager probes every supported rate; serving only
+                # the pick left a client unable to offer the alternatives.
+                sample_rates=sorted(device.sample_rates),
+                is_input=device.is_input,
+                is_output=device.is_output,
                 is_default=device.is_default,
             )
             for device in devices

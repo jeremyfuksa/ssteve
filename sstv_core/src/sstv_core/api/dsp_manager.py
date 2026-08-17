@@ -582,7 +582,23 @@ class DSPManager:
             "scanlines_received": progress.current_line,
             "signal_quality": progress.signal_quality,
             "snr_db": live_snr,
+            # total_lines is 0 before a decoder is chosen; report null rather
+            # than a zero the client would render as a real scanline count.
+            "total_scanlines": progress.total_lines or None,
+            "vis_detected": progress.state
+            not in (RXState.IDLE, RXState.LISTENING),
         }
+
+        # AFC lock, so the operator can verify it (PRODUCT.md #5). The
+        # measured offset is reported even when auto_afc is off and nothing
+        # was corrected -- knowing you are 40 Hz out is the point.
+        rx_mgr = self._rx_managers.get(session_id)
+        if rx_mgr is not None:
+            afc_locked, afc_offset_hz, afc_applied_hz = rx_mgr.get_afc_state()
+            metadata["afc_locked"] = afc_locked
+            metadata["afc_correction_applied_hz"] = afc_applied_hz
+            if afc_offset_hz is not None:
+                metadata["frequency_offset_hz"] = afc_offset_hz
 
         # Emit audio levels event (mono monitoring - single channel)
         # Audio levels are calculated by AudioStreamManager and passed via progress
@@ -680,12 +696,21 @@ class DSPManager:
                 if player is not None:
                     player.play_complete_chime()
 
+                # Read metrics/FSKID before the DB branch: the completion
+                # event should carry the RSV report and FSKID outcome even
+                # when the database is disabled and no record is written.
+                rx_mgr = self._rx_managers.get(session_id)
+                metrics = rx_mgr.get_decode_metrics() if rx_mgr else None
+                fskid = rx_mgr.get_fskid_result() if rx_mgr else None
+                rsv_report = (
+                    RSVCalculator().calculate(metrics).to_string()
+                    if metrics is not None
+                    else None
+                )
+
                 # Create database record if database is enabled
                 image_id = None
                 if self._db_session_factory:
-                    rx_mgr = self._rx_managers.get(session_id)
-                    metrics = rx_mgr.get_decode_metrics() if rx_mgr else None
-                    fskid = rx_mgr.get_fskid_result() if rx_mgr else None
                     db_image_id = await self._create_image_record(
                         session_id, result, metrics, fskid
                     )
@@ -712,6 +737,11 @@ class DSPManager:
                         filepath=str(result),
                         mode=self._mode_enum(mode_str),
                         duration_seconds=self._session_duration(session_id),
+                        rsv_report=rsv_report,
+                        fskid_detected=fskid is not None,
+                        fskid_checksum_valid=(
+                            bool(fskid.checksum_valid) if fskid is not None else None
+                        ),
                     ).model_dump(mode="json"),
                 )
             else:

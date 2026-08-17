@@ -22,7 +22,10 @@ from sstv_core.api.models import (
     ModeDetectionRequest,
     ModeDetectionResponse,
 )
-from sstv_core.api.session_manager import session_manager
+from sstv_core.api.session_manager import (
+    concurrent_operation_detail,
+    session_manager,
+)
 from sstv_core.smart_features.mode_detector import (
     detect_mode_from_sync_timing,
     get_suggestion_message,
@@ -317,11 +320,7 @@ async def start_decode(
         if "already active" in str(e) or "half-duplex" in str(e):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail={
-                    "error": "SESSION_CONFLICT",
-                    "message": str(e),
-                    "suggested_action": "Stop the active session before starting a new one",
-                },
+                detail=concurrent_operation_detail(str(e)),
             ) from e
         raise
     except Exception as e:
@@ -383,6 +382,11 @@ async def get_decode_status(session_id: UUID) -> DecodeStatusResponse:
         scanlines_received=metadata.get("scanlines_received", 0),
         snr_db=metadata.get("snr_db"),
         frequency_offset_hz=metadata.get("frequency_offset_hz"),
+        total_scanlines=metadata.get("total_scanlines"),
+        vis_detected=metadata.get("vis_detected", False),
+        signal_quality=metadata.get("signal_quality"),
+        afc_locked=metadata.get("afc_locked", False),
+        afc_correction_applied_hz=metadata.get("afc_correction_applied_hz"),
         image_id=metadata.get("image_id"),
         error=metadata.get("error"),
         started_at=session.created_at,
