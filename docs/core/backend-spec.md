@@ -562,7 +562,32 @@ PATCH /config
 
 ### 3.2 WebSocket Live Updates
 
-**Endpoint:** `ws://localhost:8000/api/v1/ws/decode/{session_id}`
+**App channel:** `ws://localhost:8000/api/v1/ws`
+
+The channel that exists while nothing is decoding or transmitting. Both
+session endpoints below are session-scoped, so before 2026-08-09 an idle
+client had no channel at all — which structurally blocked idle metering,
+device hot-plug, and library pushes to a gallery with no session open (#57).
+
+Events: `device_changed`, `library_updated`, `audio_levels` (while
+monitoring), `monitor_state`, `error`.
+
+Commands (text frames): `ping`, `monitor_start[:device_id]`, `monitor_stop`.
+
+Two behaviors worth knowing:
+
+- **Unbuffered, unlike the session channels.** These events describe the
+  world *now* — devices present, current levels, library contents. Replaying
+  a stale device list to a reconnecting client would be worse than silence;
+  it should re-fetch from the REST endpoints instead.
+- **Monitoring is refused during a decode** (`INPUT_BUSY`). Opening a second
+  input stream would collide with the decode's own capture — half-duplex
+  applies to the microphone, not only to decode-vs-transmit.
+
+The device poll runs only while at least one client holds the channel open,
+so an idle headless server does no PortAudio work.
+
+**Session channel:** `ws://localhost:8000/api/v1/ws/decode/{session_id}`
 
 Events are keyed on `event_type` and defined by the Pydantic models in
 `sstv_core/api/models.py` (VISDetectedEvent, ScanlineUpdateEvent,

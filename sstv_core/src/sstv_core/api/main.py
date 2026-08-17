@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from sstv_core.api.app_channel import app_channel
 from sstv_core.api.dsp_manager import dsp_manager
 from sstv_core.api.session_manager import session_manager
 from sstv_core.api.websocket_manager import websocket_manager
@@ -133,6 +134,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Before the engine is disposed: stopping a session can write a final
     # record, and an orphaned transmit task can leave the radio keyed.
     await dsp_manager.shutdown()
+    # The app channel's device poll and any monitored input stream are
+    # background tasks holding real hardware; stop them too.
+    await app_channel.shutdown()
     await session_manager.stop_cleanup_task()
     if _db_engine is not None:
         _db_engine.dispose()
