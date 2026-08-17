@@ -664,8 +664,22 @@ class RXManager:
                 while len(sync_positions) >= 2 and line_number < total_lines:
                     sync_pos = sync_positions[0]
                     next_sync = sync_positions[1]
-                    line_start = sync_pos - stream_base_position
-                    line_end = next_sync - stream_base_position
+
+                    # Where a line starts relative to its sync pulse is the
+                    # decoder's business, not this loop's: Scottie slices
+                    # from just after the pulse (its decode_scanline expects
+                    # the buffer to open on the RED channel), while Martin
+                    # and Robot include the pulse and skip it internally.
+                    #
+                    # This loop used to hardcode sync-to-sync, which is right
+                    # for two modes of three. For Scottie it left the 9 ms
+                    # pulse at the head of every line and shifted the image
+                    # (#101) -- 20.8 px of 320 on S1, 32.7 px on S2, the
+                    # "about 10% wrapped to the left" that made callsigns
+                    # read as XE2UDD and 4A2MAXS.
+                    line_offset = getattr(decoder, "line_start_offset", 0)
+                    line_start = sync_pos + line_offset - stream_base_position
+                    line_end = next_sync + line_offset - stream_base_position
 
                     if line_start < 0:
                         sync_positions.pop(0)

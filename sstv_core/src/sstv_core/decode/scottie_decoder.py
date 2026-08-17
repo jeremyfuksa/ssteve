@@ -155,6 +155,18 @@ class ScottieS1Decoder:
         self._decode_start_time = 0.0
 
     @property
+    def line_start_offset(self) -> int:
+        """Samples from a detected sync pulse to the start of its line.
+
+        Scottie's `decode_scanline` expects the buffer to open on the RED
+        channel, which begins once the sync pulse has finished -- so a caller
+        slicing lines out of a stream has to skip the pulse. Martin and Robot
+        take the opposite convention and skip it internally, which is why
+        this is per-decoder rather than a constant in the caller (#101).
+        """
+        return self._config.samples_per_sync
+
+    @property
     def config(self) -> ScottieS1Config:
         return self._config
 

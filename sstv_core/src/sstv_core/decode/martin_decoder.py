@@ -142,6 +142,18 @@ class MartinM1Decoder:
         self._decode_start_time = 0.0
 
     @property
+    def line_start_offset(self) -> int:
+        """Samples from a detected sync pulse to the start of its line.
+
+        Zero: Martin's `decode_scanline` receives the sync pulse at the head
+        of the buffer and skips it itself. Stated explicitly rather than left
+        to a default so the convention is visible where it is decided --
+        Scottie takes the opposite one, and a caller assuming either for all
+        modes shifts the image (#101).
+        """
+        return 0
+
+    @property
     def config(self) -> MartinM1Config:
         return self._config
 
