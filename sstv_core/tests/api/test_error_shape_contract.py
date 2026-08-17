@@ -25,6 +25,15 @@ def _route_modules() -> list[Path]:
     return sorted(p for p in ROUTES_DIR.glob("*.py") if p.name != "__init__.py")
 
 
+#: Helpers that build and return the structured detail object. A call to one
+#: of these is the structured shape, not a bare value -- `session_manager`
+#: exists precisely so decode, transmit and smart_reply stop hand-rolling
+#: three slightly different 409 bodies. Named explicitly rather than allowing
+#: every call: `detail=f"..."` and `detail=str(e)` are the shapes this test
+#: is for, and a blanket allowance for Call would let both through.
+DETAIL_BUILDERS = frozenset({"concurrent_operation_detail"})
+
+
 def _bare_detail_sites(path: Path) -> list[tuple[int, str]]:
     """Line numbers where `detail=` is passed something that isn't a dict."""
     tree = ast.parse(path.read_text())
@@ -39,6 +48,12 @@ def _bare_detail_sites(path: Path) -> list[tuple[int, str]]:
             # built just above the raise, so allow it and let the runtime
             # tests below cover those; everything else is a bare value.
             if isinstance(kw.value, ast.Dict | ast.Name):
+                continue
+            if (
+                isinstance(kw.value, ast.Call)
+                and isinstance(kw.value.func, ast.Name)
+                and kw.value.func.id in DETAIL_BUILDERS
+            ):
                 continue
             offenders.append((kw.lineno, ast.unparse(kw.value)[:70]))
     return offenders

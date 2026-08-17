@@ -96,6 +96,17 @@ _FIELD_TO_MANAGER_KEY: dict[str, str] = {
     "lock_chime_volume": "accessibility.lock_chime_volume",
     "verbose_cli_enabled": "accessibility.verbose_cli_enabled",
     "json_logging_enabled": "accessibility.json_logging_enabled",
+    # SpyServer. Stored since the SDR path shipped (#68) but unreachable
+    # over /config until now, which is exactly the gap
+    # test_every_advanced_setting_is_reachable exists to catch: a
+    # receive-only operator configures the whole radio here, and having to
+    # pass --spyserver on every CLI invocation instead is the difference
+    # between a saved station and a remembered command line.
+    "spyserver_host": "spyserver.host",
+    "spyserver_port": "spyserver.port",
+    "spyserver_frequency_hz": "spyserver.frequency_hz",
+    "spyserver_gain": "spyserver.gain",
+    "spyserver_stall_timeout_sec": "spyserver.stall_timeout_sec",
 }
 
 # Handled by conversion code rather than the table: ptt_method splits into

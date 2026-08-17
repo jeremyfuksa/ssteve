@@ -429,6 +429,37 @@ class Configuration(BaseModel):
         default=False, description="Emit logs as JSON (screen-reader/scripted use)"
     )
 
+    # SpyServer. Bounds mirror config.manager.SpyServerSettings so the API
+    # rejects the same values storage would.
+    spyserver_host: str = Field(
+        default="", description="SpyServer hostname or IP (empty = not configured)"
+    )
+    spyserver_port: int = Field(
+        default=5555, ge=1, le=65535, description="SpyServer TCP port"
+    )
+    spyserver_frequency_hz: int = Field(
+        default=14_230_000,
+        ge=0,
+        le=4_294_967_295,
+        description="Tuned frequency in Hz (the protocol carries this as uint32)",
+    )
+    spyserver_gain: int | None = Field(
+        default=None,
+        ge=0,
+        le=63,
+        description=(
+            "Receiver gain index; null means derive one from the device's "
+            "maximum_gain_index after connecting. Distinct from 0, which is "
+            "a legal but deaf setting on some hardware"
+        ),
+    )
+    spyserver_stall_timeout_sec: float = Field(
+        default=5.0,
+        gt=0.0,
+        le=120.0,
+        description="Seconds without IQ before the stream is considered stalled",
+    )
+
     # Decoder detail
     vis_detection_threshold: float = Field(
         default=0.85, ge=0.0, le=1.0, description="Confidence required to accept a VIS header"

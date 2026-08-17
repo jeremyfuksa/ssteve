@@ -452,6 +452,50 @@
             "title": "Slant Threshold Degrees",
             "type": "number"
           },
+          "spyserver_frequency_hz": {
+            "default": 14230000,
+            "description": "Tuned frequency in Hz (the protocol carries this as uint32)",
+            "maximum": 4294967295.0,
+            "minimum": 0.0,
+            "title": "Spyserver Frequency Hz",
+            "type": "integer"
+          },
+          "spyserver_gain": {
+            "anyOf": [
+              {
+                "maximum": 63.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Receiver gain index; null means derive one from the device's maximum_gain_index after connecting. Distinct from 0, which is a legal but deaf setting on some hardware",
+            "title": "Spyserver Gain"
+          },
+          "spyserver_host": {
+            "default": "",
+            "description": "SpyServer hostname or IP (empty = not configured)",
+            "title": "Spyserver Host",
+            "type": "string"
+          },
+          "spyserver_port": {
+            "default": 5555,
+            "description": "SpyServer TCP port",
+            "maximum": 65535.0,
+            "minimum": 1.0,
+            "title": "Spyserver Port",
+            "type": "integer"
+          },
+          "spyserver_stall_timeout_sec": {
+            "default": 5.0,
+            "description": "Seconds without IQ before the stream is considered stalled",
+            "exclusiveMinimum": 0.0,
+            "maximum": 120.0,
+            "title": "Spyserver Stall Timeout Sec",
+            "type": "number"
+          },
           "squelch_threshold_db": {
             "default": -40.0,
             "description": "Squelch threshold in dB (manual mode)",
@@ -2373,6 +2417,31 @@
           }
         },
         "summary": "Update Config",
+        "tags": [
+          "Config",
+          "config"
+        ]
+      }
+    },
+    "/api/v1/config/schema": {
+      "get": {
+        "description": "Return the JSON Schema for Configuration.\n\nbackend-spec.md:504 promised GET /config returns the \"full schema\" and\nthere was no way to introspect one, so a client had to hardcode the\nfield list -- and go stale the moment a setting was added. This serves\nPydantic's own schema: types, ranges, defaults, and descriptions, all\ngenerated from the model rather than restated.",
+        "operationId": "get_config_schema_api_v1_config_schema_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Config Schema Api V1 Config Schema Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Config Schema",
         "tags": [
           "Config",
           "config"
