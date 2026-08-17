@@ -1,4 +1,4 @@
-"""Scottie S1 SSTV mode decoder.
+"""Scottie SSTV mode decoders.
 
 Scottie S1 specifications:
 - Resolution: 320x256 pixels
@@ -7,6 +7,10 @@ Scottie S1 specifications:
 - Scanline time per color: 138.24ms
 - Total line time: ~428.22ms
 - Frequency mapping: 1500 Hz = black, 2300 Hz = white
+
+Scottie S2 is the same structure at a faster scan: 88.064ms per colour,
+~277.692ms per line. `ScottieS1Decoder` reads every timing value from its
+config, so S2 needs a config rather than a decoder of its own.
 """
 
 from __future__ import annotations
@@ -64,6 +68,20 @@ class ScottieS1Config:
             + self.sync_duration_ms
         )
         return int(self.sample_rate * line_ms / 1000)
+
+
+@dataclass
+class ScottieS2Config(ScottieS1Config):
+    """Scottie S2 mode configuration.
+
+    Identical to S1 apart from the colour scan duration, which is what makes
+    S2 the faster mode (~71s per frame against S1's ~110s). Subclassing keeps
+    the line-structure arithmetic in one place: `total_line_samples` sums the
+    parts, so 88.064ms here yields the published 277.692ms line time without
+    that figure being written down anywhere it could drift.
+    """
+
+    color_scan_duration_ms: float = 88.064
 
 
 @dataclass
