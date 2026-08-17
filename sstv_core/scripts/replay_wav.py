@@ -34,10 +34,10 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import struct
 import sys
 import threading
 import time
-import wave
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -47,6 +47,68 @@ from sstv_core.audio.ring_buffer import AudioRingBuffer
 from sstv_core.decode.rx_manager import RXManager
 
 logger = logging.getLogger("replay")
+
+
+@dataclass
+class WavFormat:
+    """What a capture's header says, plus what its size actually implies."""
+
+    sample_rate: int
+    channels: int
+    bits: int
+    dtype: str
+    data_offset: int
+    frames: int
+
+
+def _read_wav_format(path: Path) -> WavFormat:
+    """Parse a WAV header without trusting its declared length.
+
+    `wave` refuses IEEE-float captures (format tag 3), which is what SDR++
+    writes when its sample type is set to Float32. It also believes the RIFF
+    and data size fields, and those wrap past 4 GB: a 12-hour capture reports
+    4.29 GB for an 8.58 GB file, so half the audio becomes invisible. SDR++
+    has RF64 disabled and no file splitting, so any long recording hits this.
+
+    Frame count is therefore derived from the file size on disk, not the
+    header.
+    """
+    with open(path, "rb") as handle:
+        riff, _, wave_tag = struct.unpack("<4sI4s", handle.read(12))
+        if riff != b"RIFF" or wave_tag != b"WAVE":
+            raise ValueError(f"{path.name} is not a RIFF/WAVE file")
+
+        sample_rate = channels = bits = 0
+        tag = 0
+        while True:
+            header = handle.read(8)
+            if len(header) < 8:
+                raise ValueError(f"{path.name}: no data chunk found")
+            chunk_id, chunk_size = struct.unpack("<4sI", header)
+            if chunk_id == b"fmt ":
+                body = handle.read(chunk_size)
+                tag, channels, sample_rate, _, _, bits = struct.unpack(
+                    "<HHIIHH", body[:16]
+                )
+            elif chunk_id == b"data":
+                data_offset = handle.tell()
+                break
+            else:
+                handle.seek(chunk_size + (chunk_size & 1), 1)
+
+    if tag == 1 and bits == 16:
+        dtype = "<i2"
+    elif tag == 3 and bits == 32:
+        dtype = "<f4"
+    else:
+        raise ValueError(
+            f"{path.name}: unsupported format tag {tag} at {bits}-bit "
+            "(handled: 16-bit PCM, 32-bit float)"
+        )
+
+    frame_bytes = channels * bits // 8
+    frames = (path.stat().st_size - data_offset) // frame_bytes
+    return WavFormat(sample_rate, channels, bits, dtype, data_offset, frames)
 
 
 @dataclass
@@ -87,16 +149,13 @@ class WavReplaySource:
         self._speed = speed
         self._chunk_ms = chunk_ms
 
-        with wave.open(str(path)) as w:
-            self._sample_rate = w.getframerate()
-            self._channels = w.getnchannels()
-            self._sampwidth = w.getsampwidth()
-            self._total_frames = w.getnframes()
-
-        if self._sampwidth != 2:
-            raise ValueError(
-                f"{path.name} is {self._sampwidth * 8}-bit; this harness reads 16-bit PCM"
-            )
+        fmt = _read_wav_format(path)
+        self._sample_rate = fmt.sample_rate
+        self._channels = fmt.channels
+        self._sampwidth = fmt.bits // 8
+        self._dtype = fmt.dtype
+        self._data_offset = fmt.data_offset
+        self._total_frames = fmt.frames
 
         # Sized to the window so nothing is dropped if the consumer stalls;
         # a real stream would drop, but here a drop would be the harness
@@ -148,9 +207,14 @@ class WavReplaySource:
         chunk_frames = max(1, int(self._sample_rate * self._chunk_ms / 1000.0))
         want_frames = int(self._duration_sec * self._sample_rate)
 
-        with wave.open(str(self._path)) as w:
-            start_frame = max(0, int(self._start_sec * self._sample_rate))
-            w.setpos(min(start_frame, self._total_frames))
+        frame_bytes = self._channels * self._sampwidth
+        scale = 32768.0 if self._dtype == "<i2" else 1.0
+
+        with open(self._path, "rb") as handle:
+            start_frame = min(
+                max(0, int(self._start_sec * self._sample_rate)), self._total_frames
+            )
+            handle.seek(self._data_offset + start_frame * frame_bytes)
 
             fed = 0
             # Pace against a fixed origin rather than sleeping a fixed
@@ -159,11 +223,15 @@ class WavReplaySource:
             # than real time and quietly flatter the decoder.
             origin = time.monotonic()
             while not self._stop.is_set() and fed < want_frames:
-                raw = w.readframes(min(chunk_frames, want_frames - fed))
+                raw = handle.read(
+                    min(chunk_frames, want_frames - fed) * frame_bytes
+                )
                 if not raw:
                     break
 
-                samples = np.frombuffer(raw, dtype="<i2").astype(np.float32) / 32768.0
+                samples = np.frombuffer(raw, dtype=self._dtype).astype(np.float32)
+                if scale != 1.0:
+                    samples = samples / scale
                 if self._channels > 1:
                     samples = samples.reshape(-1, self._channels).mean(axis=1)
 
