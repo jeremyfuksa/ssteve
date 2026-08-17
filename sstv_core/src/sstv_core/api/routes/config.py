@@ -43,30 +43,87 @@ def _normalize_ptt_method(value: str | PTTMethod) -> tuple[str, str | None]:
     return value_enum.value, None
 
 
+# One table, both directions.
+#
+# This used to be two hand-written functions: a chain of `if key in values`
+# for writes and a hand-built Configuration(...) for reads. Adding a setting
+# meant editing both, in opposite directions, and forgetting either half
+# produced a silently unreachable field. That is exactly how nine
+# accessibility settings -- including the stereo_guidance_enabled that PR #44
+# shipped -- ended up stored but unsettable (#60).
+#
+# API field name -> ConfigManager key (dot-notation for AdvancedSettings).
+_FIELD_TO_MANAGER_KEY: dict[str, str] = {
+    "audio_input_device": "audio_input_device_id",
+    "audio_output_device": "audio_output_device_id",
+    "ptt_serial_port": "ptt_serial_port",
+    "ptt_pre_delay_ms": "ptt_pre_delay_ms",
+    "ptt_post_delay_ms": "ptt_post_delay_ms",
+    "ptt_serial_baud": "ptt_serial_baud",
+    "ptt_serial_signal": "ptt_serial_signal",
+    "vox_preamble_ms": "vox_preamble_ms",
+    "mmsstv_import_directory": "mmsstv_import_directory",
+    # Decoder
+    "auto_detect_mode": "decoder.auto_mode_detection_enabled",
+    "auto_afc": "decoder.afc_enabled",
+    "afc_range_hz": "decoder.afc_range_hz",
+    "vis_detection_threshold": "decoder.vis_detection_threshold",
+    "sync_detection_threshold": "decoder.sync_detection_threshold",
+    "slant_auto_correct": "decoder.slant_auto_correct",
+    # Encoder
+    "pre_emphasis_enabled": "encoder.pre_emphasis_enabled",
+    "color_space": "encoder.color_space",
+    "jpeg_quality": "encoder.jpeg_quality",
+    "enable_fskid_tx": "encoder.enable_fskid_tx",
+    # UI
+    "operating_mode": "ui.operating_mode",
+    "waterfall_fft_size": "ui.waterfall_fft_size",
+    "waterfall_visible": "ui.waterfall_visible",
+    "canvas_zoom": "ui.canvas_zoom",
+    "telemetry_panel_visible": "ui.telemetry_panel_visible",
+    # Audio
+    "auto_squelch": "audio.auto_squelch",
+    "squelch_threshold_db": "audio.squelch_threshold_db",
+    "buffer_size_samples": "audio.buffer_size_samples",
+    "input_gain_override": "audio.input_gain_override",
+    # Accessibility
+    "stereo_guidance_enabled": "accessibility.stereo_guidance_enabled",
+    "pilot_tone_freq": "accessibility.pilot_tone_freq",
+    "pilot_tone_volume": "accessibility.pilot_tone_volume",
+    "slant_threshold_degrees": "accessibility.slant_threshold_degrees",
+    "max_pan_degrees": "accessibility.max_pan_degrees",
+    "lock_chime_enabled": "accessibility.lock_chime_enabled",
+    "lock_chime_volume": "accessibility.lock_chime_volume",
+    "verbose_cli_enabled": "accessibility.verbose_cli_enabled",
+    "json_logging_enabled": "accessibility.json_logging_enabled",
+}
+
+# Handled by conversion code rather than the table: ptt_method splits into
+# method+signal, the mode is an enum, and the library path is expanded and
+# resolved before storage.
+_CONVERTED_FIELDS = frozenset(
+    {"ptt_method", "default_transmit_mode", "image_library_path"}
+)
+
+# Stored as a plain string and written through the table, but returned as an
+# enum, so the read loop skips it and the response builder converts it.
+_ENUM_CONVERTED_ON_READ = frozenset({"operating_mode"})
+
+
 def _build_manager_updates(values: dict[str, Any]) -> dict[str, Any]:
     updates: dict[str, Any] = {}
 
-    if "audio_input_device" in values:
-        updates["audio_input_device_id"] = values["audio_input_device"]
-
-    if "audio_output_device" in values:
-        updates["audio_output_device_id"] = values["audio_output_device"]
+    for field, manager_key in _FIELD_TO_MANAGER_KEY.items():
+        if field in values:
+            updates[manager_key] = values[field]
 
     if "ptt_method" in values:
-        method_str = values["ptt_method"]
-        method, signal = _normalize_ptt_method(method_str)
+        method, signal = _normalize_ptt_method(values["ptt_method"])
         updates["ptt_method"] = method
-        if signal:
+        # An explicit ptt_serial_signal in the same payload wins: the caller
+        # said RTS/DTR directly rather than implying it via the method.
+        if signal and "ptt_serial_signal" not in values:
             updates["ptt_serial_signal"] = signal
-
-    if "ptt_serial_port" in values:
-        updates["ptt_serial_port"] = values["ptt_serial_port"]
-
-    if "ptt_pre_delay_ms" in values:
-        updates["ptt_pre_delay_ms"] = values["ptt_pre_delay_ms"]
-
-    if "ptt_post_delay_ms" in values:
-        updates["ptt_post_delay_ms"] = values["ptt_post_delay_ms"]
 
     if "default_transmit_mode" in values:
         mode = values["default_transmit_mode"]
@@ -80,31 +137,19 @@ def _build_manager_updates(values: dict[str, Any]) -> dict[str, Any]:
             resolved = expanded
         updates["image_save_directory"] = str(resolved)
 
-    if "operating_mode" in values:
-        updates["ui.operating_mode"] = values["operating_mode"]
-
-    if "auto_detect_mode" in values:
-        updates["decoder.auto_mode_detection_enabled"] = values["auto_detect_mode"]
-
-    if "auto_afc" in values:
-        updates["decoder.afc_enabled"] = values["auto_afc"]
-
-    if "afc_range_hz" in values:
-        updates["decoder.afc_range_hz"] = values["afc_range_hz"]
-
-    if "auto_squelch" in values:
-        updates["audio.auto_squelch"] = values["auto_squelch"]
-
-    if "squelch_threshold_db" in values:
-        updates["audio.squelch_threshold_db"] = values["squelch_threshold_db"]
-
     return updates
+
+
+def _read_manager_value(manager: ConfigManager, advanced: Any, manager_key: str) -> Any:
+    """Read one manager key, dot-notation or flat."""
+    if "." in manager_key:
+        section, field = manager_key.split(".", 1)
+        return getattr(getattr(advanced, section), field)
+    return manager.get(manager_key)
 
 
 def _build_response(manager: ConfigManager) -> Configuration:
     advanced = manager.get_advanced_settings()
-    decoder = advanced.decoder
-    audio = advanced.audio
     ui = advanced.ui
 
     ptt_method = manager.get("ptt_method") or "none"
@@ -130,23 +175,30 @@ def _build_response(manager: ConfigManager) -> Configuration:
         except ValueError:
             operating_mode = OperatingConditionMode.STANDARD
 
+    # Every table-driven field, read through the same mapping that writes
+    # them. A None from a flat key means "never set" -- drop it so the
+    # model default applies rather than pushing None into a non-optional
+    # field. AdvancedSettings values are always present (Pydantic defaults).
+    fields: dict[str, Any] = {}
+    for field, manager_key in _FIELD_TO_MANAGER_KEY.items():
+        if field in _ENUM_CONVERTED_ON_READ:
+            continue
+        value = _read_manager_value(manager, advanced, manager_key)
+        if value is not None:
+            fields[field] = value
+
+    # Genuinely nullable: null means "automatic", not "unset".
+    fields["input_gain_override"] = advanced.audio.input_gain_override
+    fields["mmsstv_import_directory"] = manager.get("mmsstv_import_directory")
+
     return Configuration(
-        audio_input_device=manager.get("audio_input_device_id"),
-        audio_output_device=manager.get("audio_output_device_id"),
+        **fields,
         ptt_method=method,
-        ptt_serial_port=manager.get("ptt_serial_port"),
-        ptt_pre_delay_ms=manager.get("ptt_pre_delay_ms") or 500,
-        ptt_post_delay_ms=manager.get("ptt_post_delay_ms") or 200,
         default_transmit_mode=mode,
         image_library_path=(
             manager.get("image_save_directory") or os.path.expanduser("~/sstv_images")
         ),
         operating_mode=operating_mode,
-        auto_detect_mode=decoder.auto_mode_detection_enabled,
-        auto_afc=decoder.afc_enabled,
-        afc_range_hz=decoder.afc_range_hz,
-        auto_squelch=audio.auto_squelch,
-        squelch_threshold_db=audio.squelch_threshold_db,
     )
 
 
@@ -161,6 +213,19 @@ async def get_config(session: Session = Depends(get_db_session)) -> Configuratio
     """Return the current configuration stored in the database."""
     manager = _get_config_manager(session)
     return _build_response(manager)
+
+
+@router.get("/schema")
+async def get_config_schema() -> dict[str, Any]:
+    """Return the JSON Schema for Configuration.
+
+    backend-spec.md:504 promised GET /config returns the "full schema" and
+    there was no way to introspect one, so a client had to hardcode the
+    field list -- and go stale the moment a setting was added. This serves
+    Pydantic's own schema: types, ranges, defaults, and descriptions, all
+    generated from the model rather than restated.
+    """
+    return Configuration.model_json_schema()
 
 
 @router.post("", response_model=Configuration)
