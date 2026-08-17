@@ -155,26 +155,31 @@ class ScriptedClient:
 
 def _best_aligned_correlation(
     decoded: np.ndarray, control: np.ndarray
-) -> tuple[float, int]:
+) -> tuple[float, int, int]:
     """Correlation of two pictures after removing a constant pixel shift.
 
-    Returns (correlation, dx). The demodulator's group delay shifts the whole
-    picture sideways by a fixed amount; searching it out is the difference
-    between measuring fidelity and measuring alignment.
+    Returns (correlation, dx, dy). The demodulator's group delay shifts the
+    whole picture sideways by a fixed amount; searching it out is the
+    difference between measuring fidelity and measuring alignment.
+
+    The vertical search exists for the same reason. The live path holds off
+    decoding until the sync train proves regular (#102), while the control
+    decodes straight from `decode_stream`, which does not -- so the two
+    legitimately begin on different lines. That offset is not a cost the SDR
+    path imposes, which is what this test measures.
     """
-    best_corr = -1.0
-    best_dx = 0
-    for dx in range(-30, 31):
-        shifted = np.roll(decoded, -dx, axis=1)
-        # Crop the columns the roll wrapped, plus the edge rows that carry
-        # sync-timing slop in any decode.
-        a = control[10:-10, 32:-32].astype(np.float64).ravel()
-        b = shifted[10:-10, 32:-32].astype(np.float64).ravel()
-        corr = float(np.corrcoef(a, b)[0, 1])
-        if corr > best_corr:
-            best_corr = corr
-            best_dx = dx
-    return best_corr, best_dx
+    best = (-1.0, 0, 0)
+    for dy in range(-8, 9):
+        for dx in range(-30, 31):
+            shifted = np.roll(np.roll(decoded, -dx, axis=1), -dy, axis=0)
+            # Crop the columns and rows the rolls wrapped, plus the edge rows
+            # that carry sync-timing slop in any decode.
+            a = control[12:-12, 32:-32].astype(np.float64).ravel()
+            b = shifted[12:-12, 32:-32].astype(np.float64).ravel()
+            corr = float(np.corrcoef(a, b)[0, 1])
+            if corr > best[0]:
+                best = (corr, dx, dy)
+    return best
 
 
 @pytest.mark.integration
@@ -230,10 +235,11 @@ async def test_scottie_s1_decodes_through_the_sdr_path(tmp_path):
     # Control is the same file decoded straight from disk at its native rate,
     # so this measures what the SDR path costs and nothing else.
     control = _decode_reference_directly(audio, audio_rate)
-    corr, dx = _best_aligned_correlation(decoded, control)
+    corr, dx, dy = _best_aligned_correlation(decoded, control)
     assert corr >= 0.90, (
-        f"SDR decode correlates {corr:.4f} (shift {dx} px) with the direct "
-        "decode of the same recording -- the SDR path is degrading the audio"
+        f"SDR decode correlates {corr:.4f} (shift {dx} px, {dy} lines) with "
+        "the direct decode of the same recording -- the SDR path is "
+        "degrading the audio"
     )
 
 
