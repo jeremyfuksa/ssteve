@@ -75,7 +75,10 @@ class TestImportMMSSTV:
         )
 
         assert response.status_code == 404
-        assert "Directory not found" in response.json()["detail"]
+        detail = response.json()["detail"]
+        assert detail["error"] == "DIRECTORY_NOT_FOUND"
+        assert "/nonexistent/mmsstv/library" in detail["message"]
+        assert detail["suggested_action"]
         mock_importer.import_directory.assert_not_called()
 
     def test_import_path_is_file(self, tmp_path, mock_importer):
@@ -89,7 +92,9 @@ class TestImportMMSSTV:
         )
 
         assert response.status_code == 400
-        assert "not a directory" in response.json()["detail"]
+        detail = response.json()["detail"]
+        assert detail["error"] == "NOT_A_DIRECTORY"
+        assert detail["suggested_action"]
         mock_importer.import_directory.assert_not_called()
 
     def test_import_relative_path_rejected(self, mock_importer):
@@ -118,8 +123,9 @@ class TestImportMMSSTV:
 
         assert response.status_code == 500
         detail = response.json()["detail"]
-        assert "Import operation failed" in detail
-        assert "disk exploded" in detail
+        assert detail["error"] == "IMPORT_FAILED"
+        assert "disk exploded" in detail["message"]
+        assert detail["suggested_action"]
 
 
 class TestValidateDirectory:
@@ -178,7 +184,9 @@ class TestValidateDirectory:
         )
 
         assert response.status_code == 500
-        assert "Validation operation failed" in response.json()["detail"]
+        detail = response.json()["detail"]
+        assert detail["error"] == "VALIDATION_FAILED"
+        assert "db gone" in detail["message"]
 
 
 class TestImportPreview:
@@ -258,4 +266,6 @@ class TestImportPreview:
         )
 
         assert response.status_code == 500
-        assert "Preview operation failed" in response.json()["detail"]
+        detail = response.json()["detail"]
+        assert detail["error"] == "PREVIEW_FAILED"
+        assert "boom" in detail["message"]

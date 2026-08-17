@@ -198,7 +198,11 @@ async def generate_smart_reply(
     if db_image is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Can't find image {request.image_id}",
+            detail={
+                "error": "IMAGE_NOT_FOUND",
+                "message": f"I can't find image {request.image_id}.",
+                "suggested_action": "GET /images lists what's in the library.",
+            },
         )
 
     try:
@@ -214,7 +218,11 @@ async def generate_smart_reply(
         if not is_valid:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid field values: {', '.join(errors)}"
+                detail={
+                    "error": "INVALID_FIELD_VALUES",
+                    "message": f"Some of those fields didn't check out: {', '.join(errors)}",
+                    "suggested_action": "Correct the fields it names and try again.",
+                }
             )
 
         # Render template
@@ -248,18 +256,30 @@ async def generate_smart_reply(
     except FieldPopulationError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
+            detail={
+                "error": "FIELD_POPULATION_FAILED",
+                "message": f"I couldn't fill in the reply fields: {e!s}",
+                "suggested_action": "Supply the missing values in the request and try again.",
+            }
         ) from e
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e)
+            detail={
+                "error": "INVALID_REPLY_REQUEST",
+                "message": f"I can't build a reply from that: {e!s}",
+                "suggested_action": "Check the template name and field values.",
+            }
         ) from e
     except Exception as e:
         logger.error(f"Error generating Smart Reply: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to generate Smart Reply: {e!s}"
+            detail={
+                "error": "SMART_REPLY_FAILED",
+                "message": f"I couldn't build that Smart Reply: {e!s}",
+                "suggested_action": "Nothing was transmitted. Try again, or pick another template.",
+            }
         ) from e
 
 
@@ -288,7 +308,11 @@ async def transmit_smart_reply(
     if preview_data is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Preview not found: {preview_id}. Please generate a new preview."
+            detail={
+                "error": "PREVIEW_NOT_FOUND",
+                "message": f"I don't have a preview with ID {preview_id} anymore.",
+                "suggested_action": "Previews are short-lived -- generate a new one.",
+            }
         )
 
     preview_path = preview_data["preview_path"]
@@ -297,7 +321,11 @@ async def transmit_smart_reply(
     if not Path(preview_path).exists():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Preview image file not found. Please generate a new preview."
+            detail={
+                "error": "PREVIEW_FILE_MISSING",
+                "message": "That preview's image file is gone from disk.",
+                "suggested_action": "Generate a new preview.",
+            }
         )
 
     # A real transmit session through the same half-duplex machinery as
@@ -335,7 +363,11 @@ async def transmit_smart_reply(
         await _fail_session_quietly(locals().get("session"))
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
+            detail={
+                "error": "INVALID_TRANSMIT_REQUEST",
+                "message": f"I can't transmit that preview: {e!s}",
+                "suggested_action": "The radio was not keyed. Regenerate the preview and retry.",
+            },
         ) from e
     except RuntimeError as e:
         await _fail_session_quietly(locals().get("session"))
@@ -354,7 +386,11 @@ async def transmit_smart_reply(
         logger.error(f"Error transmitting Smart Reply: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to start transmission: {e!s}"
+            detail={
+                "error": "TRANSMIT_START_FAILED",
+                "message": f"I couldn't start that transmission: {e!s}",
+                "suggested_action": "The radio was not keyed. Check your PTT and audio settings.",
+            }
         ) from e
 
 

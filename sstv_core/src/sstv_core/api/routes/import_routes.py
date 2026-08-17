@@ -77,7 +77,14 @@ async def import_mmsstv_library(
         logger.warning("Import failed: directory not found: %s", directory)
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Directory not found: {directory}",
+            detail={
+                "error": "DIRECTORY_NOT_FOUND",
+                "message": f"I can't find that directory: {directory}",
+                "suggested_action": (
+                    "Check the path and try again -- POST /import/validate "
+                    "reports what I can see without importing anything."
+                ),
+            },
         )
 
     # Validate is directory
@@ -85,7 +92,11 @@ async def import_mmsstv_library(
         logger.warning("Import failed: path is not a directory: %s", directory)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Path is not a directory: {directory}",
+            detail={
+                "error": "NOT_A_DIRECTORY",
+                "message": f"That path exists, but it's a file, not a directory: {directory}",
+                "suggested_action": "Point me at the folder that holds the images.",
+            },
         )
 
     logger.info(
@@ -122,7 +133,14 @@ async def import_mmsstv_library(
         logger.error("MMSSTV import failed: %s", e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Import operation failed: {e!s}",
+            detail={
+                "error": "IMPORT_FAILED",
+                "message": f"The import stopped partway through: {e!s}",
+                "suggested_action": (
+                    "Nothing was left half-written -- imports commit in batches. "
+                    "Check the directory is readable and try again."
+                ),
+            },
         ) from e
 
 
@@ -183,7 +201,11 @@ async def validate_directory(
         logger.error("Directory validation failed: %s", e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Validation operation failed: {e!s}",
+            detail={
+                "error": "VALIDATION_FAILED",
+                "message": f"I couldn't check that directory: {e!s}",
+                "suggested_action": "Make sure the path exists and I have permission to read it.",
+            },
         ) from e
 
 
@@ -243,5 +265,9 @@ async def preview_import(
         logger.error("Import preview failed: %s", e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Preview operation failed: {e!s}",
+            detail={
+                "error": "PREVIEW_FAILED",
+                "message": f"I couldn't build a preview of that directory: {e!s}",
+                "suggested_action": "Make sure the path exists and I have permission to read it.",
+            },
         ) from e

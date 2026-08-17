@@ -163,7 +163,17 @@ async def log_qso(
         if not validate_callsign(qso_fields["callsign"]):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid callsign format: {qso_fields['callsign']}"
+                detail={
+                    "error": "INVALID_CALLSIGN",
+                    "message": (
+                        f"\"{qso_fields['callsign']}\" doesn't look like a "
+                        "callsign to me."
+                    ),
+                    "suggested_action": (
+                        "Callsigns are 3-8 characters, letters and digits, "
+                        "like W1AW or KC0ABC."
+                    ),
+                }
             )
 
         # Create QSO and link to image
@@ -192,13 +202,21 @@ async def log_qso(
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
+            detail={
+                "error": "INVALID_QSO_FIELDS",
+                "message": f"I can't log that contact: {e!s}",
+                "suggested_action": "Fix the field it names and send it again.",
+            },
         ) from e
     except Exception as e:
         logger.error(f"Error logging QSO: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to log QSO: {e!s}"
+            detail={
+                "error": "QSO_LOG_FAILED",
+                "message": f"I couldn't save that contact: {e!s}",
+                "suggested_action": "The log is unchanged. Try again, or check the server log.",
+            }
         ) from e
 
 
@@ -316,7 +334,11 @@ async def export_adif(
         logger.error(f"Error exporting ADIF: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to export ADIF: {e!s}"
+            detail={
+                "error": "ADIF_EXPORT_FAILED",
+                "message": f"I couldn't build the ADIF export: {e!s}",
+                "suggested_action": "Your log is unchanged. Try a narrower date range.",
+            }
         ) from e
 
 
@@ -342,7 +364,11 @@ async def get_qso(
     if qso is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"QSO not found: {qso_id}"
+            detail={
+                "error": "QSO_NOT_FOUND",
+                "message": f"I don't have a contact with ID {qso_id} in the log.",
+                "suggested_action": "GET /qso/list shows what's there.",
+            }
         )
 
     return QSOResponse(
@@ -382,7 +408,11 @@ async def delete_qso(
     if qso is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"QSO not found: {qso_id}"
+            detail={
+                "error": "QSO_NOT_FOUND",
+                "message": f"I don't have a contact with ID {qso_id} in the log.",
+                "suggested_action": "GET /qso/list shows what's there.",
+            }
         )
 
     db.delete(qso)
