@@ -117,8 +117,15 @@ class TestAFCLockIsVerifiable:
     def _rx(self, *, auto_afc: bool):
         from sstv_core.decode.rx_manager import RXManager
 
+        # sample_rate has to be a real number, not an auto-created mock
+        # attribute: RXManager rejects a source whose rate disagrees with the
+        # explicit argument (#92), and a bare MagicMock() reports its own
+        # mock object as the rate.
+        source = MagicMock()
+        source.sample_rate = 48000
+
         return RXManager(
-            stream_manager=MagicMock(),
+            stream_manager=source,
             sample_rate=48000,
             auto_afc=auto_afc,
         )
