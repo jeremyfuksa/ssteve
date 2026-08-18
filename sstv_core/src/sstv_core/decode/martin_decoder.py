@@ -72,6 +72,20 @@ class MartinM1Config:
 
 
 @dataclass
+class MartinM2Config(MartinM1Config):
+    """Martin M2 mode configuration.
+
+    M1 with half the colour scan, which is the whole difference between them:
+    ~58s per frame against M1's ~114s. As with `ScottieS2Config`, subclassing
+    leaves the line arithmetic in one place -- 73.216ms here yields the
+    published 226.798ms line time without that total being written down
+    anywhere it could drift from its parts.
+    """
+
+    color_scan_duration_ms: float = 73.216
+
+
+@dataclass
 class ScanlineData:
     """Decoded scanline data."""
 
