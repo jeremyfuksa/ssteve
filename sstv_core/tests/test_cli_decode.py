@@ -23,6 +23,7 @@ def make_args(**overrides) -> argparse.Namespace:
         "device": None,
         "file": None,
         "scan": False,
+        "record": None,
         "spyserver": None,
         "band": None,
         "frequency": None,
