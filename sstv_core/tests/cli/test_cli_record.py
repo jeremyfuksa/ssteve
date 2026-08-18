@@ -205,3 +205,23 @@ def test_recording_switches_decoding_to_continuous() -> None:
 
     assert "continuous = record_path is not None" in source
     assert "deadline" in source
+
+
+def test_the_continuous_loop_checks_for_a_dead_stream() -> None:
+    """The recording loop stops when the stream fails, instead of spinning.
+
+    Regression, and an expensive one: an overnight run lost its SpyServer 40
+    minutes in and kept going for five more hours, reporting the last audio
+    level it had seen and recording nothing. The client had latched the
+    failure the whole time -- a single-shot decode reads it once receive()
+    returns, but the continuous loop never looked.
+
+    Asserted against the source rather than by running a session: driving
+    the real loop needs a source that produces decodable audio on demand,
+    and the thing worth pinning here is that the check exists inside the
+    loop at all.
+    """
+    source = inspect.getsource(cli_main._decode_spyserver)
+    loop = source[source.index("async def listen_until_deadline") :]
+
+    assert "src.stream_failure is not None" in loop
