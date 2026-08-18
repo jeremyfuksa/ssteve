@@ -16,6 +16,7 @@ import numpy as np
 
 from sstv_core.audio.ring_buffer import AudioRingBuffer
 from sstv_core.audio.stream_manager import AudioLevels
+from sstv_core.sdr.audio_recorder import AudioRecorder
 from sstv_core.sdr.audio_stream import AudioMonitorServer
 from sstv_core.sdr.demodulator import TARGET_RATE, USBDemodulator
 from sstv_core.sdr.spyserver.client import SpyServerClient, SpyServerError
@@ -107,6 +108,7 @@ class SpyServerSource:
         stall_timeout_sec: float = 5.0,
         client: _Client | None = None,
         monitor_port: int | None = None,
+        record_path: str | None = None,
     ) -> None:
         self._host = host
         self._port = port
@@ -116,6 +118,8 @@ class SpyServerSource:
         # the OS for a free port, which is what the tests use.
         self._monitor_port = monitor_port
         self._monitor: AudioMonitorServer | None = None
+        self._record_path = record_path
+        self._recorder: AudioRecorder | None = None
         # What we actually sent, once connect() has told us the ladder.
         # Read by the CLI so it can report the derived number rather than
         # "None".
@@ -152,6 +156,32 @@ class SpyServerSource:
         monitor_port=0 the OS picks it, and it isn't known until start.
         """
         return self._monitor
+
+    @property
+    def audio_recorder(self) -> AudioRecorder | None:
+        """The recorder, once started, so the CLI can report what it wrote.
+
+        Outlives stop_input(): see close_recording().
+        """
+        return self._recorder
+
+    def close_recording(self) -> AudioRecorder | None:
+        """End the recording and hand back the recorder that made it.
+
+        Separate from stop_input() because the lifetimes differ: input stops
+        after every decoded image, a recording ends when the session does.
+        Returns the recorder so the caller can report the duration -- which
+        is only correct once stop() has written wave's length fields.
+        """
+        recorder = self._recorder
+        self._recorder = None
+        if recorder is None:
+            return None
+        try:
+            recorder.stop()
+        except Exception:
+            logger.debug("Audio recorder teardown failed", exc_info=True)
+        return recorder
 
     @property
     def stream_failure(self) -> SpyServerError | None:
@@ -266,6 +296,14 @@ class SpyServerSource:
                 monitor = AudioMonitorServer(port=self._monitor_port)
                 monitor.start()
                 self._monitor = monitor
+            # Same reasoning as the monitor above: opened before the first
+            # block arrives, and inside the try so a directory that can't
+            # be written fails the start rather than silently recording
+            # nothing all night.
+            if self._record_path is not None and self._recorder is None:
+                recorder = AudioRecorder(self._record_path, self.sample_rate)
+                recorder.start()
+                self._recorder = recorder
             self._last_iq_at = time.monotonic()
             self._running = True
             client.start_streaming(self._on_iq, gain=gain)
@@ -318,6 +356,12 @@ class SpyServerSource:
                 monitor.broadcast(audio)
             except Exception:
                 logger.debug("Audio monitor failed; continuing", exc_info=True)
+        recorder = self._recorder
+        if recorder is not None:
+            try:
+                recorder.write(audio)
+            except Exception:
+                logger.debug("Audio recorder failed; continuing", exc_info=True)
 
     @staticmethod
     def _calculate_levels(samples: np.ndarray) -> AudioLevels:
@@ -349,6 +393,10 @@ class SpyServerSource:
             except Exception:
                 logger.debug("Audio monitor teardown failed", exc_info=True)
 
+        # The recorder deliberately survives this. stop_input() runs after
+        # every decode -- RXManager calls it from its own finally -- but a
+        # recording spans the whole session, across however many images it
+        # contains. close_recording() ends it.
 
         client = self._client
         if client is None:

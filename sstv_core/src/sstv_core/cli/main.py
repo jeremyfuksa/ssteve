@@ -10,6 +10,7 @@ import argparse
 import json
 import logging
 import sys
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -514,6 +515,12 @@ def _decode_spyserver(args: argparse.Namespace) -> int:
     # Looked up on the module at call time, not bound at import: the tests
     # substitute SpyServerSource here, and a direct import would give them
     # the real class and a real socket.
+    record_path = getattr(args, "record", None)
+    # Recording implies an overnight listen, so it also turns off quitting at
+    # the first picture. Nothing else changes: without --record this is the
+    # single-shot decode it has always been.
+    continuous = record_path is not None
+
     src = source_module.SpyServerSource(
         host=host,
         port=port,
@@ -522,6 +529,7 @@ def _decode_spyserver(args: argparse.Namespace) -> int:
         # No flag for this one -- config is its only route in.
         stall_timeout_sec=float(stored["stall_timeout_sec"]),
         monitor_port=getattr(args, "monitor_stream", None),
+        record_path=record_path,
     )
     log_event(
         "decode_start",
@@ -597,10 +605,44 @@ def _decode_spyserver(args: argparse.Namespace) -> int:
     rx.set_progress_callback(on_progress)
 
     result: Path | None = None
+    decoded_paths: list[Path] = []
     try:
-        result = asyncio.run(
-            rx.receive(mode=args.mode, timeout_sec=float(args.timeout), save_image=True)
-        )
+        if continuous:
+            # --record means an overnight session, and a session that quit at
+            # the first picture would record a few minutes of a whole night.
+            # --timeout becomes a wall-clock deadline for the run rather than
+            # for one image: each pass gets whatever is left of it, so an
+            # early decode does not shorten the listen.
+            deadline = time.monotonic() + float(args.timeout)
+
+            async def listen_until_deadline() -> Path | None:
+                last: Path | None = None
+                while True:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 1.0:
+                        return last
+                    got = await rx.receive(
+                        mode=args.mode, timeout_sec=remaining, save_image=True
+                    )
+                    if got is None:
+                        # Timed out or failed: the deadline check above
+                        # decides whether that ends the session.
+                        continue
+                    last = got
+                    decoded_paths.append(got)
+                    log_event(
+                        "image_decoded",
+                        output_path=str(got),
+                        images_so_far=len(decoded_paths),
+                    )
+
+            result = asyncio.run(listen_until_deadline())
+        else:
+            result = asyncio.run(
+                rx.receive(
+                    mode=args.mode, timeout_sec=float(args.timeout), save_image=True
+                )
+            )
     except SpyServerError as exc:
         log_event("error", message=exc.message, suggested_action=exc.suggested_action)
         return 1
@@ -619,6 +661,19 @@ def _decode_spyserver(args: argparse.Namespace) -> int:
         # RXManager stops the source in its own finally block; this covers
         # a failure before receive() got that far. stop_input never raises.
         src.stop_input()
+        # Recording is session-scoped, not decode-scoped: stop_input() runs
+        # after every image and deliberately leaves the recorder alone, so
+        # ending it is an explicit call here. It returns the recorder after
+        # closing the file, which is the only point the duration is right.
+        close = getattr(src, "close_recording", None)
+        recorder = close() if callable(close) else None
+        if recorder is not None:
+            log_event(
+                "recording_saved",
+                output_path=str(recorder.path),
+                duration_sec=round(recorder.duration_sec, 1),
+                dropped_blocks=recorder.dropped_blocks,
+            )
 
     # Order matters: a stream that dropped mid-decode also returns None.
     # Checking `result is None` first would report a dead TCP link as a
@@ -1522,6 +1577,18 @@ Examples:
         type=int,
         default=300,
         help="Timeout in seconds (default: 300)",
+    )
+    decode_parser.add_argument(
+        "--record",
+        type=str,
+        default=None,
+        metavar="PATH",
+        help=(
+            "Record what the radio hears to a 16-bit mono WAV while decoding, "
+            "so a night on the band can be re-decoded later. Also switches "
+            "decoding to continuous: I keep listening and saving images until "
+            "--timeout rather than stopping at the first one. SpyServer only."
+        ),
     )
     decode_parser.add_argument(
         "--monitor-stream",
