@@ -162,3 +162,46 @@ def test_every_mode_in_the_capture_has_a_decoder() -> None:
     """
     missing = {e["mode"] for e in ENTRIES} - set(DECODERS)
     assert not missing, f"corpus holds undecodable modes: {sorted(missing)}"
+
+
+#: Chunk sizes a live caller can plausibly deliver. 1024 is the live audio
+#: path's default (`audio/stream_manager.py`); 4096 is what the CLI feeds;
+#: 9600 and 24000 are what a 48 kHz card produces on 200 ms and 500 ms
+#: callbacks. VIS detection must not depend on which of these it gets.
+VIS_CHUNK_SIZES = [1024, 2048, 4096, 4800, 8192, 9600, 11025, 16384, 24000]
+
+
+def _detect_vis(audio: np.ndarray, rate: int, chunk: int):
+    """Run VIS detection feeding `audio` in fixed-size chunks."""
+    detector = CorrelationVISDetector(CorrelationVISConfig(sample_rate=rate))
+    for offset in range(0, len(audio), chunk):
+        result = detector.process_samples(audio[offset : offset + chunk])
+        if result is not None and result.mode is not None:
+            return result
+    return None
+
+
+@pytest.mark.parametrize("chunk", VIS_CHUNK_SIZES)
+@pytest.mark.parametrize("entry", ENTRIES, ids=IDS)
+def test_vis_detection_does_not_depend_on_chunk_size(entry: dict, chunk: int) -> None:
+    """VIS reads back the same mode however the caller buffers the audio.
+
+    A live caller picks its own block size -- a 48 kHz card on 200 ms
+    callbacks delivers 9600 samples, and nothing in the API constrains it.
+    Measured 2026-08-18 before the fix: chunk 9600 and 24000 missed all
+    twelve transmissions outright, because `process_samples` only evaluated
+    on chunk boundaries and a large chunk stepped straight past the window
+    where the header was still inside the rolling buffer.
+
+    This is the regression gate for that defect: the detector's answer is a
+    property of the audio, not of the caller's buffering.
+    """
+    audio, rate = _load(entry)
+
+    detected = _detect_vis(audio, rate, chunk)
+
+    assert detected is not None, f"no VIS in {entry['file']} at chunk={chunk}"
+    assert detected.mode.name == entry["mode"], (
+        f"{entry['file']} at chunk={chunk}: read {detected.mode.name}, "
+        f"expected {entry['mode']}"
+    )

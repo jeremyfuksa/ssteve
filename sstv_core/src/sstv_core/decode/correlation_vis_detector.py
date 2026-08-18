@@ -218,6 +218,16 @@ class CorrelationVISDetector:
         self._buffer = np.zeros(int(self._max_template_length * 1.5), dtype=np.float32)
         self._samples_buffered = 0
 
+        # Largest chunk that may be buffered before correlating. Detection runs
+        # once per step, and neighbouring modes score within MIN_MODE_MARGIN of
+        # each other on a real header, so a mode is only reported on the step
+        # whose alignment happens to separate it from its runner-up. A caller
+        # feeding big chunks gets fewer attempts at that alignment and can miss
+        # a header it correlated at 0.92: measured at 11025 Hz, a quarter of a
+        # template recovers every off-air transmission that half a template
+        # still dropped, and finer steps buy nothing.
+        self._max_step_samples = max(1, self._max_template_length // 4)
+
         # Track best correlation
         self._best_correlation: float = 0.0
         self._best_mode: SSTVMode | None = None
@@ -243,6 +253,15 @@ class CorrelationVISDetector:
     def process_samples(self, samples: np.ndarray) -> VISDetectionResult | None:
         """Process audio samples and detect VIS code.
 
+        Callers choose their own block size, so an arbitrarily large chunk
+        arrives here as one call. Detection only ever runs once per call, and
+        the buffer holds the most RECENT audio, so a chunk larger than the
+        detection step would carry the header in and scroll it back out
+        before anything looked at it -- measured at 11025 Hz, chunk 9600 and
+        24000 missed every transmission in the off-air corpus. Split oversized
+        input and step through it instead, so the answer is a property of the
+        audio rather than of the caller's buffering.
+
         Args:
             samples: Incoming audio samples
 
@@ -250,6 +269,18 @@ class CorrelationVISDetector:
             VISDetectionResult if mode detected with confidence, None otherwise
 
         """
+        step = self._max_step_samples
+        if len(samples) > step:
+            for offset in range(0, len(samples), step):
+                result = self._process_step(samples[offset : offset + step])
+                if result is not None:
+                    return result
+            return None
+
+        return self._process_step(samples)
+
+    def _process_step(self, samples: np.ndarray) -> VISDetectionResult | None:
+        """Buffer one bounded chunk and correlate against every template."""
         # Apply pre-filtering if enabled
         if self._config.enable_pre_filter:
             samples = self._apply_bandpass_filter(samples)
