@@ -14,6 +14,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    import wave
+
     import numpy as np
 
 logger = logging.getLogger(__name__)
@@ -690,6 +692,285 @@ def _detect_mode_from_vis(audio: np.ndarray, sample_rate: int) -> str | None:
     return None
 
 
+#: Seconds of audio read at a time when scanning a long recording. Large
+#: enough that the FFT below runs on a worthwhile batch, small enough that a
+#: multi-hour capture never lands in memory all at once.
+_SCAN_BLOCK_SECONDS = 300
+
+#: A VIS header opens with a 300ms 1900Hz leader. Requiring most of that as a
+#: contiguous run is what makes the pre-filter cheap: band noise rarely holds
+#: one tone for a quarter of a second.
+_LEADER_FREQ_HZ = 1900.0
+_LEADER_MIN_SECONDS = 0.25
+
+
+def _find_leader_candidates(
+    handle: wave.Wave_read, sample_rate: int, channels: int
+) -> list[float]:
+    """Find times that look like a VIS leader, cheaply, across a whole file.
+
+    Running the correlation VIS detector over a long recording is not
+    practical -- it works at roughly 0.9x realtime, so a ten-hour capture
+    would take longer to scan than it took to record. This is the cheap first
+    pass: a batched FFT looking for a sustained 1900Hz tone, which reduces
+    hours of audio to a handful of offsets worth the expensive check.
+
+    Returns candidate start times in seconds, in file order.
+    """
+    import numpy as np
+
+    window = 2048
+    hop = window // 2
+    freqs = np.fft.rfftfreq(window, 1 / sample_rate)
+    leader_bin = int(np.argmin(np.abs(freqs - _LEADER_FREQ_HZ)))
+    in_band = (freqs >= 1000) & (freqs <= 2600)
+    taper = np.hanning(window)
+    frames_needed = int(_LEADER_MIN_SECONDS / (hop / sample_rate))
+
+    candidates: list[float] = []
+    elapsed = 0.0
+    run = 0
+    run_start = 0.0
+
+    while True:
+        raw = handle.readframes(_SCAN_BLOCK_SECONDS * sample_rate)
+        if not raw:
+            break
+        block = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+        if channels > 1:
+            block = block.reshape(-1, channels).mean(axis=1)
+        if len(block) < window:
+            break
+
+        count = (len(block) - window) // hop + 1
+        offsets = np.arange(count)[:, None] * hop + np.arange(window)[None, :]
+        spectra = np.abs(np.fft.rfft(block[offsets] * taper, axis=1))
+        total = spectra[:, in_band].sum(axis=1) + 1e-9
+        strong = (spectra[:, leader_bin] / total) > 0.10
+
+        for index, is_leader in enumerate(strong):
+            if is_leader:
+                if run == 0:
+                    run_start = elapsed + index * hop / sample_rate
+                run += 1
+            else:
+                if run >= frames_needed:
+                    candidates.append(run_start)
+                run = 0
+
+        elapsed += len(block) / sample_rate
+
+    if run >= frames_needed:
+        candidates.append(run_start)
+
+    # A VIS header shows up as a pair of leader runs either side of its
+    # 1200Hz break, and one transmission needs one candidate, not two.
+    merged: list[float] = []
+    for start in candidates:
+        if not merged or start - merged[-1] > 1.0:
+            merged.append(start)
+    return merged
+
+
+def _confirm_vis_at(
+    handle: wave.Wave_read,
+    sample_rate: int,
+    channels: int,
+    when: float,
+) -> str | None:
+    """Run the real VIS detector around one candidate time.
+
+    Returns the mode name, or None when the candidate was a false positive
+    from the cheap pre-filter.
+    """
+    import numpy as np
+
+    from sstv_core.decode.correlation_vis_detector import (
+        CorrelationVISConfig,
+        CorrelationVISDetector,
+    )
+
+    start_frame = max(0, int((when - 1.0) * sample_rate))
+    handle.setpos(start_frame)
+    raw = handle.readframes(8 * sample_rate)
+    if not raw:
+        return None
+    audio = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+    if channels > 1:
+        audio = audio.reshape(-1, channels).mean(axis=1)
+
+    detector = CorrelationVISDetector(CorrelationVISConfig(sample_rate=sample_rate))
+    chunk = 4096
+    for offset in range(0, max(0, len(audio) - chunk), chunk):
+        result = detector.process_samples(audio[offset : offset + chunk])
+        if result is not None and result.mode is not None:
+            return str(result.mode.name)
+    return None
+
+
+def _decode_file_scan(
+    args: argparse.Namespace,
+    path: Path,
+    rate: int,
+    channels: int,
+    duration_sec: float,
+    decoders: dict,
+) -> int:
+    """Pull every transmission out of a long recording.
+
+    `--file` on its own decodes one image from the top of the file, which is
+    what a single-transmission WAV needs. A band recording is a different
+    shape of input: hours of mostly-noise with transmissions scattered
+    through it. This walks the file in pieces, finds each VIS header, and
+    decodes each transmission to its own image.
+
+    Returns 0 when at least one image was decoded, 2 when the file held no
+    transmissions, 1 on a read error.
+    """
+    import wave
+    from pathlib import Path
+
+    import numpy as np
+
+    from sstv_core.decode.sync_detector import SyncPulseDetector
+
+    log_event(
+        "scan_start",
+        file=str(path),
+        sample_rate=rate,
+        duration_sec=round(duration_sec, 2),
+    )
+
+    try:
+        with wave.open(str(path), "rb") as handle:
+            candidates = _find_leader_candidates(handle, rate, channels)
+    except (wave.Error, OSError) as exc:
+        log_event("error", message=f"I couldn't read {path.name}.", detail=str(exc))
+        return 1
+
+    log_event("scan_candidates", count=len(candidates))
+
+    if not candidates:
+        log_event(
+            "error",
+            message="I scanned the whole file and found no SSTV transmissions.",
+            suggested_action=(
+                "Check the recording really covers an SSTV frequency and that "
+                "the receiver was tuned so the 1200Hz sync sits inside the "
+                "passband."
+            ),
+        )
+        return 2
+
+    stem = Path(args.output).with_suffix("") if args.output else path.with_suffix("")
+    decoded = 0
+
+    try:
+        with wave.open(str(path), "rb") as handle:
+            for when in candidates:
+                mode_name = _confirm_vis_at(handle, rate, channels, when)
+                if mode_name is None:
+                    continue
+
+                entry = decoders.get(mode_name.lower().replace("_", ""))
+                if entry is None:
+                    # Worth saying out loud: the transmission is really there,
+                    # we just have no decoder for that mode yet.
+                    log_event(
+                        "scan_skipped",
+                        offset_sec=round(when, 1),
+                        mode=mode_name,
+                        reason="no decoder for this mode",
+                    )
+                    continue
+                decoder_cls, config_cls, line_ms = entry
+
+                config = config_cls(sample_rate=rate)
+                # A frame's worth of audio plus slack for the header and any
+                # FSKID trailing the image.
+                span = config.total_line_samples * config.height + 4 * rate
+                handle.setpos(max(0, int((when - 1.0) * rate)))
+                raw = handle.readframes(span)
+                if not raw:
+                    continue
+                audio = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+                if channels > 1:
+                    audio = audio.reshape(-1, channels).mean(axis=1)
+
+                detector = SyncPulseDetector(sample_rate=rate)
+                detector.detect_in_buffer(audio)
+                positions = detector.get_sync_positions(line_duration_ms=line_ms)
+                if not positions:
+                    log_event(
+                        "scan_skipped",
+                        offset_sec=round(when, 1),
+                        mode=mode_name,
+                        reason="no sync pulses",
+                    )
+                    continue
+
+                decoder = decoder_cls(config)
+                lines = sum(1 for _ in decoder.decode_stream(iter([audio]), positions))
+                image = decoder.get_image()
+                if image is None or lines == 0:
+                    log_event(
+                        "scan_skipped",
+                        offset_sec=round(when, 1),
+                        mode=mode_name,
+                        reason="no scanlines decoded",
+                    )
+                    continue
+
+                output = Path(f"{stem}_{int(when):06d}s_{mode_name.lower()}.png")
+                try:
+                    import cv2
+
+                    if not cv2.imwrite(
+                        str(output), cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+                    ):
+                        log_event(
+                            "error",
+                            message=f"I couldn't write the image to {output}.",
+                            suggested_action="Check the path exists and is writable.",
+                        )
+                        return 1
+                except ImportError:
+                    log_event(
+                        "error",
+                        message="I need opencv-python installed to save the image.",
+                    )
+                    return 1
+
+                decoded += 1
+                log_event(
+                    "image_decoded",
+                    offset_sec=round(when, 1),
+                    mode=mode_name,
+                    lines=lines,
+                    output_path=str(output),
+                )
+    except (wave.Error, OSError) as exc:
+        log_event("error", message=f"I stopped reading {path.name}.", detail=str(exc))
+        return 1
+
+    if decoded == 0:
+        log_event(
+            "error",
+            message=(
+                f"I found {len(candidates)} possible transmissions but decoded no "
+                "images from them."
+            ),
+            suggested_action=(
+                "The signals may be too weak, or in a mode I can't decode yet "
+                f"(I have: {', '.join(sorted(decoders))})."
+            ),
+        )
+        return 2
+
+    log_event("scan_complete", images=decoded, candidates=len(candidates))
+    return 0
+
+
 def _decode_file(args: argparse.Namespace) -> int:
     """Decode an SSTV image from a WAV file.
 
@@ -705,14 +986,24 @@ def _decode_file(args: argparse.Namespace) -> int:
 
     import numpy as np
 
-    from sstv_core.decode.martin_decoder import MartinM1Config, MartinM1Decoder
+    from sstv_core.decode.martin_decoder import (
+        MartinM1Config,
+        MartinM1Decoder,
+        MartinM2Config,
+    )
     from sstv_core.decode.robot_decoder import Robot36Config, Robot36Decoder
-    from sstv_core.decode.scottie_decoder import ScottieS1Config, ScottieS1Decoder
+    from sstv_core.decode.scottie_decoder import (
+        ScottieS1Config,
+        ScottieS1Decoder,
+        ScottieS2Config,
+    )
     from sstv_core.decode.sync_detector import SyncPulseDetector
 
     decoders = {
         "scotties1": (ScottieS1Decoder, ScottieS1Config, 428.22),
+        "scotties2": (ScottieS1Decoder, ScottieS2Config, 277.692),
         "martinm1": (MartinM1Decoder, MartinM1Config, 446.446),
+        "martinm2": (MartinM1Decoder, MartinM2Config, 226.798),
         "robot36": (Robot36Decoder, Robot36Config, 150.0),
     }
 
@@ -726,7 +1017,7 @@ def _decode_file(args: argparse.Namespace) -> int:
             channels = handle.getnchannels()
             width = handle.getsampwidth()
             rate = handle.getframerate()
-            frames = handle.readframes(handle.getnframes())
+            total_frames = handle.getnframes()
     except (wave.Error, OSError) as exc:
         log_event(
             "error",
@@ -739,6 +1030,26 @@ def _decode_file(args: argparse.Namespace) -> int:
         log_event(
             "error",
             message=f"I can only read 16-bit WAV files; {path.name} is {width * 8}-bit.",
+        )
+        return 1
+
+    duration_sec = total_frames / rate if rate else 0.0
+
+    if args.scan:
+        return _decode_file_scan(args, path, rate, channels, duration_sec, decoders)
+
+    try:
+        with wave.open(str(path), "rb") as handle:
+            frames = handle.readframes(total_frames)
+    except (wave.Error, OSError, MemoryError) as exc:
+        log_event(
+            "error",
+            message=f"I couldn't read the audio from {path.name}.",
+            detail=str(exc),
+            suggested_action=(
+                "For a long band recording, use --scan: it reads the file in "
+                "pieces and pulls out every transmission it finds."
+            ),
         )
         return 1
 
@@ -756,13 +1067,30 @@ def _decode_file(args: argparse.Namespace) -> int:
         # promised auto-detection.
         mode_name = _detect_mode_from_vis(audio, rate)
         if mode_name is None:
+            # Say what was actually searched. Without this the message reads
+            # as a claim about the whole file, which sends you hunting for
+            # tuning problems when the recording is simply longer than one
+            # transmission.
+            suggestion = (
+                "Tell me the mode explicitly, e.g. --mode "
+                + " or --mode ".join(sorted(decoders))
+            )
+            if duration_sec > 60:
+                suggestion = (
+                    f"That file is {duration_sec / 60:.0f} minutes long but I only "
+                    "read the first 5 seconds, where a single transmission keeps "
+                    "its VIS header. If it's a band recording, use --scan to find "
+                    "every transmission in it. Otherwise "
+                    + suggestion[0].lower()
+                    + suggestion[1:]
+                )
             log_event(
                 "error",
-                message="I couldn't find a VIS header to auto-detect the mode.",
-                suggested_action=(
-                    "Tell me the mode explicitly, e.g. --mode "
-                    + " or --mode ".join(sorted(decoders))
+                message=(
+                    "I couldn't find a VIS header in the first 5 seconds to "
+                    "auto-detect the mode."
                 ),
+                suggested_action=suggestion,
             )
             return 2
         log_event("mode_detected", mode=mode_name, source="vis")
@@ -1149,6 +1477,16 @@ Examples:
         type=str,
         default=None,
         help="Decode a WAV file instead of listening to a device",
+    )
+    decode_parser.add_argument(
+        "--scan",
+        action="store_true",
+        help=(
+            "Treat --file as a band recording rather than a single "
+            "transmission: read it in pieces, find every VIS header in it, and "
+            "save each transmission as its own image named after the second it "
+            "starts at. Without this I only look at the first 5 seconds."
+        ),
     )
     decode_parser.add_argument(
         "--spyserver",

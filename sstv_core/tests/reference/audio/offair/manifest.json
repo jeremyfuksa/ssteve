@@ -1,0 +1,111 @@
+[
+  {
+    "file": "cap1_003540s_scottie_s2.wav",
+    "mode": "SCOTTIE_S2",
+    "source_capture": "cap1",
+    "source_offset_sec": 3540.98,
+    "vis_at_sec": 2.0,
+    "duration_sec": 79.1,
+    "sample_rate": 11025
+  },
+  {
+    "file": "cap1_005338s_scottie_s2.wav",
+    "mode": "SCOTTIE_S2",
+    "source_capture": "cap1",
+    "source_offset_sec": 5338.81,
+    "vis_at_sec": 2.0,
+    "duration_sec": 79.1,
+    "sample_rate": 11025
+  },
+  {
+    "file": "cap1_006201s_scottie_s2.wav",
+    "mode": "SCOTTIE_S2",
+    "source_capture": "cap1",
+    "source_offset_sec": 6201.6,
+    "vis_at_sec": 2.0,
+    "duration_sec": 79.1,
+    "sample_rate": 11025
+  },
+  {
+    "file": "cap1_010666s_martin_m2.wav",
+    "mode": "MARTIN_M2",
+    "source_capture": "cap1",
+    "source_offset_sec": 10666.93,
+    "vis_at_sec": 2.0,
+    "duration_sec": 66.0,
+    "sample_rate": 11025
+  },
+  {
+    "file": "cap1_014839s_martin_m2.wav",
+    "mode": "MARTIN_M2",
+    "source_capture": "cap1",
+    "source_offset_sec": 14839.67,
+    "vis_at_sec": 2.0,
+    "duration_sec": 66.0,
+    "sample_rate": 11025
+  },
+  {
+    "file": "cap1_020978s_martin_m1.wav",
+    "mode": "MARTIN_M1",
+    "source_capture": "cap1",
+    "source_offset_sec": 20978.49,
+    "vis_at_sec": 2.0,
+    "duration_sec": 122.3,
+    "sample_rate": 11025
+  },
+  {
+    "file": "cap1_021701s_scottie_s2.wav",
+    "mode": "SCOTTIE_S2",
+    "source_capture": "cap1",
+    "source_offset_sec": 21701.29,
+    "vis_at_sec": 2.0,
+    "duration_sec": 79.1,
+    "sample_rate": 11025
+  },
+  {
+    "file": "cap1_023520s_scottie_s2.wav",
+    "mode": "SCOTTIE_S2",
+    "source_capture": "cap1",
+    "source_offset_sec": 23520.73,
+    "vis_at_sec": 2.0,
+    "duration_sec": 79.1,
+    "sample_rate": 11025
+  },
+  {
+    "file": "cap1_023873s_scottie_s2.wav",
+    "mode": "SCOTTIE_S2",
+    "source_capture": "cap1",
+    "source_offset_sec": 23873.97,
+    "vis_at_sec": 2.5,
+    "duration_sec": 79.6,
+    "sample_rate": 11025,
+    "note": "weak VIS: detects at 0.873, and misreads as ROBOT_36 at some cut points"
+  },
+  {
+    "file": "cap1_024123s_martin_m1.wav",
+    "mode": "MARTIN_M1",
+    "source_capture": "cap1",
+    "source_offset_sec": 24123.14,
+    "vis_at_sec": 2.0,
+    "duration_sec": 122.3,
+    "sample_rate": 11025
+  },
+  {
+    "file": "cap1_024430s_martin_m1.wav",
+    "mode": "MARTIN_M1",
+    "source_capture": "cap1",
+    "source_offset_sec": 24430.58,
+    "vis_at_sec": 2.0,
+    "duration_sec": 122.3,
+    "sample_rate": 11025
+  },
+  {
+    "file": "cap1_028312s_martin_m1.wav",
+    "mode": "MARTIN_M1",
+    "source_capture": "cap1",
+    "source_offset_sec": 28312.53,
+    "vis_at_sec": 2.0,
+    "duration_sec": 122.3,
+    "sample_rate": 11025
+  }
+]
