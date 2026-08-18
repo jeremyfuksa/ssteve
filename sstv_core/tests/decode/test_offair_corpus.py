@@ -205,3 +205,39 @@ def test_vis_detection_does_not_depend_on_chunk_size(entry: dict, chunk: int) ->
         f"{entry['file']} at chunk={chunk}: read {detected.mode.name}, "
         f"expected {entry['mode']}"
     )
+
+
+@pytest.mark.parametrize("chunk", [1024, 4096, 9600, 16384, 24000])
+@pytest.mark.parametrize("entry", ENTRIES, ids=IDS)
+def test_vis_reports_the_strongest_match_not_the_first_lucky_one(
+    entry: dict, chunk: int
+) -> None:
+    """The reported mode is the header's best match, not whichever step got lucky.
+
+    Neighbouring VIS codes score within MIN_MODE_MARGIN of each other on a
+    real off-air header, so a per-step decision reports whichever alignment
+    happened to separate the top two -- and that depends on where the
+    caller's chunk boundaries fall. Measured 2026-08-18 on cap1_023873s at
+    chunk 16384, the correct mode never cleared both gates on the same step:
+    it peaked at 0.855 while ROBOT_36 held 0.856, then won the margin two
+    steps later at 0.810, below the 0.85 threshold.
+
+    Accumulating across steps and committing to the strongest *reportable*
+    match makes the answer a property of the header. Tracking the strongest
+    raw correlation instead does not: a peak whose top two templates sit a
+    hair apart never clears the margin, and latching it blocks every later
+    step that separates them cleanly.
+    """
+    audio, rate = _load(entry)
+
+    detected = _detect_vis(audio, rate, chunk)
+
+    assert detected is not None, f"no VIS in {entry['file']} at chunk={chunk}"
+    assert detected.mode.name == entry["mode"], (
+        f"{entry['file']} at chunk={chunk}: read {detected.mode.name}, "
+        f"expected {entry['mode']}"
+    )
+    assert detected.confidence >= 0.85, (
+        f"{entry['file']} at chunk={chunk}: reported {detected.confidence:.3f}, "
+        f"a decayed tail value rather than the header's peak"
+    )

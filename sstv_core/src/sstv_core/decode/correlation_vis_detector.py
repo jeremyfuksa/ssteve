@@ -182,6 +182,19 @@ class CorrelationVISDetector:
     # no detection just asks them to choose.
     MIN_MODE_MARGIN = 0.002
 
+    #: Steps of decay required before committing to the running best match.
+    #: A header's correlation peaks as it sits fully in the buffer and falls as
+    #: it scrolls out, so two consecutive non-improving steps mean the peak is
+    #: behind us. One is not enough: a step that lands mid-header can dip and
+    #: recover. Cost is bounded -- a step is a quarter of a template, so this
+    #: defers detection by about half a header.
+    PEAK_CONFIRM_STEPS = 2
+
+    #: Shortest slice worth filtering on its own. `filtfilt` needs more than
+    #: its padlen (3 * 9 taps for the 4th-order bandpass here), so a split that
+    #: leaves a shorter tail folds it into the preceding slice instead.
+    _MIN_FILTER_SAMPLES = 28
+
     # VIS templates for all supported modes
     SUPPORTED_MODES: ClassVar[list[SSTVMode]] = [
         SSTVMode.SCOTTIE_S1,
@@ -231,6 +244,9 @@ class CorrelationVISDetector:
         # Track best correlation
         self._best_correlation: float = 0.0
         self._best_mode: SSTVMode | None = None
+        self._candidate_mode: SSTVMode | None = None
+        self._candidate_correlation = 0.0
+        self._steps_since_peak = 0
 
 
     def _generate_templates(self) -> None:
@@ -249,6 +265,9 @@ class CorrelationVISDetector:
         self._samples_buffered = 0
         self._best_correlation = 0.0
         self._best_mode = None
+        self._candidate_mode = None
+        self._candidate_correlation = 0.0
+        self._steps_since_peak = 0
 
     def process_samples(self, samples: np.ndarray) -> VISDetectionResult | None:
         """Process audio samples and detect VIS code.
@@ -271,10 +290,18 @@ class CorrelationVISDetector:
         """
         step = self._max_step_samples
         if len(samples) > step:
-            for offset in range(0, len(samples), step):
-                result = self._process_step(samples[offset : offset + step])
+            offset = 0
+            while offset < len(samples):
+                end = offset + step
+                # Absorb a short tail rather than emitting it alone: the step
+                # rarely divides the chunk evenly, and filtfilt rejects a
+                # remainder at or below its padlen.
+                if len(samples) - end < self._MIN_FILTER_SAMPLES:
+                    end = len(samples)
+                result = self._process_step(samples[offset:end])
                 if result is not None:
                     return result
+                offset = end
             return None
 
         return self._process_step(samples)
@@ -358,17 +385,49 @@ class CorrelationVISDetector:
         # a Scottie S1 transmission matched Martin M1 at 0.918 and was reported
         # as Martin until this loop was allowed to finish.
 
-        # Update best tracking
+        # Accumulate across steps rather than deciding on this one. A header
+        # rises into the buffer and scrolls back out, so its correlation peaks
+        # and then decays; neighbouring VIS codes differ in few bit periods and
+        # sit within MIN_MODE_MARGIN of each other near that peak. Deciding per
+        # step therefore reports whichever alignment happened to separate the
+        # top two, which is a property of the caller's chunk boundaries rather
+        # than of the audio. Measured on cap1_023873s at chunk 16384: the
+        # correct mode never cleared both gates on one step -- it peaked at
+        # 0.855 under ROBOT_36's 0.856, then won the margin two steps later at
+        # 0.810, below threshold.
         if best_correlation > self._best_correlation:
             self._best_correlation = best_correlation
             self._best_mode = best_mode
 
+        # Track the best *reportable* match, not the best raw correlation. A
+        # step can peak with its top two templates a hair apart and never clear
+        # MIN_MODE_MARGIN; latching that step would block every later one that
+        # separates them cleanly, which measured as a permanent miss on a
+        # header the detector had already scored at 0.899.
         margin = best_correlation - runner_up
         if (
-            best_correlation >= self._config.threshold
-            and best_mode is not None
+            best_mode is not None
+            and best_correlation >= self._config.threshold
             and margin >= self.MIN_MODE_MARGIN
+            and best_correlation > self._candidate_correlation
         ):
+            self._candidate_mode = best_mode
+            self._candidate_correlation = best_correlation
+            self._steps_since_peak = 0
+        elif self._candidate_mode is not None:
+            self._steps_since_peak += 1
+
+        # Commit once the candidate stops improving. Waiting for the decay
+        # means reporting the strongest alignment of the header rather than
+        # the first one that happened to clear the gates, which is what made
+        # the answer depend on the caller's chunk boundaries.
+        if (
+            self._candidate_mode is not None
+            and self._steps_since_peak >= self.PEAK_CONFIRM_STEPS
+        ):
+            best_mode = self._candidate_mode
+            best_correlation = self._candidate_correlation
+
             logger.info(
                 "VIS detected via correlation: %s (correlation: %.3f)",
                 best_mode.name,
