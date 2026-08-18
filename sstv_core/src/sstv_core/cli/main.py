@@ -621,12 +621,23 @@ def _decode_spyserver(args: argparse.Namespace) -> int:
                     remaining = deadline - time.monotonic()
                     if remaining <= 1.0:
                         return last
+                    # Before anything else: a stream that died stays dead.
+                    # The client latches the failure, but a single-shot
+                    # decode only ever reads it after receive() returns for
+                    # good -- so looping here without this check outlived
+                    # the stream. An overnight run did exactly that: the
+                    # SpyServer stopped sending 40 minutes in, and the
+                    # session spent five more hours reporting the last
+                    # level it had seen, recording nothing.
+                    if src.stream_failure is not None:
+                        return last
                     got = await rx.receive(
                         mode=args.mode, timeout_sec=remaining, save_image=True
                     )
                     if got is None:
-                        # Timed out or failed: the deadline check above
-                        # decides whether that ends the session.
+                        # Timed out, or the stream failed during the pass.
+                        # Either way the checks at the top of the loop
+                        # decide whether the session goes on.
                         continue
                     last = got
                     decoded_paths.append(got)
