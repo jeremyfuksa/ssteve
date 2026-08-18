@@ -41,7 +41,9 @@ class FSKIDGenerator:
     BIT_DURATION_MS = 22
 
     # Protocol constants
-    START_MARKER = 0x0A  # $2A encoded ($2A - $20 = $0A)
+    # Literal $2A from the MMSSTV spec frame "$2A C1 ... CN $01 XSUM".
+    # The $20 subtraction applies to the callsign characters only.
+    START_MARKER = 0x2A
     END_MARKER = 0x01  # $01
 
     def __init__(self, sample_rate: int = 48000):
@@ -178,22 +180,25 @@ class FSKIDGenerator:
         return symbols
 
     def _symbol_to_bits(self, symbol: int) -> list[int]:
-        """Convert 6-bit symbol to bit list (MSB-first).
+        """Convert a 6-bit symbol to its bit list in transmission order.
+
+        LSB-first, matching what MMSSTV actually puts on the air (see
+        FSKIDDecoder._bits_to_symbol for the off-air evidence).
 
         Args:
             symbol: Integer value 0-63
 
         Returns:
-            List of 6 bits [B5, B4, B3, B2, B1, B0]
+            List of 6 bits in transmission order [B0, B1, ..., B5]
 
         Example:
-            0x2B (43) → [1, 0, 1, 0, 1, 1]
+            0x2B (43) → [1, 1, 0, 1, 0, 1]
 
         """
         if not (0x00 <= symbol <= 0x3F):
             raise ValueError(f"Symbol value must be 0-63, got {symbol}")
 
-        bits = [(symbol >> (5 - i)) & 1 for i in range(6)]
+        bits = [(symbol >> i) & 1 for i in range(6)]
         return bits
 
     def _generate_tone(self, freq: float, duration_ms: float) -> np.ndarray:

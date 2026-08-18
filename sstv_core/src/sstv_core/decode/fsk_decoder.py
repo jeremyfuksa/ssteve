@@ -67,7 +67,11 @@ class FSKIDDecoder:
     DETECTION_THRESHOLD = 0.5
 
     # Protocol constants
-    START_MARKER = 0x0A  # $2A encoded ($2A - $20 = $0A)
+    # The frame marker is the literal $2A from the MMSSTV spec. The $20
+    # subtraction applies only to the callsign characters Cx, not to the
+    # markers -- verified against off-air MMSSTV transmissions (XE2MAM,
+    # KD2FTA, VA2PGB all checksum-valid only with $2A).
+    START_MARKER = 0x2A
     END_MARKER = 0x01  # $01
 
     # Maximum reasonable callsign length
@@ -282,10 +286,16 @@ class FSKIDDecoder:
         return max_freq, confidence
 
     def _bits_to_symbol(self, bits: list[int]) -> int:
-        """Convert 6-bit list (MSB-first) to integer value.
+        """Convert a 6-bit list to its integer value, LSB-first.
+
+        The published MMSSTV spec (fskid.txt) diagrams the symbol as B5
+        first, but MMSSTV transmits B0 first. Off-air recordings decide it:
+        on 20m captures, three independent stations (XE2MAM, KD2FTA,
+        VA2PGB) produce a valid XOR checksum only when the first bit
+        received is the least significant. The wire wins over the document.
 
         Args:
-            bits: List of 6 bits [B5, B4, B3, B2, B1, B0]
+            bits: List of 6 bits in transmission order [B0, B1, ..., B5]
 
         Returns:
             Integer value 0-63
@@ -293,7 +303,7 @@ class FSKIDDecoder:
         """
         value = 0
         for i, bit in enumerate(bits):
-            value |= bit << (5 - i)
+            value |= bit << i
         return value
 
     def _extract_callsign(self) -> FSKIDResult | None:

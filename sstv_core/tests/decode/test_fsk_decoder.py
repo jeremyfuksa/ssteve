@@ -46,7 +46,7 @@ class TestFSKIDDecoder:
         audio_parts.append(self._generate_tone(1900.0, 22, sample_rate))
 
         # Encode callsign to symbols
-        symbols = [0x0A]  # Start marker ($2A → $0A)
+        symbols = [0x2A]  # Start marker: the literal $2A from the spec frame
 
         # Convert callsign characters
         xsum = 0x00
@@ -60,8 +60,9 @@ class TestFSKIDDecoder:
 
         # Generate FSK audio for each symbol
         for symbol in symbols:
-            # Convert symbol to 6 bits (MSB-first)
-            bits = [(symbol >> (5 - i)) & 1 for i in range(6)]
+            # Convert symbol to 6 bits in transmission order (LSB-first,
+            # matching what MMSSTV puts on the air)
+            bits = [(symbol >> i) & 1 for i in range(6)]
 
             # Generate tone for each bit
             for bit in bits:
@@ -206,7 +207,7 @@ class TestFSKIDDecoder:
         audio_parts.append(self._generate_tone(1900.0, 22))
 
         # Encode "W1AW"
-        symbols = [0x0A]
+        symbols = [0x2A]
         xsum = 0x00
         for char in "W1AW":
             encoded = ord(char) - 0x20
@@ -216,7 +217,7 @@ class TestFSKIDDecoder:
         symbols.append(xsum)
 
         for symbol in symbols:
-            bits = [(symbol >> (5 - i)) & 1 for i in range(6)]
+            bits = [(symbol >> i) & 1 for i in range(6)]
             for bit in bits:
                 freq = 1900.0 if bit == 1 else 2100.0
                 audio_parts.append(self._generate_tone(freq, 22))
