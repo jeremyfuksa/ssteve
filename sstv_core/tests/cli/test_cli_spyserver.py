@@ -560,3 +560,50 @@ class TestMonitorStreamFlag:
         main(["decode", "--spyserver", "host:5555", "--monitor-stream", "0",
               "--timeout", "0"])
         assert built["kwargs"]["monitor_port"] == 0
+
+
+class TestDeafReceiverAdvice:
+    """"Raise the gain" is only useful when there is gain left to raise.
+
+    A live 20m session on 2026-08-17 sat at 0.0004 RMS for 90 seconds and
+    was told to raise --gain from 8 -- which is this Airspy's maximum. The
+    advice was unfollowable, and it aimed the operator at the receiver
+    while the real fault was upstream of it. WWV at the same gain measured
+    0.019, so the chain was fine and the band was empty.
+    """
+
+    def test_below_the_ceiling_still_says_raise_the_gain(self):
+        from sstv_core.cli.main import _deaf_receiver_action
+
+        action = _deaf_receiver_action(SimpleNamespace(resolved_gain=6, max_gain=8))
+        assert "Raise --gain" in action
+        assert "6" in action
+
+    def test_at_the_ceiling_stops_recommending_the_knob(self):
+        from sstv_core.cli.main import _deaf_receiver_action
+
+        action = _deaf_receiver_action(SimpleNamespace(resolved_gain=8, max_gain=8))
+        assert "Raise --gain" not in action
+        assert "maximum" in action
+        assert "antenna" in action
+
+    def test_at_the_ceiling_names_the_gain_it_actually_used(self):
+        from sstv_core.cli.main import _deaf_receiver_action
+
+        action = _deaf_receiver_action(SimpleNamespace(resolved_gain=8, max_gain=8))
+        assert "8" in action
+
+    def test_an_unknown_ceiling_keeps_the_old_advice(self):
+        """A device that never reported DeviceInfo gives nothing to compare."""
+        from sstv_core.cli.main import _deaf_receiver_action
+
+        action = _deaf_receiver_action(SimpleNamespace(resolved_gain=4, max_gain=None))
+        assert "Raise --gain" in action
+
+    def test_an_unresolved_gain_does_not_print_none(self):
+        """Failing before connect() leaves resolved_gain unset."""
+        from sstv_core.cli.main import _deaf_receiver_action
+
+        action = _deaf_receiver_action(SimpleNamespace(resolved_gain=None, max_gain=None))
+        assert "None" not in action
+        assert "Raise --gain" in action

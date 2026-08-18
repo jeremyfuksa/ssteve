@@ -14,9 +14,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    import wave
-
     import numpy as np
+    import soundfile as sf
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +66,30 @@ def describe_level(rms: float) -> str:
     if rms < HEALTHY_RMS:
         return "faint"
     return "healthy"
+
+
+def _deaf_receiver_action(src: Any) -> str:
+    """Suggest what to try when the input never rose above the deaf threshold.
+
+    "Raise the gain" is only useful if there is gain left to raise. On an
+    Airspy HF+ the ladder tops out at index 8, so a session that already
+    ran at 8 was told to turn a knob that was against its stop -- and sent
+    looking at the receiver while the actual fault was upstream of it.
+    At the ceiling the antenna is the next thing to suspect, so say that
+    instead.
+    """
+    gain = getattr(src, "resolved_gain", None)
+    maximum = getattr(src, "max_gain", None)
+
+    if gain is None:
+        return "Raise --gain and try again."
+    if maximum is None or gain < maximum:
+        return f"Raise --gain (I used {gain}) and try again."
+    return (
+        f"--gain {gain} is already this device's maximum, so the gain isn't "
+        f"the problem. Check the antenna, its connection, and that the "
+        f"receiver is tuned to a band that's actually open."
+    )
 
 
 class JSONFormatter(logging.Formatter):
@@ -647,9 +670,7 @@ def _decode_spyserver(args: argparse.Namespace) -> int:
                     f"Input stayed at {loudest_listening_rms:.6f} RMS the whole "
                     f"time, which reads as a deaf receiver rather than a quiet band."
                 ),
-                suggested_action=(
-                    f"Raise --gain (I used {src.resolved_gain}) and try again."
-                ),
+                suggested_action=_deaf_receiver_action(src),
             )
         else:
             log_event(
@@ -704,9 +725,7 @@ _LEADER_FREQ_HZ = 1900.0
 _LEADER_MIN_SECONDS = 0.25
 
 
-def _find_leader_candidates(
-    handle: wave.Wave_read, sample_rate: int, channels: int
-) -> list[float]:
+def _find_leader_candidates(handle: sf.SoundFile, sample_rate: int) -> list[float]:
     """Find times that look like a VIS leader, cheaply, across a whole file.
 
     Running the correlation VIS detector over a long recording is not
@@ -733,12 +752,11 @@ def _find_leader_candidates(
     run_start = 0.0
 
     while True:
-        raw = handle.readframes(_SCAN_BLOCK_SECONDS * sample_rate)
-        if not raw:
+        block = handle.read(_SCAN_BLOCK_SECONDS * sample_rate, dtype="float32")
+        if len(block) == 0:
             break
-        block = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
-        if channels > 1:
-            block = block.reshape(-1, channels).mean(axis=1)
+        if block.ndim > 1:
+            block = block.mean(axis=1)
         if len(block) < window:
             break
 
@@ -772,32 +790,23 @@ def _find_leader_candidates(
     return merged
 
 
-def _confirm_vis_at(
-    handle: wave.Wave_read,
-    sample_rate: int,
-    channels: int,
-    when: float,
-) -> str | None:
+def _confirm_vis_at(handle: sf.SoundFile, sample_rate: int, when: float) -> str | None:
     """Run the real VIS detector around one candidate time.
 
     Returns the mode name, or None when the candidate was a false positive
     from the cheap pre-filter.
     """
-    import numpy as np
-
     from sstv_core.decode.correlation_vis_detector import (
         CorrelationVISConfig,
         CorrelationVISDetector,
     )
 
-    start_frame = max(0, int((when - 1.0) * sample_rate))
-    handle.setpos(start_frame)
-    raw = handle.readframes(8 * sample_rate)
-    if not raw:
+    handle.seek(max(0, int((when - 1.0) * sample_rate)))
+    audio = handle.read(8 * sample_rate, dtype="float32")
+    if len(audio) == 0:
         return None
-    audio = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
-    if channels > 1:
-        audio = audio.reshape(-1, channels).mean(axis=1)
+    if audio.ndim > 1:
+        audio = audio.mean(axis=1)
 
     detector = CorrelationVISDetector(CorrelationVISConfig(sample_rate=sample_rate))
     chunk = 4096
@@ -812,7 +821,6 @@ def _decode_file_scan(
     args: argparse.Namespace,
     path: Path,
     rate: int,
-    channels: int,
     duration_sec: float,
     decoders: dict,
 ) -> int:
@@ -827,10 +835,9 @@ def _decode_file_scan(
     Returns 0 when at least one image was decoded, 2 when the file held no
     transmissions, 1 on a read error.
     """
-    import wave
     from pathlib import Path
 
-    import numpy as np
+    import soundfile as sf
 
     from sstv_core.decode.sync_detector import SyncPulseDetector
 
@@ -842,9 +849,9 @@ def _decode_file_scan(
     )
 
     try:
-        with wave.open(str(path), "rb") as handle:
-            candidates = _find_leader_candidates(handle, rate, channels)
-    except (wave.Error, OSError) as exc:
+        with sf.SoundFile(str(path)) as handle:
+            candidates = _find_leader_candidates(handle, rate)
+    except (RuntimeError, OSError) as exc:
         log_event("error", message=f"I couldn't read {path.name}.", detail=str(exc))
         return 1
 
@@ -866,9 +873,9 @@ def _decode_file_scan(
     decoded = 0
 
     try:
-        with wave.open(str(path), "rb") as handle:
+        with sf.SoundFile(str(path)) as handle:
             for when in candidates:
-                mode_name = _confirm_vis_at(handle, rate, channels, when)
+                mode_name = _confirm_vis_at(handle, rate, when)
                 if mode_name is None:
                     continue
 
@@ -889,13 +896,12 @@ def _decode_file_scan(
                 # A frame's worth of audio plus slack for the header and any
                 # FSKID trailing the image.
                 span = config.total_line_samples * config.height + 4 * rate
-                handle.setpos(max(0, int((when - 1.0) * rate)))
-                raw = handle.readframes(span)
-                if not raw:
+                handle.seek(max(0, int((when - 1.0) * rate)))
+                audio = handle.read(span, dtype="float32")
+                if len(audio) == 0:
                     continue
-                audio = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
-                if channels > 1:
-                    audio = audio.reshape(-1, channels).mean(axis=1)
+                if audio.ndim > 1:
+                    audio = audio.mean(axis=1)
 
                 detector = SyncPulseDetector(sample_rate=rate)
                 detector.detect_in_buffer(audio)
@@ -949,7 +955,7 @@ def _decode_file_scan(
                     lines=lines,
                     output_path=str(output),
                 )
-    except (wave.Error, OSError) as exc:
+    except (RuntimeError, OSError) as exc:
         log_event("error", message=f"I stopped reading {path.name}.", detail=str(exc))
         return 1
 
@@ -981,10 +987,9 @@ def _decode_file(args: argparse.Namespace) -> int:
         Exit code (0 = success)
 
     """
-    import wave
     from pathlib import Path
 
-    import numpy as np
+    import soundfile as sf
 
     from sstv_core.decode.martin_decoder import (
         MartinM1Config,
@@ -1012,36 +1017,30 @@ def _decode_file(args: argparse.Namespace) -> int:
         log_event("error", message=f"I couldn't find {path}")
         return 1
 
+    # soundfile rather than the wave module: an SDR writes whatever its
+    # recorder felt like, and a 6.2-hour float32 capture of 20m read back as
+    # "unknown format: 3" -- reported as zero transmissions, which looks
+    # exactly like a dead band. This reads float32, 24-bit and the rest.
     try:
-        with wave.open(str(path), "rb") as handle:
-            channels = handle.getnchannels()
-            width = handle.getsampwidth()
-            rate = handle.getframerate()
-            total_frames = handle.getnframes()
-    except (wave.Error, OSError) as exc:
+        info = sf.info(str(path))
+        rate = info.samplerate
+        total_frames = info.frames
+    except (RuntimeError, OSError) as exc:
         log_event(
             "error",
-            message=f"I couldn't read {path.name} as a WAV file.",
+            message=f"I couldn't read {path.name} as an audio file.",
             detail=str(exc),
-        )
-        return 1
-
-    if width != 2:
-        log_event(
-            "error",
-            message=f"I can only read 16-bit WAV files; {path.name} is {width * 8}-bit.",
         )
         return 1
 
     duration_sec = total_frames / rate if rate else 0.0
 
     if args.scan:
-        return _decode_file_scan(args, path, rate, channels, duration_sec, decoders)
+        return _decode_file_scan(args, path, rate, duration_sec, decoders)
 
     try:
-        with wave.open(str(path), "rb") as handle:
-            frames = handle.readframes(total_frames)
-    except (wave.Error, OSError, MemoryError) as exc:
+        audio, rate = sf.read(str(path), dtype="float32")
+    except (RuntimeError, OSError, MemoryError) as exc:
         log_event(
             "error",
             message=f"I couldn't read the audio from {path.name}.",
@@ -1053,9 +1052,8 @@ def _decode_file(args: argparse.Namespace) -> int:
         )
         return 1
 
-    audio = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
-    if channels > 1:
-        audio = audio.reshape(-1, channels).mean(axis=1)
+    if audio.ndim > 1:
+        audio = audio.mean(axis=1)
 
     log_event("audio_loaded", sample_rate=rate, duration_sec=round(len(audio) / rate, 2))
 

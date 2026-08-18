@@ -266,6 +266,27 @@ class TestGainAgainstTheDeviceLadder:
         assert default_gain_for(maximum) == expected
         assert default_gain_for(maximum) <= max(maximum, 0)
 
+    def test_the_ladder_ceiling_is_recorded_alongside_the_resolved_gain(self):
+        """The CLI needs the ceiling to know whether "raise the gain" is possible.
+
+        Without it a session at the device maximum was still told to raise
+        the gain, which pointed the operator at a knob against its stop.
+        """
+        client = _DeviceInfoClient(maximum_gain_index=8)
+        src = SpyServerSource("example.test", gain=8, client=client)
+        src.start_input()
+        assert src.resolved_gain == 8
+        assert src.max_gain == 8
+        src.stop_input()
+
+    def test_the_ceiling_stays_none_when_the_device_never_reports_one(self):
+        """A client with no DeviceInfo leaves nothing to compare against."""
+        client = FakeClient()
+        src = SpyServerSource("example.test", gain=4, client=client)
+        src.start_input()
+        assert src.max_gain is None
+        src.stop_input()
+
     def test_a_client_without_device_info_still_runs(self):
         """A server that never reported DeviceInfo leaves nothing to check."""
         client = FakeClient()  # no device_info attribute at all

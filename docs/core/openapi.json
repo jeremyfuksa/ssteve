@@ -439,8 +439,8 @@
             "type": "string"
           },
           "slant_auto_correct": {
-            "default": true,
-            "description": "Apply Hough slant correction automatically",
+            "default": false,
+            "description": "Apply Hough slant correction automatically. Off by default: it lowered SSIM on 5 of 9 reference recordings.",
             "title": "Slant Auto Correct",
             "type": "boolean"
           },

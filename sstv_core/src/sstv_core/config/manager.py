@@ -33,7 +33,12 @@ class DecoderSettings(BaseModel):
     afc_enabled: bool = True
     afc_range_hz: int = Field(default=100, ge=50, le=200)
     auto_mode_detection_enabled: bool = True
-    slant_auto_correct: bool = True
+    # Off by default, matching the engine. Measured on the reference corpus,
+    # Hough correction lowered SSIM on 5 of 9 files -- it infers -13 to -15
+    # degrees on pictures that are not slanted and resamples away detail the
+    # radio delivered. Kept as a setting because it is the operator's call on
+    # a genuinely slanted picture, but it should not be on unasked.
+    slant_auto_correct: bool = False
 
 
 class EncoderSettings(BaseModel):

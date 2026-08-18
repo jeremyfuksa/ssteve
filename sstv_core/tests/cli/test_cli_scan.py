@@ -14,6 +14,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+import soundfile as sf
 
 from sstv_core.cli.main import _decode_file, _find_leader_candidates
 
@@ -123,8 +124,8 @@ def test_leader_prefilter_finds_a_sustained_1900hz_tone(tmp_path: Path) -> None:
     path = tmp_path / "leader.wav"
     _write_wav(path, audio, rate)
 
-    with wave.open(str(path), "rb") as handle:
-        found = _find_leader_candidates(handle, rate, 1)
+    with sf.SoundFile(str(path)) as handle:
+        found = _find_leader_candidates(handle, rate)
 
     assert len(found) == 1
     assert found[0] == pytest.approx(2.0, abs=0.2)
@@ -137,8 +138,8 @@ def test_leader_prefilter_ignores_noise(tmp_path: Path) -> None:
     path = tmp_path / "noise.wav"
     _write_wav(path, rng.normal(0, 0.05, rate * 30).astype(np.float32), rate)
 
-    with wave.open(str(path), "rb") as handle:
-        assert _find_leader_candidates(handle, rate, 1) == []
+    with sf.SoundFile(str(path)) as handle:
+        assert _find_leader_candidates(handle, rate) == []
 
 
 def test_scan_does_not_read_the_whole_file_at_once(tmp_path: Path) -> None:
@@ -153,17 +154,17 @@ def test_scan_does_not_read_the_whole_file_at_once(tmp_path: Path) -> None:
     _write_wav(long_recording, rng.normal(0, 0.02, rate * 600).astype(np.float32), rate)
 
     reads: list[int] = []
-    real_readframes = wave.Wave_read.readframes
+    real_read = sf.SoundFile.read
 
-    def counting_readframes(self: wave.Wave_read, n: int) -> bytes:
-        reads.append(n)
-        return real_readframes(self, n)
+    def counting_read(self: sf.SoundFile, frames: int = -1, **kwargs: object):
+        reads.append(frames)
+        return real_read(self, frames, **kwargs)
 
-    wave.Wave_read.readframes = counting_readframes  # type: ignore[method-assign]
+    sf.SoundFile.read = counting_read  # type: ignore[method-assign]
     try:
         _decode_file(_args(file=str(long_recording), scan=True))
     finally:
-        wave.Wave_read.readframes = real_readframes  # type: ignore[method-assign]
+        sf.SoundFile.read = real_read  # type: ignore[method-assign]
 
     assert reads, "scan read nothing"
     assert max(reads) < rate * 600

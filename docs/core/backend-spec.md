@@ -251,7 +251,7 @@ CREATE TABLE configurations (
   --     "afc_enabled": true,                    -- bool
   --     "afc_range_hz": 100,                    -- int (50, 100, 200)
   --     "auto_mode_detection_enabled": true,    -- bool
-  --     "slant_auto_correct": true              -- bool
+  --     "slant_auto_correct": false             -- bool
   --   },
   --   "encoder": {
   --     "pre_emphasis_enabled": false,          -- bool
