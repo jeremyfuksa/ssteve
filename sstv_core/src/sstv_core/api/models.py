@@ -468,7 +468,11 @@ class Configuration(BaseModel):
         default=0.75, ge=0.0, le=1.0, description="Confidence required to accept a sync pulse"
     )
     slant_auto_correct: bool = Field(
-        default=True, description="Apply Hough slant correction automatically"
+        default=False,
+        description=(
+            "Apply Hough slant correction automatically. Off by default: it "
+            "lowered SSIM on 5 of 9 reference recordings."
+        ),
     )
 
     # Encoder

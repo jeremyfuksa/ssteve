@@ -120,6 +120,10 @@ class SpyServerSource:
         # Read by the CLI so it can report the derived number rather than
         # "None".
         self.resolved_gain: int | None = None
+        # The top of that ladder. Without it the CLI cannot tell "quiet
+        # because the gain is low" from "quiet at the highest gain this
+        # radio has", and told a maxed-out receiver to raise the gain.
+        self.max_gain: int | None = None
         self._stall_timeout_sec = stall_timeout_sec
         self._client = client
         self._demod: USBDemodulator | None = None
@@ -195,6 +199,8 @@ class SpyServerSource:
             # that skipped it) leaves nothing to validate against. Sending
             # an explicit gain unchanged beats refusing to run.
             return self._gain if self._gain is not None else 0
+
+        self.max_gain = maximum
 
         if self._gain is None:
             gain = default_gain_for(maximum)
@@ -342,6 +348,7 @@ class SpyServerSource:
                 monitor.stop()
             except Exception:
                 logger.debug("Audio monitor teardown failed", exc_info=True)
+
 
         client = self._client
         if client is None:

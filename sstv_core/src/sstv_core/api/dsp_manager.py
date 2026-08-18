@@ -155,13 +155,18 @@ class DSPManager:
             return None
 
     async def _read_decode_config(self) -> dict:
-        """Read AFC/squelch settings; documented defaults without a DB."""
+        """Read AFC/squelch/slant settings; documented defaults without a DB."""
         defaults = {
             "auto_afc": True,
             "afc_range_hz": 100.0,
             "auto_squelch": True,
             "squelch_threshold_db": -40.0,
             "image_save_directory": str(Path.home() / ".ssteve" / "images"),
+            # Off, matching RXManager's own default. See the measurement
+            # recorded at its call site: on the reference corpus Hough
+            # correction lowered SSIM on 5 of 9 files, reporting -13 to -15
+            # degrees of slant on pictures that had none.
+            "decoder.slant_auto_correct": False,
         }
         session_factory = self._db_session_factory
         if session_factory is None:
@@ -306,6 +311,7 @@ class DSPManager:
             afc_range_hz=float(decode_config["afc_range_hz"]),
             auto_squelch=bool(decode_config["auto_squelch"]),
             squelch_threshold_db=float(decode_config["squelch_threshold_db"]),
+            slant_correction=bool(decode_config["decoder.slant_auto_correct"]),
         )
 
         # Wire progress callback
