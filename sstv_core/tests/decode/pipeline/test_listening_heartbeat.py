@@ -18,6 +18,8 @@ from sstv_core.audio.ring_buffer import AudioRingBuffer
 from sstv_core.audio.stream_manager import AudioLevels
 from sstv_core.decode.rx_manager import RXManager, RXState
 
+pytestmark = pytest.mark.slow
+
 
 class _LevelSource:
     """A source that never carries SSTV, at a level the test chooses."""

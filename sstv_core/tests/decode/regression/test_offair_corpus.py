@@ -191,10 +191,28 @@ VIS_CHUNK_SIZES = [1024, 2048, 4096, 4800, 8192, 9600, 11025, 16384, 24000]
 KNOWN_VIS_ALIGNMENT_GAP = ("cap1_023873s_scottie_s2.wav", 16384)
 
 
+#: Chunk-independence is a property of the detector, not of each transmission.
+#: Sweeping all twelve files cost 4m07s of a 10m42s suite -- 38% of the wall
+#: clock to re-prove one behaviour twelve times. Verified 2026-08-19 against
+#: the pre-fix detector: every one of these four fails at chunk 9600 and
+#: 24000, so the subset catches the original bug as surely as the full corpus.
+#:
+#: One per mode, plus cap1_023873s because it is the marginal header the
+#: manifest flags and the case KNOWN_VIS_ALIGNMENT_GAP pins.
+VIS_SWEEP_FILES = (
+    "cap1_003540s_scottie_s2.wav",
+    "cap1_010666s_martin_m2.wav",
+    "cap1_020978s_martin_m1.wav",
+    "cap1_023873s_scottie_s2.wav",
+)
+
+
 def _vis_cases(chunks: list[int]) -> list:
     """Every (entry, chunk) pair, with the known alignment gap marked xfail."""
     cases = []
     for entry in ENTRIES:
+        if entry["file"] not in VIS_SWEEP_FILES:
+            continue
         for chunk in chunks:
             marks = ()
             if (entry["file"], chunk) == KNOWN_VIS_ALIGNMENT_GAP:

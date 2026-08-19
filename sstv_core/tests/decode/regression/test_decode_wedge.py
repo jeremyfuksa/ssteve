@@ -23,11 +23,16 @@ import threading
 import time
 
 import numpy as np
+import pytest
 
 from sstv_core.audio.ring_buffer import AudioRingBuffer
 from sstv_core.audio.stream_manager import AudioLevels
 from sstv_core.decode.rx_manager import RXManager
 from sstv_core.encode.vis_generator import SSTVMode, VISGenerator
+
+#: Seconds, not milliseconds. Runs in the slow CI job so the rest of the
+#: suite can report quickly -- see pytest.ini.
+pytestmark = pytest.mark.slow
 
 SAMPLE_RATE = 48000
 

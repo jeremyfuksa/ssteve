@@ -150,3 +150,83 @@ class TestNeverCostsADecode:
             assert server.dropped_blocks > 0, "expected drops for a stalled client"
         finally:
             sock.close()
+
+
+class TestShutdownRace:
+    """A connection accepted as stop() runs must not outlive the server."""
+
+    def test_a_client_accepted_during_stop_is_dropped(self):
+        """Seen in CI on 2026-08-19 as a logging error during teardown.
+
+        `_accept_loop` did four things between `accept()` returning and its
+        next `_running` check: set a socket option, build a `_Client`, append
+        it under the lock, and start a send thread. A client that arrived in
+        that window was registered on a server `stop()` had already drained,
+        so both it and its thread survived shutdown -- and the "client
+        connected" log line fired late enough to write to a stream pytest had
+        closed, printing `ValueError: I/O operation on closed file`.
+
+        Winning that race by timing alone is not reproducible, so this drives
+        it directly: hand the loop a live connection and flip `_running` off
+        underneath it, which is exactly the state stop() leaves behind.
+        """
+        srv = AudioMonitorServer(port=0)
+        srv.start()
+        client_sock = _connect(srv)
+        try:
+            # One real client, registered normally.
+            deadline = time.monotonic() + 2.0
+            while not srv._clients and time.monotonic() < deadline:
+                time.sleep(0.01)
+            assert srv._clients, "fixture connection never registered"
+
+            srv.stop()
+            assert srv._clients == [], "stop() left clients behind"
+
+            # Now the window itself: a connection that reaches the loop after
+            # _running has gone false. Feed it straight to the accept path.
+            left, right = socket.socketpair()
+            try:
+                # The loop tests _running before calling accept(), so the race
+                # is not "stopped before entry" -- it is "stopped while blocked
+                # in accept()". The stub flips the flag as it hands back the
+                # connection, which is exactly what stop() does underneath a
+                # parked accept().
+                srv._running = True
+                srv._sock = _OneShotAcceptor(
+                    right, on_accept=lambda: setattr(srv, "_running", False)
+                )
+                srv._accept_loop()
+                assert srv._clients == [], (
+                    "a connection accepted after stop() was registered anyway"
+                )
+            finally:
+                left.close()
+                right.close()
+        finally:
+            client_sock.close()
+            srv.stop()
+
+
+class _OneShotAcceptor:
+    """Minimal stand-in for a listening socket: yields one connection, then EOF."""
+
+    def __init__(self, conn: socket.socket, on_accept=None):
+        self._conn = conn
+        self._served = False
+        self._on_accept = on_accept
+
+    def accept(self):
+        if self._served:
+            raise OSError("listening socket closed")
+        self._served = True
+        if self._on_accept is not None:
+            # Stand in for stop() running while the real loop is parked here.
+            self._on_accept()
+        return self._conn, ("127.0.0.1", 0)
+
+    def close(self) -> None:
+        """No-op: stop() closes whatever is in _sock.
+
+        The stub owns no listening socket, so there is nothing to release.
+        """

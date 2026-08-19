@@ -11,9 +11,20 @@ on:
   pull_request:
   workflow_dispatch:
 
+# A new push supersedes the run already in flight for the same branch. Without this a
+# rebase-then-merge leaves the old run burning a runner for another twenty minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  python-tests:
+  # Lint, types, and everything that is not marked slow. This is the signal you wait
+  # for: it reports in a few minutes rather than the twenty the single job took.
+  fast:
     runs-on: ubuntu-latest
+    # GitHub's default is 360 minutes. This job measured 7m36s at its slowest,
+    # so anything past 20 is wedged, not slow.
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: sstv_core
@@ -21,8 +32,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install system dependencies (PortAudio, OpenGL for OpenCV)
-        run: sudo apt-get update && sudo apt-get install -y libportaudio2 libgl1
+      # sounddevice needs PortAudio, opencv-python needs libGL.
+      #
+      # Not installed at all, deliberately.
+      #
+      # tests/conftest.py mocks sounddevice before any SSTeVe module is
+      # imported -- its own comment says "This prevents PortAudio library
+      # errors in CI environments" -- and opencv is used only for imwrite and
+      # cvtColor, so no GUI path and no libGL. Verified locally that the
+      # package imports and cv2.imwrite work with sounddevice mocked out.
+      #
+      # Keeping the step cost 192 seconds on 2026-08-19 while the Azure mirror
+      # was down (`Ign:` on all four noble repos, falling back to the global
+      # archive), for packages nothing in the suite touches. If a future test
+      # genuinely needs real audio hardware, add the install back to that job
+      # alone rather than to every run.
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v6
@@ -43,5 +67,59 @@ jobs:
       - name: Type check
         run: uv run mypy src/
 
-      - name: Run tests
-        run: uv run pytest -q
+      # -n auto uses the runner's four cores. Measured locally on the full suite:
+      # 10m42s serial, 4m49s at -n 4, with every timing-sensitive test passing.
+      - name: Run fast tests
+        run: uv run pytest -q -m "not slow" -n auto
+
+  # Real-time feeds, decode budgets, whole-transmission decodes, and the demodulator
+  # throughput budget. Slow on purpose: a Scottie S2 is 71 seconds of audio, so
+  # decoding one at wall-clock rate takes 71 seconds. Nothing to optimise; they just
+  # should not block the fast signal.
+  #
+  # Runs SERIALLY. TestThroughput asserts the demodulator beats real time, which is a
+  # CPU measurement -- under -n auto on a four-core runner it failed at 0.109s against
+  # a 0.100s budget purely from contention. Sharing cores makes a throughput assertion
+  # meaningless, so this job does not.
+  slow:
+    runs-on: ubuntu-latest
+    # Serial by design and measured at 6m03s; 20 minutes is a wedge, not work.
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: sstv_core
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # sounddevice needs PortAudio, opencv-python needs libGL.
+      #
+      # Not installed at all, deliberately.
+      #
+      # tests/conftest.py mocks sounddevice before any SSTeVe module is
+      # imported -- its own comment says "This prevents PortAudio library
+      # errors in CI environments" -- and opencv is used only for imwrite and
+      # cvtColor, so no GUI path and no libGL. Verified locally that the
+      # package imports and cv2.imwrite work with sounddevice mocked out.
+      #
+      # Keeping the step cost 192 seconds on 2026-08-19 while the Azure mirror
+      # was down (`Ign:` on all four noble repos, falling back to the global
+      # archive), for packages nothing in the suite touches. If a future test
+      # genuinely needs real audio hardware, add the install back to that job
+      # alone rather than to every run.
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Run slow tests
+        run: uv run pytest -q -m slow

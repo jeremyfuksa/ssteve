@@ -123,6 +123,17 @@ class AudioMonitorServer:
             except OSError:
                 # Socket closed under us by stop(); that is the exit path.
                 return
+            # stop() may have run between accept() returning and here. Taking
+            # the connection anyway registers a client on a stopped server and
+            # starts a send thread nothing will join -- and the log line below
+            # then fires during interpreter teardown, writing to a stream the
+            # test harness has already closed ("I/O operation on closed file").
+            if not self._running:
+                try:
+                    conn.close()
+                except OSError:
+                    pass
+                return
             conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             client = _Client(conn)
             with self._lock:
