@@ -23,6 +23,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from PIL import Image
 import soundfile as sf
 
 from sstv_core.decode.correlation_vis_detector import (
@@ -240,4 +241,52 @@ def test_vis_reports_the_strongest_match_not_the_first_lucky_one(
     assert detected.confidence >= 0.85, (
         f"{entry['file']} at chunk={chunk}: reported {detected.confidence:.3f}, "
         f"a decayed tail value rather than the header's peak"
+    )
+
+
+#: Decoded renders from a known-good run: main at 4203053 plus the #87 VIS
+#: fixes, verified byte-identical to 4203053's own output. These are the
+#: pictures a human looked at and accepted -- callsigns legible, artwork
+#: recognisable -- so they are the thing a regression has to preserve.
+#:
+#: Refresh deliberately with `scripts/refresh_offair_renders.py` when a change
+#: genuinely improves these decodes, and look at the new renders before you
+#: commit them. Never refresh to make a red suite go green.
+RENDERS = Path(__file__).resolve().parents[1] / "reference" / "images" / "offair_decoded"
+
+
+@pytest.mark.parametrize("entry", ENTRIES, ids=IDS)
+def test_decode_matches_the_accepted_render(entry: dict) -> None:
+    """Each transmission decodes to the exact picture we accepted.
+
+    Statistical floors cannot do this job. Measured on a decoder with a 9%
+    Martin M1 timing error -- which visibly destroys the picture, smearing
+    the subject away and banding the right edge -- adjacent-scanline
+    correlation moved 0.7638 to 0.7614 and lit stayed at 65%. Uniform random
+    noise scores 96% lit. Every texture statistic tried passed a decoder that
+    a human could see was broken.
+
+    Decoding a fixed file is deterministic, so the honest gate is the render
+    itself: same audio in, same pixels out. That same broken decoder changed
+    67-82% of pixels in every Martin file and left the two Martin M2 files
+    untouched, which is exactly the blast radius of the injected bug.
+    """
+    reference = RENDERS / entry["file"].replace(".wav", ".png")
+    assert reference.exists(), f"no accepted render for {entry['file']}"
+
+    _, image = _decode(entry)
+    assert image is not None
+
+    expected = np.array(Image.open(reference).convert("RGB"), dtype=np.int16)
+    actual = np.asarray(image, dtype=np.int16)
+
+    assert actual.shape == expected.shape, (
+        f"{entry['file']}: decoded {actual.shape}, accepted {expected.shape}"
+    )
+
+    changed = float((np.abs(actual - expected).max(axis=2) > 0).mean())
+    assert changed == 0.0, (
+        f"{entry['file']}: {changed:.1%} of pixels differ from the accepted "
+        f"render. If this change improves the decode, look at the new picture "
+        f"and refresh the renders deliberately."
     )
