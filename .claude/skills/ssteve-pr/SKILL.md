@@ -50,6 +50,24 @@ a PR before it comes back green.
 decode change passed every decode test while breaking the CLI and SDR
 roundtrips; only the full run caught it.
 
+## Renaming a CI job breaks every merge
+
+Branch protection on main requires the workflow's job names as status checks,
+with `strict` set. Rename a job and the old required check never reports
+again, so every PR sits `BLOCKED` with all its checks green -- including PRs
+that have nothing to do with CI.
+
+On 2026-08-19 renaming `python-tests` to `fast` and `slow` did exactly that.
+The fix is to update the required-checks list in the same change:
+
+```bash
+echo '{"strict":true,"contexts":["fast","slow"]}' | \
+  gh api -X PATCH repos/jeremyfuksa/ssteve/branches/main/protection/required_status_checks --input -
+```
+
+That is a repo-wide security setting, so expect to hand it to Jeremy rather
+than run it unprompted.
+
 ## Branch, then PR. Never commit to main.
 
 This repo has CI, so main is off limits for direct pushes. If you find you

@@ -4,8 +4,11 @@ name: CI
 # Actions minutes on this private repo: merging a green PR re-ran the identical suite for
 # no new information.
 #
-# Caveat: branch protection is unavailable on this plan, so a direct push to main bypasses
-# CI entirely. Work must arrive via PR for this to gate anything.
+# Branch protection on main requires both jobs below and has `strict` set, so a PR must
+# also be up to date with main before it can merge. Renaming a job therefore breaks every
+# merge until the required-checks list is updated to match -- which is exactly what
+# happened on 2026-08-19 when this workflow's single `python-tests` job became `fast` and
+# `slow`.
 # `workflow_dispatch` allows a manual run from the Actions tab.
 on:
   pull_request:
