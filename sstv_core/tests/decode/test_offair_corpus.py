@@ -24,6 +24,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 import soundfile as sf
+from PIL import Image
 
 from sstv_core.decode.correlation_vis_detector import (
     CorrelationVISConfig,
@@ -162,3 +163,166 @@ def test_every_mode_in_the_capture_has_a_decoder() -> None:
     """
     missing = {e["mode"] for e in ENTRIES} - set(DECODERS)
     assert not missing, f"corpus holds undecodable modes: {sorted(missing)}"
+
+
+#: Chunk sizes a live caller can plausibly deliver. 1024 is the live audio
+#: path's default (`audio/stream_manager.py`); 4096 is what the CLI feeds;
+#: 9600 and 24000 are what a 48 kHz card produces on 200 ms and 500 ms
+#: callbacks. VIS detection must not depend on which of these it gets.
+VIS_CHUNK_SIZES = [1024, 2048, 4096, 4800, 8192, 9600, 11025, 16384, 24000]
+
+#: The one (file, chunk) pair the detector cannot get right, and why.
+#:
+#: cap1_023873s is the transmission manifest.json already flags as marginal
+#: ("weak VIS: detects at 0.873, and misreads as ROBOT_36 at some cut points").
+#: At the alignments a 16384-sample chunk visits, its header genuinely peaks as
+#: ROBOT_36 at 0.8561 against SCOTTIE_S2's 0.8552 -- the wrong mode IS the
+#: strongest match in the sampled set, so no decision rule that picks the
+#: strongest match recovers it. At 4096 the detector visits an alignment where
+#: SCOTTIE_S2 reaches 0.8704 and reads it correctly.
+#:
+#: This is alignment sampling resolution, not the gating logic #87 fixed.
+#: Stepping finer does not help and costs elsewhere: measured over all 108
+#: combinations, a step of template/6 fails 5 and template/8 fails 4, against
+#: template/4's 1.
+#:
+#: Marked strict: if sampling is ever reworked and this case starts passing,
+#: the suite fails on the unexpected pass instead of hiding the improvement.
+KNOWN_VIS_ALIGNMENT_GAP = ("cap1_023873s_scottie_s2.wav", 16384)
+
+
+def _vis_cases(chunks: list[int]) -> list:
+    """Every (entry, chunk) pair, with the known alignment gap marked xfail."""
+    cases = []
+    for entry in ENTRIES:
+        for chunk in chunks:
+            marks = ()
+            if (entry["file"], chunk) == KNOWN_VIS_ALIGNMENT_GAP:
+                marks = (
+                    pytest.mark.xfail(
+                        strict=True,
+                        reason="known alignment-sampling gap; see KNOWN_VIS_ALIGNMENT_GAP",
+                    ),
+                )
+            cases.append(
+                pytest.param(entry, chunk, marks=marks, id=f"{entry['file']}-{chunk}")
+            )
+    return cases
+
+
+def _detect_vis(audio: np.ndarray, rate: int, chunk: int):
+    """Run VIS detection feeding `audio` in fixed-size chunks."""
+    detector = CorrelationVISDetector(CorrelationVISConfig(sample_rate=rate))
+    for offset in range(0, len(audio), chunk):
+        result = detector.process_samples(audio[offset : offset + chunk])
+        if result is not None and result.mode is not None:
+            return result
+    return None
+
+
+@pytest.mark.parametrize(("entry", "chunk"), _vis_cases(VIS_CHUNK_SIZES))
+def test_vis_detection_does_not_depend_on_chunk_size(entry: dict, chunk: int) -> None:
+    """VIS reads back the same mode however the caller buffers the audio.
+
+    A live caller picks its own block size -- a 48 kHz card on 200 ms
+    callbacks delivers 9600 samples, and nothing in the API constrains it.
+    Measured 2026-08-18 before the fix: chunk 9600 and 24000 missed all
+    twelve transmissions outright, because `process_samples` only evaluated
+    on chunk boundaries and a large chunk stepped straight past the window
+    where the header was still inside the rolling buffer.
+
+    This is the regression gate for that defect: the detector's answer is a
+    property of the audio, not of the caller's buffering.
+    """
+    audio, rate = _load(entry)
+
+    detected = _detect_vis(audio, rate, chunk)
+
+    assert detected is not None, f"no VIS in {entry['file']} at chunk={chunk}"
+    assert detected.mode.name == entry["mode"], (
+        f"{entry['file']} at chunk={chunk}: read {detected.mode.name}, "
+        f"expected {entry['mode']}"
+    )
+
+
+@pytest.mark.parametrize(("entry", "chunk"), _vis_cases([1024, 4096, 9600, 16384, 24000]))
+def test_vis_reports_the_strongest_match_not_the_first_lucky_one(
+    entry: dict, chunk: int
+) -> None:
+    """The reported mode is the header's best match, not whichever step got lucky.
+
+    Neighbouring VIS codes score within MIN_MODE_MARGIN of each other on a
+    real off-air header, so a per-step decision reports whichever alignment
+    happened to separate the top two -- and that depends on where the
+    caller's chunk boundaries fall. Measured 2026-08-18 on cap1_023873s at
+    chunk 16384, the correct mode never cleared both gates on the same step:
+    it peaked at 0.855 while ROBOT_36 held 0.856, then won the margin two
+    steps later at 0.810, below the 0.85 threshold.
+
+    Accumulating across steps and committing to the strongest *reportable*
+    match makes the answer a property of the header. Tracking the strongest
+    raw correlation instead does not: a peak whose top two templates sit a
+    hair apart never clears the margin, and latching it blocks every later
+    step that separates them cleanly.
+    """
+    audio, rate = _load(entry)
+
+    detected = _detect_vis(audio, rate, chunk)
+
+    assert detected is not None, f"no VIS in {entry['file']} at chunk={chunk}"
+    assert detected.mode.name == entry["mode"], (
+        f"{entry['file']} at chunk={chunk}: read {detected.mode.name}, "
+        f"expected {entry['mode']}"
+    )
+    assert detected.confidence >= 0.85, (
+        f"{entry['file']} at chunk={chunk}: reported {detected.confidence:.3f}, "
+        f"a decayed tail value rather than the header's peak"
+    )
+
+
+#: Decoded renders from a known-good run: main at 4203053 plus the #87 VIS
+#: fixes, verified byte-identical to 4203053's own output. These are the
+#: pictures a human looked at and accepted -- callsigns legible, artwork
+#: recognisable -- so they are the thing a regression has to preserve.
+#:
+#: Refresh deliberately with `scripts/refresh_offair_renders.py` when a change
+#: genuinely improves these decodes, and look at the new renders before you
+#: commit them. Never refresh to make a red suite go green.
+RENDERS = Path(__file__).resolve().parents[1] / "reference" / "images" / "offair_decoded"
+
+
+@pytest.mark.parametrize("entry", ENTRIES, ids=IDS)
+def test_decode_matches_the_accepted_render(entry: dict) -> None:
+    """Each transmission decodes to the exact picture we accepted.
+
+    Statistical floors cannot do this job. Measured on a decoder with a 9%
+    Martin M1 timing error -- which visibly destroys the picture, smearing
+    the subject away and banding the right edge -- adjacent-scanline
+    correlation moved 0.7638 to 0.7614 and lit stayed at 65%. Uniform random
+    noise scores 96% lit. Every texture statistic tried passed a decoder that
+    a human could see was broken.
+
+    Decoding a fixed file is deterministic, so the honest gate is the render
+    itself: same audio in, same pixels out. That same broken decoder changed
+    67-82% of pixels in every Martin file and left the two Martin M2 files
+    untouched, which is exactly the blast radius of the injected bug.
+    """
+    reference = RENDERS / entry["file"].replace(".wav", ".png")
+    assert reference.exists(), f"no accepted render for {entry['file']}"
+
+    _, image = _decode(entry)
+    assert image is not None
+
+    expected = np.array(Image.open(reference).convert("RGB"), dtype=np.int16)
+    actual = np.asarray(image, dtype=np.int16)
+
+    assert actual.shape == expected.shape, (
+        f"{entry['file']}: decoded {actual.shape}, accepted {expected.shape}"
+    )
+
+    changed = float((np.abs(actual - expected).max(axis=2) > 0).mean())
+    assert changed == 0.0, (
+        f"{entry['file']}: {changed:.1%} of pixels differ from the accepted "
+        f"render. If this change improves the decode, look at the new picture "
+        f"and refresh the renders deliberately."
+    )
