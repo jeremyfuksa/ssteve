@@ -34,28 +34,19 @@ jobs:
 
       # sounddevice needs PortAudio, opencv-python needs libGL.
       #
-      # Best-effort, never fatal. `tests/conftest.py` mocks sounddevice before
-      # any SSTeVe module is imported precisely so PortAudio is not needed in
-      # CI, and opencv is used only for imwrite/cvtColor -- no GUI, so libGL is
-      # not exercised either. The packages are installed when they are cheap to
-      # get and skipped when the mirror is unwell.
+      # Not installed at all, deliberately.
       #
-      # On 2026-08-19 the Azure mirror went down entirely (`Ign:` on all four
-      # noble repos) and apt fell back to the global archive.ubuntu.com, which
-      # hung for 17 minutes and then failed the run. A broken Ubuntu mirror
-      # should not be able to fail this suite.
-      - name: Install system dependencies (best effort)
-        continue-on-error: true
-        timeout-minutes: 3
-        run: |
-          if dpkg -s libportaudio2 libgl1 >/dev/null 2>&1; then
-            echo "already present; skipping apt"
-            exit 0
-          fi
-          APT_OPTS="-o Acquire::Retries=2 -o Acquire::http::Timeout=10 -o Acquire::https::Timeout=10"
-          sudo apt-get update $APT_OPTS \
-            && sudo apt-get install -y --no-install-recommends $APT_OPTS libportaudio2 libgl1 \
-            || echo "apt unavailable; continuing -- the suite does not require these"
+      # tests/conftest.py mocks sounddevice before any SSTeVe module is
+      # imported -- its own comment says "This prevents PortAudio library
+      # errors in CI environments" -- and opencv is used only for imwrite and
+      # cvtColor, so no GUI path and no libGL. Verified locally that the
+      # package imports and cv2.imwrite work with sounddevice mocked out.
+      #
+      # Keeping the step cost 192 seconds on 2026-08-19 while the Azure mirror
+      # was down (`Ign:` on all four noble repos, falling back to the global
+      # archive), for packages nothing in the suite touches. If a future test
+      # genuinely needs real audio hardware, add the install back to that job
+      # alone rather than to every run.
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v6
@@ -103,28 +94,19 @@ jobs:
 
       # sounddevice needs PortAudio, opencv-python needs libGL.
       #
-      # Best-effort, never fatal. `tests/conftest.py` mocks sounddevice before
-      # any SSTeVe module is imported precisely so PortAudio is not needed in
-      # CI, and opencv is used only for imwrite/cvtColor -- no GUI, so libGL is
-      # not exercised either. The packages are installed when they are cheap to
-      # get and skipped when the mirror is unwell.
+      # Not installed at all, deliberately.
       #
-      # On 2026-08-19 the Azure mirror went down entirely (`Ign:` on all four
-      # noble repos) and apt fell back to the global archive.ubuntu.com, which
-      # hung for 17 minutes and then failed the run. A broken Ubuntu mirror
-      # should not be able to fail this suite.
-      - name: Install system dependencies (best effort)
-        continue-on-error: true
-        timeout-minutes: 3
-        run: |
-          if dpkg -s libportaudio2 libgl1 >/dev/null 2>&1; then
-            echo "already present; skipping apt"
-            exit 0
-          fi
-          APT_OPTS="-o Acquire::Retries=2 -o Acquire::http::Timeout=10 -o Acquire::https::Timeout=10"
-          sudo apt-get update $APT_OPTS \
-            && sudo apt-get install -y --no-install-recommends $APT_OPTS libportaudio2 libgl1 \
-            || echo "apt unavailable; continuing -- the suite does not require these"
+      # tests/conftest.py mocks sounddevice before any SSTeVe module is
+      # imported -- its own comment says "This prevents PortAudio library
+      # errors in CI environments" -- and opencv is used only for imwrite and
+      # cvtColor, so no GUI path and no libGL. Verified locally that the
+      # package imports and cv2.imwrite work with sounddevice mocked out.
+      #
+      # Keeping the step cost 192 seconds on 2026-08-19 while the Azure mirror
+      # was down (`Ign:` on all four noble repos, falling back to the global
+      # archive), for packages nothing in the suite touches. If a future test
+      # genuinely needs real audio hardware, add the install back to that job
+      # alone rather than to every run.
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v6
