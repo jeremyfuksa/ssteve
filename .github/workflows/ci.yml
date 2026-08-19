@@ -32,17 +32,32 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # sounddevice needs PortAudio, opencv-python needs libGL. Retried and
-      # time-boxed: on 2026-08-19 this step hung for 17 minutes on an apt mirror
-      # that normally answers in 8 seconds, and the job had no way to give up.
-      # Splitting the workflow doubled the number of apt calls, so it also
-      # doubled the chance of drawing a bad mirror.
+      # sounddevice needs PortAudio, opencv-python needs libGL.
+      #
+      # On 2026-08-19 this step hung 17 minutes on
+      # `archive.ubuntu.com noble-security InRelease`. Successful runs fetch
+      # that repo from `azure.archive.ubuntu.com` in about a second, so the
+      # hang is apt falling back to the global archive when the Azure mirror
+      # stops answering -- and the global one is routinely overloaded.
+      #
+      # apt waits forever by default, so the fix is a timeout on every network
+      # operation plus retries, and skipping apt altogether when the runner
+      # image already carries both libraries.
       - name: Install system dependencies (PortAudio, OpenGL for OpenCV)
         timeout-minutes: 4
         run: |
+          # Both packages already exist in the runner image often enough to try
+          # first: if they are present, skip apt entirely.
+          if dpkg -s libportaudio2 libgl1 >/dev/null 2>&1; then
+            echo "libportaudio2 and libgl1 already installed; skipping apt"
+            exit 0
+          fi
+          # Bound every apt network operation. The default is an unbounded wait,
+          # which is how one stalled mirror held the job for 17 minutes.
+          APT_OPTS="-o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15"
           for attempt in 1 2 3; do
-            if sudo apt-get update -o Acquire::Retries=3 \
-               && sudo apt-get install -y --no-install-recommends libportaudio2 libgl1; then
+            if sudo apt-get update $APT_OPTS \
+               && sudo apt-get install -y --no-install-recommends $APT_OPTS libportaudio2 libgl1; then
               exit 0
             fi
             echo "apt attempt $attempt failed; retrying"
@@ -95,17 +110,32 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # sounddevice needs PortAudio, opencv-python needs libGL. Retried and
-      # time-boxed: on 2026-08-19 this step hung for 17 minutes on an apt mirror
-      # that normally answers in 8 seconds, and the job had no way to give up.
-      # Splitting the workflow doubled the number of apt calls, so it also
-      # doubled the chance of drawing a bad mirror.
+      # sounddevice needs PortAudio, opencv-python needs libGL.
+      #
+      # On 2026-08-19 this step hung 17 minutes on
+      # `archive.ubuntu.com noble-security InRelease`. Successful runs fetch
+      # that repo from `azure.archive.ubuntu.com` in about a second, so the
+      # hang is apt falling back to the global archive when the Azure mirror
+      # stops answering -- and the global one is routinely overloaded.
+      #
+      # apt waits forever by default, so the fix is a timeout on every network
+      # operation plus retries, and skipping apt altogether when the runner
+      # image already carries both libraries.
       - name: Install system dependencies (PortAudio, OpenGL for OpenCV)
         timeout-minutes: 4
         run: |
+          # Both packages already exist in the runner image often enough to try
+          # first: if they are present, skip apt entirely.
+          if dpkg -s libportaudio2 libgl1 >/dev/null 2>&1; then
+            echo "libportaudio2 and libgl1 already installed; skipping apt"
+            exit 0
+          fi
+          # Bound every apt network operation. The default is an unbounded wait,
+          # which is how one stalled mirror held the job for 17 minutes.
+          APT_OPTS="-o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15"
           for attempt in 1 2 3; do
-            if sudo apt-get update -o Acquire::Retries=3 \
-               && sudo apt-get install -y --no-install-recommends libportaudio2 libgl1; then
+            if sudo apt-get update $APT_OPTS \
+               && sudo apt-get install -y --no-install-recommends $APT_OPTS libportaudio2 libgl1; then
               exit 0
             fi
             echo "apt attempt $attempt failed; retrying"
