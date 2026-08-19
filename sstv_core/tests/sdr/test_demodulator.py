@@ -248,6 +248,11 @@ class TestBlockContinuity:
         assert error < rms * 0.01
 
 
+#: Measures CPU throughput against a wall-clock budget, so it cannot share a
+#: core with anything. Under `-n auto` on a four-core runner it missed by 9%
+#: (0.109s against a 0.100s budget) purely from contention, not slowness.
+#: Marked slow so it runs in the job that is not competing for cores.
+@pytest.mark.slow
 class TestThroughput:
     """A demodulator that cannot keep up starves the ring buffer.
 

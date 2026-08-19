@@ -56,10 +56,15 @@ jobs:
       - name: Run fast tests
         run: uv run pytest -q -m "not slow" -n auto
 
-  # Real-time feeds, decode budgets, and whole-transmission decodes. These are slow
-  # because they pace a source at wall-clock rate on purpose -- a Scottie S2 is 71
-  # seconds of audio, so decoding one in real time takes 71 seconds. Nothing to
-  # optimise; they just should not block the fast signal.
+  # Real-time feeds, decode budgets, whole-transmission decodes, and the demodulator
+  # throughput budget. Slow on purpose: a Scottie S2 is 71 seconds of audio, so
+  # decoding one at wall-clock rate takes 71 seconds. Nothing to optimise; they just
+  # should not block the fast signal.
+  #
+  # Runs SERIALLY. TestThroughput asserts the demodulator beats real time, which is a
+  # CPU measurement -- under -n auto on a four-core runner it failed at 0.109s against
+  # a 0.100s budget purely from contention. Sharing cores makes a throughput assertion
+  # meaningless, so this job does not.
   slow:
     runs-on: ubuntu-latest
     defaults:
@@ -86,4 +91,4 @@ jobs:
         run: uv sync --extra dev
 
       - name: Run slow tests
-        run: uv run pytest -q -m slow -n auto
+        run: uv run pytest -q -m slow
