@@ -29,6 +29,7 @@ because an offline-only result would not transfer (the lesson of #99, #100
 and #101).
 """
 
+
 from __future__ import annotations
 
 import asyncio
@@ -46,6 +47,10 @@ from sstv_core.encode.scottie_encoder import (
     ScottieS2Encoder,
     ScottieS2EncoderConfig,
 )
+
+#: Seconds, not milliseconds. Runs in the slow CI job so the rest of the
+#: suite can report quickly -- see pytest.ini.
+pytestmark = pytest.mark.slow
 
 SAMPLE_RATE = 48000
 
@@ -186,6 +191,7 @@ def _white_band_row(image: np.ndarray) -> int:
         (ScottieS2Encoder(ScottieS2EncoderConfig(sample_rate=SAMPLE_RATE)), "ScottieS2"),
     ],
 )
+
 async def test_picture_starts_at_the_top_of_the_frame(encoder, ident, tmp_path):
     """The regression gate for #102, driven through the live path.
 

@@ -30,6 +30,7 @@ it before measuring. Comparing raw pixels scores ~0.51 on a picture that is
 plainly the same bear.
 """
 
+
 from __future__ import annotations
 
 import asyncio
@@ -44,6 +45,10 @@ from scipy import signal as sp_signal
 from sstv_core.decode.rx_manager import RXManager
 from sstv_core.sdr.source import SpyServerSource
 from sstv_core.sdr.spyserver.client import SpyServerError
+
+#: Seconds, not milliseconds. Runs in the slow CI job so the rest of the
+#: suite can report quickly -- see pytest.ini.
+pytestmark = pytest.mark.slow
 
 REFERENCE = (
     Path(__file__).resolve().parents[1]
@@ -156,6 +161,7 @@ class ScriptedClient:
 def _best_aligned_correlation(
     decoded: np.ndarray, control: np.ndarray
 ) -> tuple[float, int, int]:
+
     """Correlation of two pictures after removing a constant pixel shift.
 
     Returns (correlation, dx, dy). The demodulator's group delay shifts the

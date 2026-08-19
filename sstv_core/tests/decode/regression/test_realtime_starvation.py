@@ -42,6 +42,8 @@ from sstv_core.audio.stream_manager import AudioLevels
 from sstv_core.decode.rx_manager import RXManager
 from sstv_core.encode.scottie_encoder import ScottieS1Encoder, ScottieS2Encoder
 
+pytestmark = pytest.mark.slow
+
 SAMPLE_RATE = 48000
 
 
