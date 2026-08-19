@@ -59,8 +59,9 @@ window as evidence of anything.
 ### 3. Does a different receiver hear it?
 
 **This is the step that was skipped both times.** Use SDR++, a web SDR, or any
-receiver that does not share our code path. WWV on 5/10/15/20 MHz runs
-continuously, so it is always a valid target.
+receiver that does not share our code path. WWV on 2.5/5/10/15 MHz runs
+continuously, so it is always a valid target. (20 and 25 MHz read as noise
+from Kansas City — 3.8 dB measured — so they prove nothing here.)
 
 Which WWV frequencies survive is itself a propagation measurement: losing 15
 MHz while 5 MHz holds is the MUF dropping, not a fault.
@@ -71,14 +72,33 @@ looking at the antenna.
 ### 4. Only now, our own path
 
 ```bash
-uv run python -m sstv_core.cli.main decode --spyserver <host> \
-  --frequency 10000000 --gain 8 --timeout 15 --record /tmp/wwv.wav --output /tmp/wwv.png
+uv run python scripts/calibrate_receiver.py --spyserver <host>:5555
 ```
 
-Compare against a known-good reading rather than an absolute. A live 20m band
-measured **0.407 rms**; the same chain with the digital-gain bug read
-**0.0004**. Three orders of magnitude, and every frequency equally down — which
-looked exactly like a dead antenna and was not.
+About 26 seconds. Sweeps WWV 2.5/5/10/15 MHz on one connection and reports
+**carrier SNR** at each, with a verdict. Add `--json cal.json` to keep it.
+
+**Judge on carrier SNR, never on a level.** A level cannot tell a carrier from
+noise, because broadband noise raises it exactly like a station does. Measured
+2026-08-19: WWV 5 MHz read mean |IQ| 0.01210 and a silent 20m read 0.01036 —
+indistinguishable — while carrier SNR was 13.1 dB and 1.3 dB. The recorder's
+old `rms < 0.01 = deaf` rule would have called a working receiver deaf that
+night. Anything above ~8 dB is a carrier; every real WWV signal measured has
+cleared 13 dB and nothing empty has come within 9 dB of it.
+
+Reference, 2026-08-19 21:15 UTC at gain 8, SFI 125 / K 1:
+
+| WWV 2.5 | WWV 5 | WWV 10 | WWV 15 | 20m SSTV |
+|---|---|---|---|---|
+| 31.6 dB | 23.6 dB | 33.7 dB | 38.3 dB | **1.3 dB** |
+
+That last column is the shape of a healthy receiver on an empty band. Expect
+movement with propagation — WWV 5 read 13.1 dB an hour earlier the same
+evening.
+
+**Nothing on any frequency** is the one result that implicates the receive
+chain, and even then only after steps 1–3 have cleared. The script exits 2 in
+that case so a scheduled run can react.
 
 ## Stating the conclusion
 
