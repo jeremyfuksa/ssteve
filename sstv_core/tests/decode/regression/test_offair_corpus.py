@@ -42,7 +42,7 @@ from sstv_core.decode.scottie_decoder import (
 )
 from sstv_core.decode.sync_detector import SyncPulseDetector
 
-CORPUS = Path(__file__).resolve().parents[1] / "reference" / "audio" / "offair"
+CORPUS = Path(__file__).resolve().parents[2] / "reference" / "audio" / "offair"
 MANIFEST = CORPUS / "manifest.json"
 
 #: decoder class, config class, and nominal line time per mode.
@@ -288,7 +288,7 @@ def test_vis_reports_the_strongest_match_not_the_first_lucky_one(
 #: Refresh deliberately with `scripts/refresh_offair_renders.py` when a change
 #: genuinely improves these decodes, and look at the new renders before you
 #: commit them. Never refresh to make a red suite go green.
-RENDERS = Path(__file__).resolve().parents[1] / "reference" / "images" / "offair_decoded"
+RENDERS = Path(__file__).resolve().parents[2] / "reference" / "images" / "offair_decoded"
 
 
 @pytest.mark.parametrize("entry", ENTRIES, ids=IDS)
