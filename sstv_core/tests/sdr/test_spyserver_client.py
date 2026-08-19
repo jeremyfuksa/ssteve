@@ -814,3 +814,44 @@ class TestStall:
             stalled.stream_error.suggested_action
             != dropped.stream_error.suggested_action
         ), "the two point at different fixes, so they need different advice"
+
+
+class TestDigitalGain:
+    """The --gain flag has to reach the samples, not just the analog stage."""
+
+    def test_gain_sets_both_the_analog_and_the_digital_stage(self):
+        """issue: --gain moved only SETTING_GAIN, leaving digital gain at 0.
+
+        Measured against a live Airspy HF+ on 2026-08-19, mean |IQ| over the
+        same signal: digital gain 0 gave 0.0067, gain 8 gave 0.0436, gain 16
+        gave 0.147. Pinning it at 0 cost roughly 22 dB of the signal the
+        operator asked for, and WWV 10 MHz read 'silent' at 0.000433 where
+        the same run with digital gain applied read 'healthy' at 0.006324.
+
+        Three nights of band recordings were written at that level and read
+        as a dead antenna.
+        """
+        sock = FakeSocket(_handshake())
+        client = SpyServerClient("example.test", sock_factory=lambda: sock)
+        client.connect()
+
+        client.start_streaming(lambda _: None, gain=8)
+
+        assert struct.pack("<II", p.SETTING_GAIN, 8) in sock.sent, (
+            "analog gain was not sent"
+        )
+        assert struct.pack("<II", p.SETTING_IQ_DIGITAL_GAIN, 8) in sock.sent, (
+            "digital gain was not sent -- the samples stay at the server's floor"
+        )
+        client.close()
+
+    def test_gain_zero_is_still_gain_zero(self):
+        """Asking for no gain must not become an implicit default."""
+        sock = FakeSocket(_handshake())
+        client = SpyServerClient("example.test", sock_factory=lambda: sock)
+        client.connect()
+
+        client.start_streaming(lambda _: None, gain=0)
+
+        assert struct.pack("<II", p.SETTING_IQ_DIGITAL_GAIN, 0) in sock.sent
+        client.close()
