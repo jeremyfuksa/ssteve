@@ -29,7 +29,7 @@ from sstv_core.decode.martin_decoder import MartinM1Config, MartinM1Decoder
 from sstv_core.decode.robot_decoder import Robot36Config, Robot36Decoder
 from sstv_core.decode.sync_detector import SyncPulseDetector
 
-CACHE = Path(__file__).parent.parent / "reference" / "audio" / "_cache"
+CACHE = Path(__file__).parent.parent.parent / "reference" / "audio" / "_cache"
 
 SPEC_LINE_MS = {"MartinM1": 446.446, "Robot36": 150.0}
 
@@ -208,7 +208,7 @@ class TestRobot36OffAirRecordings:
     where the pre-fix decoder implied 194ms.
     """
 
-    AUDIO_DIR = Path(__file__).parent.parent / "reference" / "audio" / "robot36"
+    AUDIO_DIR = Path(__file__).parent.parent.parent / "reference" / "audio" / "robot36"
 
     def _load(self, name: str) -> tuple[np.ndarray, int]:
         import wave
