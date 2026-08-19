@@ -22,6 +22,9 @@ jobs:
   # for: it reports in a few minutes rather than the twenty the single job took.
   fast:
     runs-on: ubuntu-latest
+    # GitHub's default is 360 minutes. This job measured 7m36s at its slowest,
+    # so anything past 20 is wedged, not slow.
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: sstv_core
@@ -29,8 +32,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # sounddevice needs PortAudio, opencv-python needs libGL. Retried and
+      # time-boxed: on 2026-08-19 this step hung for 17 minutes on an apt mirror
+      # that normally answers in 8 seconds, and the job had no way to give up.
+      # Splitting the workflow doubled the number of apt calls, so it also
+      # doubled the chance of drawing a bad mirror.
       - name: Install system dependencies (PortAudio, OpenGL for OpenCV)
-        run: sudo apt-get update && sudo apt-get install -y libportaudio2 libgl1
+        timeout-minutes: 4
+        run: |
+          for attempt in 1 2 3; do
+            if sudo apt-get update -o Acquire::Retries=3 \
+               && sudo apt-get install -y --no-install-recommends libportaudio2 libgl1; then
+              exit 0
+            fi
+            echo "apt attempt $attempt failed; retrying"
+            sleep 5
+          done
+          echo "apt failed three times -- treating as infrastructure, not a code failure" >&2
+          exit 1
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v6
@@ -67,6 +86,8 @@ jobs:
   # meaningless, so this job does not.
   slow:
     runs-on: ubuntu-latest
+    # Serial by design and measured at 6m03s; 20 minutes is a wedge, not work.
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: sstv_core
@@ -74,8 +95,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # sounddevice needs PortAudio, opencv-python needs libGL. Retried and
+      # time-boxed: on 2026-08-19 this step hung for 17 minutes on an apt mirror
+      # that normally answers in 8 seconds, and the job had no way to give up.
+      # Splitting the workflow doubled the number of apt calls, so it also
+      # doubled the chance of drawing a bad mirror.
       - name: Install system dependencies (PortAudio, OpenGL for OpenCV)
-        run: sudo apt-get update && sudo apt-get install -y libportaudio2 libgl1
+        timeout-minutes: 4
+        run: |
+          for attempt in 1 2 3; do
+            if sudo apt-get update -o Acquire::Retries=3 \
+               && sudo apt-get install -y --no-install-recommends libportaudio2 libgl1; then
+              exit 0
+            fi
+            echo "apt attempt $attempt failed; retrying"
+            sleep 5
+          done
+          echo "apt failed three times -- treating as infrastructure, not a code failure" >&2
+          exit 1
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v6
