@@ -314,10 +314,15 @@ class SpyServerClient:
         self._send(p.build_set_setting(p.SETTING_IQ_FORMAT, iq_format))
         self._send(p.build_set_setting(p.SETTING_IQ_DECIMATION, self._decimation_stage))
         self._send(p.build_set_setting(p.SETTING_STREAMING_MODE, p.STREAM_MODE_IQ_ONLY))
+        # Both stages, or the operator's --gain does almost nothing. The
+        # comment that stood here promised to do gain "in our own DSP where it
+        # is testable" and no such stage was ever written, so digital gain sat
+        # pinned at 0. Measured against a live Airspy HF+ (2026-08-19), mean
+        # |IQ| over the same signal: 0.0067 at digital gain 0, 0.0436 at 8,
+        # 0.147 at 16. Three nights of band recordings were written at the
+        # floor and read as a dead antenna.
         self._send(p.build_set_setting(p.SETTING_GAIN, gain))
-        # Digital gain semantics differ across reference clients; send 0 and do
-        # any gain in our own DSP where it is testable.
-        self._send(p.build_set_setting(p.SETTING_IQ_DIGITAL_GAIN, 0))
+        self._send(p.build_set_setting(p.SETTING_IQ_DIGITAL_GAIN, gain))
         self._send(p.build_set_setting(p.SETTING_STREAMING_ENABLED, 1))
         # A fresh session starts a fresh sequence. Carrying the previous
         # one over reports a gap that never happened.

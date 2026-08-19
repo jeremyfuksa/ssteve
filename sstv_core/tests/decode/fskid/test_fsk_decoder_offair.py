@@ -26,7 +26,7 @@ import pytest
 
 from sstv_core.decode.fsk_decoder import FSKIDDecoder
 
-AUDIO_DIR = Path(__file__).resolve().parents[1] / "reference" / "audio" / "fskid"
+AUDIO_DIR = Path(__file__).resolve().parents[2] / "reference" / "audio" / "fskid"
 
 # (fixture filename, callsign the station actually sent)
 OFF_AIR = [
