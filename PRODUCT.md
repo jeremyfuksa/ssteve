@@ -160,6 +160,13 @@ exception — factual and direct, never conversational.
   overlay; this is a legal obligation, not a preference. It binds the *transmit* path
   only — receiving is unlicensed everywhere SSTeVe is likely to run, which is what
   makes the receive-only situation legitimate rather than a loophole.
+- **Silence is the normal state, and it is not diagnostic.** Measured over a 10.5-hour
+  capture, the band was 97.4% silent — a 2.6% duty cycle, median ~30 minutes between
+  transmissions. A quiet receiver is therefore the expected reading, not evidence of a
+  fault. Twice a healthy receive chain was diagnosed as broken hardware from silence
+  alone (2026-08-14, and again 2026-08-16 through 08-19), and both times the control
+  run to check it went through the same suspect path, so it confirmed the wrong theory
+  instead of falsifying it.
 - **A SpyServer receiver may be nowhere near the operator.** Received signal
   characteristics, propagation, and local time belong to the server's location, not the
   listener's. Anything the record asserts about reception conditions must be attributed
@@ -287,6 +294,26 @@ not what it must look like.
     - **This is a craft requirement, not only a data one.** `DESIGN.md` argues the
       interface is a record being typeset. A record that quietly conflates "I heard
       this" with "someone in Germany heard this" is a dishonest record.
+
+13. **Silence gets an explanation the receive chain cannot fabricate.** Because the band
+    is silent 97.4% of the time, "nothing is happening" is the interface's most common
+    state and its least informative one. Space weather answers whether the band *should*
+    be carrying signal, and it is the only such answer that cannot fail in the same
+    direction as our own gain, antenna, or demodulator — which is precisely what makes
+    it trustworthy when a capture reads dead. `GET /api/v1/propagation` serves it.
+
+    - **The verdict is one sentence, not a dashboard.** OPEN / CLOSED / STORM in plain
+      language: *"the band should carry signal, so silence points at the receive
+      chain."* The raw indices (SFI, K, A, sunspots, X-ray) go behind disclosure for
+      operators who read them; they are not the deliverable.
+    - **Unreachable sources must look louder than good news.** The endpoint returns 503
+      with a structured detail rather than an empty report, and the interface must
+      render that difference. A blank propagation panel reads as "nothing to report",
+      which is the opposite of the truth and is exactly how a quiet band became a
+      hardware verdict twice.
+    - **It states support, never activity.** Propagation can say the path is open. It
+      cannot say anyone will transmit, and the interface must not let an open band imply
+      an expected picture.
 
 ### Vocabulary
 

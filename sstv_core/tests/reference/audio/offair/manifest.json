@@ -107,5 +107,25 @@
     "vis_at_sec": 2.0,
     "duration_sec": 122.3,
     "sample_rate": 11025
+  },
+  {
+    "file": "cap2_010885s_martin_m2_kd2tt.wav",
+    "mode": "MARTIN_M2",
+    "source_capture": "cap2",
+    "source_offset_sec": 10885.4,
+    "vis_at_sec": 1.0,
+    "duration_sec": 75.0,
+    "sample_rate": 11025,
+    "fskid_callsign": "KD2TT"
+  },
+  {
+    "file": "cap2_011077s_martin_m2_va2pgb.wav",
+    "mode": "MARTIN_M2",
+    "source_capture": "cap2",
+    "source_offset_sec": 11077.1,
+    "vis_at_sec": 1.0,
+    "duration_sec": 75.0,
+    "sample_rate": 11025,
+    "fskid_callsign": "VA2PGB"
   }
 ]

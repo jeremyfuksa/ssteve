@@ -92,9 +92,30 @@ are the fastest visual confirmation that a decode is still real.
 
 ## The corpora, and what each can gate
 
-- `tests/reference/audio/offair/` — twelve real 20m transmissions with their
-  source WAVs. **This is the one with a regression gate**, because the audio
-  still exists to re-decode.
+- `tests/reference/audio/offair/` — real 20m transmissions with their source
+  WAVs. **This is the one with a regression gate**, because the audio still
+  exists to re-decode. Two of them (`cap2_*`, added 2026-08-20) carry a
+  verified FSKID callsign — the only off-air IDs in the repo, and what stops
+  the `--scan` filename naming from silently breaking on real fading audio.
+
+### Adding a fixture is a two-file change
+
+Writing the WAV and appending to `manifest.json` is only half of it. The
+manifest is what enrolls a fixture in `test_decode_matches_the_accepted
+_render`, so a manifest entry with no matching PNG in
+`tests/reference/images/offair_decoded/` fails the fast job immediately:
+
+    AssertionError: no accepted render for cap2_010885s_martin_m2_kd2tt.wav
+
+Generate the render with `uv run python scripts/refresh_offair_renders.py`
+and **look at each new picture before committing it** — an uninspected render
+is not an accepted render, it is just today's output promoted to a standard.
+Check geometry first (slant, smearing, subject centred); noise is the air and
+is fine to pin.
+
+Then re-run the whole fast job, not just the file you were working in. On
+2026-08-20 the manifest was edited *after* a green `-m "not slow"` run, and
+the stale result was reported as passing until CI said otherwise.
 - `tests/reference/images/live_decoded/` — ten cleaner decodes from a live
   stream on 2026-08-17. No source audio was ever recorded, so **no test can
   gate them**. They are evidence of what good looks like, nothing more.
