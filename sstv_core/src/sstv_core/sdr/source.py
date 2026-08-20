@@ -59,6 +59,22 @@ def default_gain_for(maximum_gain_index: int) -> int:
     return min(maximum_gain_index, round(maximum_gain_index * DEFAULT_GAIN_FRACTION))
 
 
+class _StreamFailure(Protocol):
+    """What a consumer actually reads off a stream failure.
+
+    Declared structurally rather than as SpyServerError, because the
+    failure can now come from a USB radio as well as a network one and
+    nothing downstream does more than report these two fields. Naming the
+    concrete class here was the one place the "any source" seam was still
+    SpyServer-shaped.
+    """
+
+    @property
+    def message(self) -> str: ...
+    @property
+    def suggested_action(self) -> str: ...
+
+
 class _Client(Protocol):
     """The client surface this source uses, so tests can supply a fake.
 
@@ -72,7 +88,7 @@ class _Client(Protocol):
     @property
     def dropped_frames(self) -> int: ...
     @property
-    def stream_error(self) -> SpyServerError | None: ...
+    def stream_error(self) -> _StreamFailure | None: ...
     @property
     def device_info(self) -> object | None: ...
 
@@ -88,8 +104,15 @@ class _Client(Protocol):
 class SpyServerSource:
     """Feeds demodulated SpyServer audio into a ring buffer.
 
+    Despite the name this is not SpyServer-specific: it owns the
+    demodulator, ring buffer, levels, monitor tee and recorder, and takes
+    any `_Client`. A locally attached radio (`sdr/airspyhf.py`) is
+    injected the same way, which is what makes a USB device a different
+    transport rather than a second pipeline.
+
     Args:
-        host: SpyServer hostname or IP.
+        host: SpyServer hostname or IP. Only used to build a client when
+            one is not injected -- a local radio needs no host.
         port: SpyServer port.
         frequency_hz: Frequency to tune, in Hz.
         gain: Device RF/IF gain index, or None to derive one from the
@@ -101,7 +124,7 @@ class SpyServerSource:
 
     def __init__(
         self,
-        host: str,
+        host: str = "",
         port: int = 5555,
         frequency_hz: int = 14_230_000,
         gain: int | None = None,
@@ -267,6 +290,14 @@ class SpyServerSource:
         """
         client = self._client
         if client is None:
+            if not self._host:
+                raise SpyServerError(
+                    "I need a SpyServer host, or a radio to talk to.",
+                    suggested_action=(
+                        "Pass --spyserver host:port, or connect a USB radio "
+                        "and use --usb."
+                    ),
+                )
             fresh: _Client = SpyServerClient(
                 self._host, self._port, stall_timeout_sec=self._stall_timeout_sec
             )
