@@ -1020,6 +1020,41 @@ class ScanlineUpdateEvent(BaseModel):
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class SpectrumUpdateEvent(BaseModel):
+    """One waterfall row (#53, frontend-spec 20.4).
+
+    Sliced to 300-3000 Hz and quantised to integer dBFS by the producer.
+    At 48 kHz with 1024 bins that is ~58 values rather than 512, because
+    the rest is spectrum the waterfall never draws -- at 15 frames a
+    second the difference is about 13 KB/s against 200.
+
+    `start_hz` and `bin_hz` carry the axis, so a client labels it without
+    knowing the FFT size or sample rate and keeps working when either
+    changes.
+    """
+
+    event_type: str = "spectrum_update"
+    start_hz: float = Field(description="Centre frequency of the first bin, in Hz")
+    bin_hz: float = Field(gt=0, description="Width of each bin, in Hz")
+    magnitudes_db: list[int] = Field(
+        description="Integer dBFS per bin, low frequency first"
+    )
+    sync_detected: bool = Field(
+        default=False,
+        description=(
+            "A 1200 Hz sync pulse is present. Carried here rather than left "
+            "for the client to infer: spec 20.4 requires sync to read "
+            "differently from a merely strong bin, because an operator uses "
+            "it to confirm they are tuned"
+        ),
+    )
+    peak_hz: float | None = Field(
+        default=None, description="Loudest bin within the displayed band"
+    )
+    peak_db: int | None = None
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 class AudioLevelsEvent(BaseModel):
     """Live input level meter event (mono source: left == right)."""
 
