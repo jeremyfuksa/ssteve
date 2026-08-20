@@ -424,13 +424,17 @@ def _resolve_spyserver_target(
     else:
         host = str(stored["host"])
         port = int(stored["port"])
-        if not host:
+        # --usb needs no host at all, and demanding one sent an operator
+        # with a radio in hand off to configure a server they were not
+        # using.
+        if not host and not getattr(args, "usb", False):
             log_event(
                 "error",
                 message="I don't know which server to connect to.",
                 suggested_action=(
-                    "Pass --spyserver host:port, or save one in your settings "
-                    "as spyserver.host."
+                    "Pass --spyserver host:port, connect a USB radio and use "
+                    "--usb, or save a server in your settings as "
+                    "spyserver.host."
                 ),
             )
             return None
@@ -542,8 +546,27 @@ def _decode_spyserver(args: argparse.Namespace) -> int:
     # single-shot decode it has always been.
     continuous = record_path is not None
 
+    # A USB radio is the same pipeline with a different transport: the
+    # client is injected and SpyServerSource never builds a network one.
+    # Typed as the protocol, not the concrete class: SpyServerSource takes
+    # any _Client, and annotating it here is what lets a second radio type
+    # be added without touching this call.
+    usb_client: source_module._Client | None = None
+    if getattr(args, "usb", False):
+        from sstv_core.sdr.airspyhf import AirspyHFClient, AirspyHFError
+
+        try:
+            usb_client = AirspyHFClient()
+        except AirspyHFError as exc:
+            log_event(
+                "error",
+                message=exc.message,
+                suggested_action=exc.suggested_action,
+            )
+            return 1
+
     src = source_module.SpyServerSource(
-        host=host,
+        host="" if usb_client is not None else host,
         port=port,
         frequency_hz=frequency,
         gain=gain,
@@ -551,11 +574,12 @@ def _decode_spyserver(args: argparse.Namespace) -> int:
         stall_timeout_sec=float(stored["stall_timeout_sec"]),
         monitor_port=getattr(args, "monitor_stream", None),
         record_path=record_path,
+        client=usb_client,
     )
     log_event(
         "decode_start",
         mode=args.mode,
-        spyserver=f"{host}:{port}",
+        source="usb" if usb_client is not None else f"{host}:{port}",
         frequency_hz=frequency,
         gain=gain if gain is not None else "auto",
     )
@@ -707,11 +731,24 @@ def _decode_spyserver(args: argparse.Namespace) -> int:
         log_event("decode_stopped", message="Stopped by user.")
         return 130
     except Exception as exc:
+        # The wording follows the transport. This said "The SpyServer
+        # decode failed" and advised checking a server address for every
+        # failure, which sent an operator with a USB radio off to fix a
+        # server they were not using.
+        over_usb = usb_client is not None
         log_event(
             "error",
-            message="The SpyServer decode failed.",
+            message=(
+                "The USB decode failed." if over_usb
+                else "The SpyServer decode failed."
+            ),
             detail=str(exc),
-            suggested_action="Check the server address and frequency, then try again.",
+            suggested_action=(
+                "Check the radio is plugged in and not open in another "
+                "program, then try again."
+                if over_usb
+                else "Check the server address and frequency, then try again."
+            ),
         )
         return 1
     finally:
@@ -1749,6 +1786,13 @@ Examples:
             "save each transmission as its own image named after the second it "
             "starts at. Without this I only look at the first 5 seconds."
         ),
+    )
+    decode_parser.add_argument(
+        "--usb",
+        action="store_true",
+        help="Receive from an Airspy HF+ plugged into this machine rather "
+        "than a SpyServer. Needs libairspyhf (`brew install airspyhf`, or "
+        "`apt install libairspyhf-dev`).",
     )
     decode_parser.add_argument(
         "--spyserver",
