@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import string
 import sys
 import time
 from pathlib import Path
@@ -17,6 +18,8 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     import numpy as np
     import soundfile as sf
+
+    from sstv_core.decode.fsk_decoder import FSKIDResult
 
 logger = logging.getLogger(__name__)
 
@@ -883,6 +886,128 @@ def _confirm_vis_at(handle: sf.SoundFile, sample_rate: int, when: float) -> str 
     return None
 
 
+def _decode_fskid_after_image(
+    audio: np.ndarray, rate: int, config: Any
+) -> FSKIDResult | None:
+    """Find the FSKID that follows a picture, without assuming where it is.
+
+    Computing the end of the image and slicing there does not work, for two
+    reasons found against a real recording on 2026-08-19. The scan seeks to
+    one second *before* the candidate, so sample 0 is not the start of the
+    picture; and a faded transmission decodes fewer lines than it sent, so
+    `lines * line_samples` lands mid-picture rather than past it.
+
+    Locating the preamble by its strongest 1500 Hz moment does not work
+    either, and the reason is worth keeping. The decoder wants the window to
+    open within about 200 ms of the preamble: measured on KD2TT's real ID,
+    starting at 56.5 s read the callsign and 56.3 s read nothing. But the
+    strongest moment of a 300 ms tone is its middle, so aiming at the peak
+    lands late by design.
+
+    So candidate starts are tried in turn and the decoder is used as its own
+    oracle -- it carries an XOR checksum, which makes it a far better judge
+    of "did this land right" than any tone measurement of ours. The first
+    checksum-valid read wins.
+    """
+    import numpy as np
+
+    from sstv_core.decode.fsk_decoder import FSKIDDecoder
+
+    step = int(rate * 0.05)
+    if step <= 0 or len(audio) < step * 4:
+        return None
+
+    # The ID always trails the picture, so searching the first half of a
+    # frame only invites a false match on picture content.
+    search_from = max(
+        0, min(len(audio) - step, config.total_line_samples * config.height // 2)
+    )
+    times = np.arange(step) / rate
+    reference = np.exp(-2j * np.pi * FSKIDDecoder.PREAMBLE_FREQ * times)
+
+    powers = [
+        (
+            float(abs(np.sum(audio[offset : offset + step] * reference)) / step),
+            offset,
+        )
+        for offset in range(search_from, len(audio) - step, step)
+    ]
+    if not powers:
+        return None
+    powers.sort(reverse=True)
+
+    # Walk outward from each strong moment. The peak is mid-tone, so the
+    # opening edge sits a little before it, and the tolerance is tight
+    # enough that guessing one offset is not good enough.
+    tried: set[int] = set()
+    fallback: FSKIDResult | None = None
+    for _power, peak in powers[:_FSKID_PEAKS_TRIED]:
+        for back in range(_FSKID_BACKOFF_STEPS + 1):
+            offset = peak - back * step
+            if offset < 0 or offset in tried:
+                continue
+            tried.add(offset)
+            result = FSKIDDecoder(sample_rate=rate).decode(audio[offset:])
+            if result is None or not result.callsign.strip():
+                continue
+            if result.checksum_valid:
+                return result
+            # Keep a failed-checksum read to report, but keep looking: a
+            # better-aligned window may still verify.
+            fallback = fallback or result
+    return fallback
+
+
+#: How many of the strongest 1500 Hz moments to investigate. More than one
+#: because a picture can hold a bright tone briefly and the real ID may not
+#: be the loudest thing in the window.
+_FSKID_PEAKS_TRIED = 3
+
+#: How many 50 ms steps to walk back from each peak. The measured tolerance
+#: is about 200 ms, and the peak sits mid-tone, so a few steps covers the
+#: opening edge without wandering into the picture.
+_FSKID_BACKOFF_STEPS = 6
+
+
+#: Characters a callsign may contribute to a filename. Everything else is
+#: dropped. A decoded FSKID is untrusted input -- it is whatever happened to
+#: be on the air, and a garbled read can produce any bytes at all -- so it
+#: must never reach the filesystem as anything but letters and digits.
+_CALLSIGN_SAFE = set(string.ascii_letters + string.digits)
+
+#: Longest callsign fragment allowed into a filename. The longest real
+#: callsign with a portable suffix is well under this; anything longer is a
+#: bad decode, not a station.
+_CALLSIGN_MAX = 16
+
+
+def scan_output_name(
+    stem: str | Path,
+    offset_sec: float,
+    mode_name: str,
+    fskid: FSKIDResult | None,
+) -> str:
+    """Name one scanned image, with the callsign when FSKID verified it.
+
+    The callsign is appended only when its checksum passes. FSKID carries
+    an XOR checksum precisely because a fading signal produces plausible
+    letters, and a wrong callsign in a filename is worse than no callsign:
+    it reads as fact, it is what someone greps for, and nothing later in
+    the pipeline re-checks it. A failed checksum is still logged, so the
+    read is not lost -- it just does not get to name the file.
+
+    The offset stays zero-padded so an alphabetical listing is also
+    chronological.
+    """
+    base = f"{stem}_{int(offset_sec):06d}s_{mode_name.lower()}"
+    if fskid is None or not fskid.checksum_valid:
+        return f"{base}.png"
+    safe = "".join(c for c in fskid.callsign.strip() if c in _CALLSIGN_SAFE)
+    if not safe:
+        return f"{base}.png"
+    return f"{base}_{safe[:_CALLSIGN_MAX]}.png"
+
+
 def _decode_file_scan(
     args: argparse.Namespace,
     path: Path,
@@ -993,7 +1118,37 @@ def _decode_file_scan(
                     )
                     continue
 
-                output = Path(f"{stem}_{int(when):06d}s_{mode_name.lower()}.png")
+                # FSKID rides immediately after the picture, as its own
+                # transmission (docs/features/FSKID_SPECIFICATION.md). It is
+                # attempted on every decoded image, not only complete ones:
+                # a fade that wrecks the picture can leave the ID intact, and
+                # a fragment is exactly where a callsign in the filename is
+                # worth most -- there is no readable picture to identify it by.
+                #
+                # Only a short window is handed over, never the whole slice.
+                # The decoder scans forward from sample 0 for its preamble and
+                # gives up after TIMEOUT_SAMPLES (3 s), so passing a 110 s
+                # Scottie S1 times out a thirtieth of the way in and returns
+                # None every time -- indistinguishable from "no station sent
+                # an ID", which is how this shipped broken once already.
+                fskid = None
+                try:
+                    fskid = _decode_fskid_after_image(audio, rate, config)
+                except Exception as exc:
+                    # FSKID is a bonus. A recording still yields its images
+                    # when the ID is unreadable, so this never fails a decode.
+                    logger.warning("FSKID decode error at %.1fs: %s", when, exc)
+                if fskid is not None and fskid.callsign.strip():
+                    log_event(
+                        "fskid_decoded",
+                        offset_sec=round(when, 1),
+                        callsign=fskid.callsign.strip(),
+                        confidence=round(fskid.confidence, 2),
+                        checksum_valid=fskid.checksum_valid,
+                        named=fskid.checksum_valid,
+                    )
+
+                output = Path(scan_output_name(stem, when, mode_name, fskid))
                 try:
                     import cv2
 
