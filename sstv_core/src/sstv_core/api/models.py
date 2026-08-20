@@ -881,7 +881,26 @@ class ImageMetadata(BaseModel):
     )
     thumbnail_path: str | None = Field(
         default=None,
-        description="Path to thumbnail image"
+        description=(
+            "Local filesystem path to the thumbnail. Present for a local "
+            "tool reading the library directly; a client that fetches over "
+            "HTTP wants `thumbnail_url` instead"
+        ),
+    )
+    url: str | None = Field(
+        default=None,
+        description=(
+            "Where to GET this image's bytes. `filepath` is an absolute "
+            "local path a webview cannot use, so this is what the gallery "
+            "and canvas actually fetch"
+        ),
+    )
+    thumbnail_url: str | None = Field(
+        default=None,
+        description=(
+            "Where to GET the thumbnail. Null when none has been generated "
+            "-- the client should fall back to `url` rather than show a gap"
+        ),
     )
     # None when the file on disk cannot be read -- previously fabricated
     # as 320x256.
