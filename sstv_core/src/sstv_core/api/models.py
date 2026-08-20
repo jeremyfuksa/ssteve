@@ -1036,6 +1036,24 @@ class ScanlineUpdateEvent(BaseModel):
     )
     snr_db: float | None = None
     frequency_offset_hz: float | None = None
+    rgb_rows: list[list[int]] | None = Field(
+        default=None,
+        description=(
+            "Pixels for the lines decoded since the last event, each row "
+            "flattened as [r,g,b,r,g,b,...]. Null on a headless decode, "
+            "where nothing paints and the kilobyte would be wasted. Width "
+            "is len(row)//3, so a canvas needs to know nothing about the "
+            "mode before its first paint"
+        ),
+    )
+    first_row: int | None = Field(
+        default=None,
+        description=(
+            "Image row `rgb_rows[0]` belongs at. A batch of pixels is "
+            "meaningless without it -- the canvas has to paint them at the "
+            "right y"
+        ),
+    )
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
