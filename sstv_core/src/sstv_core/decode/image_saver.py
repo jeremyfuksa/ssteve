@@ -138,6 +138,16 @@ class ImageSaver:
 
             image.save(filepath, **save_kwargs)
             logger.info("Saved image to %s", filepath)
+
+            # A thumbnail for the gallery grid and history strip (#54).
+            # Best-effort by design: generate_thumbnail returns None on
+            # failure rather than raising, because a decode that produced
+            # a real picture must not be reported as failed over a derived
+            # file. A missing thumbnail shows up in the gallery, which is
+            # the right place for it to surface.
+            from sstv_core.api.thumbnails import generate_thumbnail
+
+            generate_thumbnail(filepath)
             return filepath
 
         except Exception as e:

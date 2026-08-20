@@ -360,6 +360,15 @@ class Robot36Decoder:
         if self._y_buffer is not None and self._u_buffer is not None and self._v_buffer is not None:
             self._image_buffer = self._yuv_to_rgb(self._y_buffer, self._u_buffer, self._v_buffer)
 
+    @property
+    def image_buffer(self) -> np.ndarray | None:
+        """Rows decoded so far, for the progressive canvas (#55).
+
+        The live buffer, not a copy: a caller reads the slice it needs
+        and the decoder keeps writing. Undecoded rows are still zero.
+        """
+        return self._image_buffer
+
     def get_image(self) -> np.ndarray | None:
         """Get the decoded image array.
 

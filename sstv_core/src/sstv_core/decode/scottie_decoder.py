@@ -326,6 +326,15 @@ class ScottieS1Decoder:
                 scanline = self.decode_scanline(line_samples, i)
                 yield scanline
 
+    @property
+    def image_buffer(self) -> np.ndarray | None:
+        """Rows decoded so far, for the progressive canvas (#55).
+
+        The live buffer, not a copy: a caller reads the slice it needs
+        and the decoder keeps writing. Undecoded rows are still zero.
+        """
+        return self._image_buffer
+
     def get_image(self) -> np.ndarray | None:
         """Get the decoded image array.
 

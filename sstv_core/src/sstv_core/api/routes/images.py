@@ -6,9 +6,11 @@ Handles:
 """
 
 import logging
+from pathlib import Path
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import FileResponse
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
@@ -16,10 +18,44 @@ from sstv_core.api.image_ids import db_image_id_to_uuid
 from sstv_core.api.image_lookup import resolve_image_uuid
 from sstv_core.api.main import get_db_session
 from sstv_core.api.models import ImageListResponse, ImageMetadata, SSTVMode
+from sstv_core.api.thumbnails import (
+    generate_thumbnail,
+    is_servable,
+    thumbnail_path_for,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/images", tags=["images"])
+
+
+def _library_roots(session: Session) -> list[Path] | None:
+    """Directories an image may legitimately be served from.
+
+    The configured library, plus the watcher's import directory. A row's
+    filepath decides which bytes a request returns, so it is checked
+    against these before anything is read.
+
+    Returns None when the roots cannot be determined, which the caller
+    treats as "refuse", not "allow everything". An earlier version
+    swallowed the failure and returned an empty list, and because the
+    check was written `if roots and not is_servable(...)`, an unreadable
+    config would have skipped the path check on every request -- a guard
+    that fails open is worse than no guard, because it looks like one.
+    """
+    from sstv_core.config.manager import ConfigManager
+
+    try:
+        config = ConfigManager(session)
+        roots = [
+            Path(str(value))
+            for key in ("image_save_directory", "mmsstv_import_directory")
+            if (value := config.get(key))
+        ]
+    except Exception as exc:
+        logger.warning("Couldn't read the library roots: %s", exc)
+        return None
+    return roots
 
 
 def _db_image_to_api(db_image) -> ImageMetadata:
@@ -44,9 +80,21 @@ def _db_image_to_api(db_image) -> ImageMetadata:
     except Exception:
         logger.debug("Couldn't read image dimensions from %s", db_image.filepath)
 
+    image_uuid = db_image_id_to_uuid(db_image.id)
+    # The URL a client can actually fetch. `filepath` is an absolute local
+    # path -- a webview cannot use it, and shipping it alone left every
+    # image-rendering surface in the frontend spec unbuildable.
+    base = f"/api/v1/images/{image_uuid}"
+    thumb = thumbnail_path_for(Path(db_image.filepath))
+
     return ImageMetadata(
-        id=db_image_id_to_uuid(db_image.id),
+        id=image_uuid,
         filepath=db_image.filepath,
+        url=f"{base}/file",
+        # Null rather than a URL that 404s, so a client can fall back to
+        # the full image instead of rendering a gap.
+        thumbnail_url=f"{base}/thumbnail" if thumb.exists() else None,
+        thumbnail_path=str(thumb) if thumb.exists() else None,
         mode=mode,
         direction=direction,
         callsign=db_image.callsign,
@@ -171,3 +219,99 @@ async def get_image(
             "suggested_action": "Check the image ID or browse the gallery",
         },
     )
+
+
+def _serve(db_image, session: Session, *, thumbnail: bool) -> FileResponse:
+    """Return the bytes for one image, after checking we may.
+
+    The path comes off a database row, so it is validated against the
+    library roots before anything is read -- an image endpoint that
+    serves an arbitrary path is a file-read primitive with a friendly
+    name.
+    """
+    source = Path(db_image.filepath)
+    roots = _library_roots(session)
+    if roots is None or not is_servable(source, roots):
+        logger.warning("Refusing to serve %s: outside the library", source)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": "IMAGE_OUTSIDE_LIBRARY",
+                "message": "I can't serve that file.",
+                "suggested_action": (
+                    "It sits outside the image library. Move it into the "
+                    "library directory, or re-import it."
+                ),
+            },
+        )
+
+    target = source
+    if thumbnail:
+        candidate = thumbnail_path_for(source)
+        if not candidate.exists():
+            # Generated on demand rather than 404ing: images imported
+            # before thumbnails existed, or written by the watcher, would
+            # otherwise show a permanent gap in the gallery.
+            made = generate_thumbnail(source)
+            candidate = made if made is not None else source
+        target = candidate
+
+    if not target.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": "IMAGE_FILE_MISSING",
+                "message": "That image is in my records but not on disk.",
+                "suggested_action": (
+                    "It may have been moved or deleted outside SSTeVe. "
+                    "Re-import it, or remove the record."
+                ),
+            },
+        )
+    return FileResponse(target)
+
+
+@router.get("/{image_id}/file")
+async def get_image_file(
+    image_id: UUID,
+    session: Session = Depends(get_db_session),
+) -> FileResponse:
+    """Serve the image's own bytes.
+
+    What the gallery, the canvas idle state and the detail view fetch.
+    """
+    db_image = resolve_image_uuid(session, image_id)
+    if db_image is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": "IMAGE_NOT_FOUND",
+                "message": "I don't have an image with that id.",
+                "suggested_action": "Check the id, or list /images again.",
+            },
+        )
+    return _serve(db_image, session, thumbnail=False)
+
+
+@router.get("/{image_id}/thumbnail")
+async def get_image_thumbnail(
+    image_id: UUID,
+    session: Session = Depends(get_db_session),
+) -> FileResponse:
+    """Serve a small version, for the grid and the history strip.
+
+    Falls back to the full image when a thumbnail cannot be made, because
+    a gallery cell showing the picture slightly too large is better than
+    one showing nothing.
+    """
+    db_image = resolve_image_uuid(session, image_id)
+    if db_image is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": "IMAGE_NOT_FOUND",
+                "message": "I don't have an image with that id.",
+                "suggested_action": "Check the id, or list /images again.",
+            },
+        )
+    return _serve(db_image, session, thumbnail=True)
