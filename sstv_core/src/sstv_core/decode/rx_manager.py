@@ -165,6 +165,10 @@ class RXManager:
         # The waterfall (#53). Off unless something asks for it: a headless
         # decode pays nothing, and an FFT 15 times a second is not free.
         self._spectrum_callback: Callable | None = None
+        # The decoder currently painting, or None. Read by the API layer
+        # for the progressive canvas (#55); the decoder owns the partial
+        # image, so exposing it beats keeping a second copy in sync.
+        self.active_decoder: Any | None = None
         self._spectrum_producer: Any | None = None
         self._cancel_requested = False
         self._image_saver = ImageSaver(self._save_directory)
@@ -592,6 +596,7 @@ class RXManager:
             )
 
             decoder = self._get_decoder(detected_mode)
+            self.active_decoder = decoder
             if decoder is None:
                 # VIS recognized the mode; we just have no decoder for it yet
                 # (Robot 72 and PD120 are both common on the air). That is a

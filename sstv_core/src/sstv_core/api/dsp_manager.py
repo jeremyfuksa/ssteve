@@ -30,6 +30,7 @@ from sstv_core.api.models import (
     TransmitState,
     VISDetectedEvent,
 )
+from sstv_core.api.scanlines import rows_to_rgb_payload
 from sstv_core.api.session_manager import session_manager
 from sstv_core.api.websocket_manager import websocket_manager
 from sstv_core.audio.device_manager import AudioDeviceManager
@@ -119,6 +120,10 @@ class DSPManager:
         # Wall-clock start per session, for honest duration_seconds in
         # completion events (previously hardcoded `timestamp: 0  # TODO`).
         self._session_started: dict[UUID, float] = {}
+        # Highest scanline whose pixels have been sent, per session. The
+        # next event carries everything after it, so the every-fifth-line
+        # throttle drops no pixels (#55).
+        self._last_scanline_sent: dict[UUID, int] = {}
 
         # Accessibility guidance player per decode session (absent = disabled).
         self._guidance_players: dict[UUID, GuidancePlayer] = {}
@@ -725,8 +730,21 @@ class DSPManager:
             )
 
         elif progress.state == RXState.DECODING:
-            # Emit scanline update (throttle to every 5 lines to reduce spam)
-            if progress.current_line % 5 == 0 or progress.current_line == progress.total_lines:
+            # Every fifth line, as before -- but carrying the pixels for
+            # every line *since* the last event rather than only the
+            # fifth. The old throttle simply dropped four lines in five,
+            # which was fine for an event of numbers and would paint the
+            # canvas in visible chunks now that pixels ride along.
+            # PRODUCT.md #6 asks for no buffering delay; batching keeps
+            # the event rate and loses no pixel.
+            if (
+                progress.current_line % 5 == 0
+                or progress.current_line == progress.total_lines
+            ):
+                sent_through = self._last_scanline_sent.get(session_id, 0)
+                rows, first_row = self._rows_since(
+                    session_id, sent_through, progress.current_line
+                )
                 await websocket_manager.broadcast(
                     session_id,
                     ScanlineUpdateEvent(
@@ -735,8 +753,40 @@ class DSPManager:
                         progress_percent=min(100.0, max(0.0, progress.percent_complete)),
                         signal_quality=min(1.0, max(0.0, progress.signal_quality)),
                         snr_db=live_snr,
+                        rgb_rows=rows,
+                        first_row=first_row,
                     ).model_dump(mode="json"),
                 )
+                self._last_scanline_sent[session_id] = progress.current_line
+
+    def _rows_since(
+        self, session_id: UUID, sent_through: int, current_line: int
+    ) -> tuple[list[list[int]] | None, int | None]:
+        """Pixels for the lines decoded since the last event.
+
+        Reads the decoder's own partial buffer rather than keeping a
+        second copy: the decoder writes each row as it finishes it, so
+        the buffer already holds exactly what has been decoded.
+
+        Returns (None, None) when there is nothing new or no buffer to
+        read -- a headless decode has no canvas, and an event carrying a
+        kilobyte nothing reads is waste.
+        """
+        rx_mgr = self._rx_managers.get(session_id)
+        decoder = getattr(rx_mgr, "active_decoder", None) if rx_mgr else None
+        buffer = getattr(decoder, "image_buffer", None) if decoder else None
+        if buffer is None:
+            return None, None
+        start = max(0, sent_through)
+        end = max(start, min(int(current_line), len(buffer)))
+        if end <= start:
+            return None, None
+        rows = rows_to_rgb_payload(buffer[start:end])
+        if not rows:
+            return None, None
+        # The cap keeps the newest rows, so the first one is not
+        # necessarily at `start`.
+        return rows, end - len(rows)
 
     def get_rx_manager(self, session_id: UUID) -> Any | None:
         """Return the RXManager for a live session, or None (#56).
