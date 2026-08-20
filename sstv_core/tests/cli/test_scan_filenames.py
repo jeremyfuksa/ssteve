@@ -191,3 +191,49 @@ class TestFSKIDIsActuallyReached:
             "a decoder tolerant of a 2 s lead-in would make the search "
             "unnecessary -- if this starts passing, simplify the helper"
         )
+
+
+class TestRealOffAirFSKID:
+    """The two off-air IDs we have actually received.
+
+    The rest of this file uses synthesised results or the two MMSSTV
+    fixtures. These are real 20m signals, captured 2026-08-19 through the
+    antenna and the SDR, and they are the only off-air FSKID in the
+    corpus -- extracted before their 1.3 GB source recording was deleted
+    for exactly that reason. If the FSKID path stops working on real
+    fading audio, this is what notices.
+    """
+
+    @pytest.mark.slow
+    @pytest.mark.parametrize(
+        ("filename", "expected"),
+        [
+            ("cap2_010885s_martin_m2_kd2tt.wav", "KD2TT"),
+            ("cap2_011077s_martin_m2_va2pgb.wav", "VA2PGB"),
+        ],
+    )
+    def test_a_real_off_air_id_still_decodes(
+        self, filename: str, expected: str
+    ) -> None:
+        import soundfile as sf
+
+        from sstv_core.decode.fsk_decoder import FSKIDDecoder
+
+        path = f"tests/reference/audio/offair/{filename}"
+        audio, rate = sf.read(path, dtype="float32")
+        if audio.ndim > 1:
+            audio = audio[:, 0]
+
+        # Walk the tail the way the scan does. A single offset is not the
+        # contract -- the decoder wants its window within ~200 ms of the
+        # preamble, so the search is the thing being tested.
+        step = int(rate * 0.05)
+        found = set()
+        for offset in range(int(rate * 50), len(audio) - step * 10, step):
+            result = FSKIDDecoder(sample_rate=rate).decode(audio[offset:])
+            if result and result.checksum_valid and result.callsign.strip():
+                found.add(result.callsign)
+
+        assert found == {expected}, (
+            f"expected only {expected} from a real off-air ID, got {found or 'nothing'}"
+        )
