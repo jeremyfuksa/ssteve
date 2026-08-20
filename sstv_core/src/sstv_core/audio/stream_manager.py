@@ -11,6 +11,7 @@ from typing import Any
 import numpy as np
 import sounddevice as sd
 
+from sstv_core.audio.gain import apply_input_gain
 from sstv_core.audio.ring_buffer import AudioRingBuffer
 
 logger = logging.getLogger(__name__)
@@ -63,6 +64,9 @@ class AudioStreamManager:
         self._input_levels = AudioLevels()
         self._output_levels = AudioLevels()
         self._input_callback: Callable | None = None
+        # Operator gain, applied in the input callback (#56). None means
+        # no override, which returns the audio untouched.
+        self._input_gain: float | None = None
         self._output_callback: Callable | None = None
         self._input_device_id: str | None = None
         self._output_device_id: str | None = None
@@ -109,6 +113,14 @@ class AudioStreamManager:
             mono = np.mean(indata, axis=1)
         else:
             mono = indata.flatten()
+
+        # Gain BEFORE levels, deliberately. Measuring first would report
+        # pre-gain audio while the decoder receives post-gain audio, so an
+        # operator raising the gain would see the meter unmoved and
+        # conclude the control was broken -- the same mismatch between
+        # what is reported and what is delivered as the SpyServer
+        # digital-gain defect.
+        mono = apply_input_gain(mono, self._input_gain)
 
         # Update levels
         self._input_levels = self._calculate_levels(mono)
@@ -268,6 +280,19 @@ class AudioStreamManager:
     def get_output_buffer(self) -> AudioRingBuffer | None:
         """Get the output ring buffer."""
         return self._output_buffer
+
+    @property
+    def input_gain(self) -> float | None:
+        return self._input_gain
+
+    def set_input_gain(self, gain: float | None) -> None:
+        """Change the operator gain, including mid-session.
+
+        Takes effect on the next callback: the value is read there rather
+        than baked into the stream, so no restart is needed and a decode
+        in progress keeps its signal.
+        """
+        self._input_gain = gain
 
     def get_input_levels(self) -> AudioLevels:
         """Get current input level metrics."""

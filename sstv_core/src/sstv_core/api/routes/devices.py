@@ -20,6 +20,8 @@ from sstv_core.api.models import (
     AudioDevice,
     DeviceDetectionResponse,
     SerialPort,
+    TestPTTRequest,
+    TestTonePlayRequest,
 )
 from sstv_core.config import ConfigManager
 
@@ -310,3 +312,137 @@ async def list_serial_ports() -> list[SerialPort]:
             )
         )
     return response
+
+
+@router.post("/test_ptt", status_code=status.HTTP_200_OK)
+async def test_ptt(request: TestPTTRequest) -> dict:
+    """Key the radio briefly and report what happened (#59).
+
+    Onboarding-critical: this is how an operator proves the radio keys
+    before ever putting a signal on the air. The error matters more than
+    the success -- somebody runs this precisely because the chain does
+    not work yet, so a failure has to name the cause and a way forward.
+    """
+    import asyncio
+
+    from sstv_core.audio.ptt_controller import PTTController, PTTError, PTTMethod
+
+    try:
+        method = PTTMethod(request.method) if request.method else PTTMethod.NONE
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "UNKNOWN_PTT_METHOD",
+                "message": f"I don't know a PTT method called '{request.method}'.",
+                "suggested_action": "Use serial, vox or none.",
+            },
+        ) from None
+
+    if method == PTTMethod.NONE:
+        # Not a fault. A receive-only operator has no PTT at all, and
+        # saying so beats reporting a failure they cannot fix.
+        return {
+            "keyed": False,
+            "method": "none",
+            "message": (
+                "No PTT method is configured, so there's nothing to key. "
+                "That's normal for receive-only operating."
+            ),
+        }
+
+    controller = PTTController(
+        method=method,
+        serial_port=request.serial_port,
+        serial_signal=request.serial_signal or "RTS",
+    )
+    try:
+        await controller.key_radio()
+        await asyncio.sleep(request.duration_sec)
+        await controller.unkey_radio()
+    except PTTError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "PTT_TEST_FAILED",
+                "message": exc.args[0] if exc.args else "I couldn't key the radio.",
+                "suggested_action": (
+                    "Check the serial port exists and nothing else has it "
+                    "open, and that the cable is the one wired for PTT."
+                ),
+            },
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "PTT_TEST_FAILED",
+                "message": f"I couldn't key the radio: {exc}",
+                "suggested_action": (
+                    "Check the port and signal line, then try again."
+                ),
+            },
+        ) from exc
+
+    return {
+        "keyed": True,
+        "method": method.value,
+        "duration_sec": request.duration_sec,
+        "message": (
+            f"Keyed for {request.duration_sec:.1f}s. If the radio didn't "
+            "transmit, the cable or the signal line is the next thing to check."
+        ),
+    }
+
+
+@router.post("/test_tone", status_code=status.HTTP_200_OK)
+async def test_tone(request: TestTonePlayRequest) -> dict:
+    """Play a 1900 Hz tone, to prove audio reaches the radio (#59).
+
+    1900 Hz is the SSTV centre frequency, so this also exercises the
+    passband -- a misrouted or over-filtered path fails here rather than
+    on the air.
+    """
+    from sstv_core.audio.tone import TEST_TONE_HZ, generate_test_tone
+
+    try:
+        tone = generate_test_tone(
+            duration_sec=request.duration_sec, sample_rate=48_000
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "error": "BAD_TONE_DURATION",
+                "message": str(exc),
+                "suggested_action": "Ask for between 0.1 and 10 seconds.",
+            },
+        ) from exc
+
+    try:
+        import sounddevice as sd
+
+        sd.play(tone, samplerate=48_000, blocking=True)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "TONE_PLAYBACK_FAILED",
+                "message": f"I couldn't play the tone: {exc}",
+                "suggested_action": (
+                    "Check the output device is present and not claimed by "
+                    "another program."
+                ),
+            },
+        ) from exc
+
+    return {
+        "played": True,
+        "frequency_hz": TEST_TONE_HZ,
+        "duration_sec": request.duration_sec,
+        "message": (
+            f"Played {TEST_TONE_HZ:.0f} Hz for {request.duration_sec:.1f}s. "
+            "If you heard nothing, the output device or the cable into the "
+            "radio is the next thing to check."
+        ),
+    }

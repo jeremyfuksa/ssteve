@@ -15,6 +15,7 @@ from fastapi import APIRouter, HTTPException, Request, status
 
 from sstv_core.api.dsp_manager import dsp_manager
 from sstv_core.api.models import (
+    DecodeAdjustRequest,
     DecodeStartRequest,
     DecodeStartResponse,
     DecodeState,
@@ -450,3 +451,64 @@ def _ws_url(request: Request, path: str) -> str:
     """
     scheme = "wss" if request.url.scheme == "https" else "ws"
     return f"{scheme}://{request.url.netloc}{path}"
+
+
+@router.patch("/{session_id}", status_code=status.HTTP_200_OK)
+async def adjust_decode(
+    session_id: UUID,
+    request: DecodeAdjustRequest,
+) -> dict:
+    """Change gain, squelch or AFC on a decode already running (#56).
+
+    Before this, decode config was read once at session start and there
+    was no way in: an operator had to stop, patch `/config`, restart, and
+    lose the transmission they were trying to rescue. PRODUCT.md #3 keeps
+    these three reachable precisely because each fails in a situation
+    that is already in progress -- QSB, Doppler, contest QRM.
+
+    Only the fields sent are changed, so moving one control cannot reset
+    another.
+    """
+    from sstv_core.api.dsp_manager import dsp_manager
+
+    changes = request.model_dump(exclude_none=True)
+    if not changes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "NOTHING_TO_CHANGE",
+                "message": "I didn't get anything to adjust.",
+                "suggested_action": (
+                    "Send at least one of input_gain, auto_squelch, "
+                    "squelch_threshold_db, auto_afc or afc_range_hz."
+                ),
+            },
+        )
+
+    rx_manager = dsp_manager.get_rx_manager(session_id)
+    if rx_manager is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": "SESSION_NOT_FOUND",
+                "message": f"I don't have a decode session {session_id}.",
+                "suggested_action": (
+                    "Check the id, or start a decode first -- these adjust "
+                    "a session already running."
+                ),
+            },
+        )
+
+    if request.input_gain is not None:
+        rx_manager.set_input_gain(request.input_gain)
+    if request.auto_squelch is not None or request.squelch_threshold_db is not None:
+        rx_manager.set_squelch(
+            auto=request.auto_squelch,
+            threshold_db=request.squelch_threshold_db,
+        )
+    if request.auto_afc is not None or request.afc_range_hz is not None:
+        rx_manager.set_afc(
+            auto=request.auto_afc, range_hz=request.afc_range_hz
+        )
+
+    return {"session_id": str(session_id), "applied": changes}

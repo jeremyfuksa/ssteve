@@ -1002,6 +1002,62 @@ class VISDetectedEvent(BaseModel):
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class TestPTTRequest(BaseModel):
+    """Key the radio briefly, to prove the chain works (#59)."""
+
+    method: str | None = Field(
+        default=None,
+        description="serial, vox or none. Omit to use the stored setting",
+    )
+    serial_port: str | None = None
+    serial_signal: str | None = Field(default=None, description="RTS or DTR")
+    duration_sec: float = Field(
+        default=1.0,
+        ge=0.1,
+        le=5.0,
+        description=(
+            "How long to hold PTT. Bounded because this keys a real "
+            "transmitter"
+        ),
+    )
+
+
+class TestTonePlayRequest(BaseModel):
+    """Play a tone on an output device, to prove audio reaches it (#59)."""
+
+    device_id: str | None = Field(
+        default=None, description="Output device; omit for the system default"
+    )
+    duration_sec: float = Field(default=1.0, ge=0.1, le=10.0)
+
+
+class DecodeAdjustRequest(BaseModel):
+    """Live changes to a running decode (#56).
+
+    Every field is optional and only what is sent gets changed, so a
+    client moving one control cannot silently reset another. An empty
+    body is refused rather than accepted as a no-op -- it is a mistake
+    worth naming.
+
+    These three exist as live controls for operational reasons
+    (PRODUCT.md #3): input-gain auto-detect fails on QSB, auto-only AFC
+    is dangerous for satellite Doppler, and auto squelch fails in contest
+    QRM. All three are mid-transmission problems, which is when stopping
+    to reconfigure costs the picture.
+    """
+
+    input_gain: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=2.0,
+        description="Operator gain multiplier; matches input_gain_override",
+    )
+    auto_squelch: bool | None = None
+    squelch_threshold_db: float | None = None
+    auto_afc: bool | None = None
+    afc_range_hz: float | None = Field(default=None, ge=0.0)
+
+
 class ScanlineUpdateEvent(BaseModel):
     """Scanline decode/transmit progress event."""
 
