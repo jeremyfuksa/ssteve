@@ -1718,6 +1718,103 @@
         "title": "PTTMethod",
         "type": "string"
       },
+      "PropagationResponse": {
+        "description": "Whether the band should be carrying signal right now.",
+        "properties": {
+          "a_index": {
+            "default": "",
+            "description": "Planetary A index",
+            "title": "A Index",
+            "type": "string"
+          },
+          "band": {
+            "description": "Amateur band the report covers",
+            "title": "Band",
+            "type": "string"
+          },
+          "band_group": {
+            "description": "Source feed's band grouping",
+            "title": "Band Group",
+            "type": "string"
+          },
+          "condition": {
+            "description": "Reported band condition",
+            "title": "Condition",
+            "type": "string"
+          },
+          "explanation": {
+            "description": "The sentence a fault report needs, in plain language",
+            "title": "Explanation",
+            "type": "string"
+          },
+          "k_index": {
+            "description": "Planetary K index",
+            "title": "K Index",
+            "type": "string"
+          },
+          "solar_flux": {
+            "description": "10.7cm solar flux index",
+            "title": "Solar Flux",
+            "type": "string"
+          },
+          "source_errors": {
+            "description": "Source failures behind a partial report",
+            "items": {
+              "type": "string"
+            },
+            "title": "Source Errors",
+            "type": "array"
+          },
+          "state": {
+            "description": "OPEN, CLOSED, STORM or UNKNOWN",
+            "title": "State",
+            "type": "string"
+          },
+          "sunspots": {
+            "default": "",
+            "description": "Sunspot number",
+            "title": "Sunspots",
+            "type": "string"
+          },
+          "time_of_day": {
+            "description": "day or night, local time",
+            "title": "Time Of Day",
+            "type": "string"
+          },
+          "updated": {
+            "default": "",
+            "description": "Source timestamp",
+            "title": "Updated",
+            "type": "string"
+          },
+          "wwv_frequencies_hz": {
+            "description": "WWV frequencies to cross-check against",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Wwv Frequencies Hz",
+            "type": "array"
+          },
+          "xray": {
+            "default": "",
+            "description": "X-ray flux class",
+            "title": "Xray",
+            "type": "string"
+          }
+        },
+        "required": [
+          "band",
+          "band_group",
+          "time_of_day",
+          "condition",
+          "state",
+          "explanation",
+          "solar_flux",
+          "k_index"
+        ],
+        "title": "PropagationResponse",
+        "type": "object"
+      },
       "QSOListResponse": {
         "description": "Paginated QSO list response.",
         "properties": {
@@ -3051,6 +3148,53 @@
         "tags": [
           "Import",
           "import"
+        ]
+      }
+    },
+    "/api/v1/propagation": {
+      "get": {
+        "description": "Report whether `band` should be open, and what silence means if it is.\n\nA 503 here means the sources were unreachable -- not that conditions are\nfine. The caller must show that difference, because an empty propagation\npanel reads as good news and that is how a healthy receiver gets called\nbroken.",
+        "operationId": "get_propagation_api_v1_propagation_get",
+        "parameters": [
+          {
+            "description": "Amateur band, e.g. 20m",
+            "in": "query",
+            "name": "band",
+            "required": false,
+            "schema": {
+              "default": "20m",
+              "description": "Amateur band, e.g. 20m",
+              "title": "Band",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PropagationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Propagation",
+        "tags": [
+          "Propagation",
+          "propagation"
         ]
       }
     },
