@@ -340,6 +340,17 @@ Include actions in the store for each major event (e.g., `startCapture`, `receiv
 - `GET /images/{id}` → used to populate detail view when needed.
 - `GET /qsos` / `GET /qsos/{id}` similarly for QSO tab.
 
+**Propagation**
+- On Capture view mount, and on demand thereafter:
+  - `GET /propagation?band={band}` → set `propagation.state` (`OPEN` | `CLOSED` |
+    `STORM` | `UNKNOWN`), `propagation.explanation`, and the indices behind disclosure.
+  - `503` → set `propagation.state = "unavailable"` and surface the response's
+    `detail.message` and `detail.suggested_action`. Do **not** fall back to an empty
+    or neutral panel; see 19.5.
+- The verdict sentence (`explanation`) is the primary rendering. `solar_flux`,
+  `k_index`, `a_index`, `sunspots`, and `xray` sit behind progressive disclosure.
+- Poll no faster than the source updates (~15 min); this is not a live instrument.
+
 ### 19.5 Error & Empty States (Per View)
 
 **Capture**
@@ -360,6 +371,22 @@ Include actions in the store for each major event (e.g., `startCapture`, `receiv
 **Devices**
 - No devices found: message and short troubleshooting hints.
 - PTT test failure: inline error plus link to documentation.
+
+**Propagation**
+- `OPEN` + a silent canvas: this is the informative case. The panel says the band
+  should be carrying signal, which points at the receive chain rather than the
+  ionosphere.
+- `CLOSED` / `STORM`: silence is the correct answer; the panel must say so plainly so
+  the operator stops looking for a fault that is not there.
+- `UNKNOWN`: no band condition reported. Render as inconclusive — never as OPEN.
+- **Sources unreachable (503): must be visually louder than the empty state.** A blank
+  or absent panel reads as "nothing to report", which is the opposite of the truth.
+  This is the single error state in this spec where silent degradation is a
+  correctness failure rather than a cosmetic one: a healthy receiver has twice been
+  diagnosed as broken hardware from exactly this ambiguity. See PRODUCT.md,
+  Interaction Requirement 13.
+- The panel states whether the path is *supported*, never whether anyone is
+  transmitting. Copy must not let `OPEN` imply an expected picture.
 
 ### 19.6 Design Tokens
 
