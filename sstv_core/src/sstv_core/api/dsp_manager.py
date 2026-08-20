@@ -788,6 +788,15 @@ class DSPManager:
         # necessarily at `start`.
         return rows, end - len(rows)
 
+    def get_rx_manager(self, session_id: UUID) -> Any | None:
+        """Return the RXManager for a live session, or None (#56).
+
+        The live-adjust route needs the running decoder itself, not the
+        stored config: changing config affects the next session, and the
+        whole point is to reach the one already in progress.
+        """
+        return self._rx_managers.get(session_id)
+
     async def _handle_decode_complete(
         self, session_id: UUID, task: asyncio.Task
     ) -> None:

@@ -222,6 +222,47 @@ class RXManager:
         self._auto_squelch = auto_squelch
         self._squelch_threshold_db = squelch_threshold_db
 
+    def set_squelch(
+        self, auto: bool | None = None, threshold_db: float | None = None
+    ) -> None:
+        """Adjust squelch without restarting the session (#56).
+
+        Each argument is optional so a client can move the threshold
+        without silently flipping auto off as a side effect. Read on the
+        next loop turn, so a decode in progress keeps its signal --
+        auto squelch fails in contest QRM, which is exactly when a
+        restart costs the transmission.
+        """
+        if auto is not None:
+            self._auto_squelch = auto
+        if threshold_db is not None:
+            self._squelch_threshold_db = threshold_db
+
+    def set_afc(
+        self, auto: bool | None = None, range_hz: float | None = None
+    ) -> None:
+        """Adjust AFC without restarting the session (#56).
+
+        Auto-only AFC is dangerous for satellite work, where Doppler
+        moves the signal faster than the correction assumes -- so turning
+        it off mid-pass has to be possible.
+        """
+        if auto is not None:
+            self._auto_afc = auto
+        if range_hz is not None:
+            self._afc_range_hz = range_hz
+
+    def set_input_gain(self, gain: float | None) -> None:
+        """Pass the operator's gain down to whichever source is open.
+
+        Duck-typed: a file-backed or test source has no gain stage, and
+        adjusting it should be a no-op rather than an exception raised
+        into a live decode.
+        """
+        setter = getattr(self._stream_manager, "set_input_gain", None)
+        if setter is not None:
+            setter(gain)
+
     @property
     def state(self) -> RXState:
         return self._state

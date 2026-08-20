@@ -14,6 +14,7 @@ from typing import Protocol
 
 import numpy as np
 
+from sstv_core.audio.gain import apply_input_gain
 from sstv_core.audio.ring_buffer import AudioRingBuffer
 from sstv_core.audio.stream_manager import AudioLevels
 from sstv_core.sdr.audio_recorder import AudioRecorder
@@ -156,6 +157,9 @@ class SpyServerSource:
         self._demod: USBDemodulator | None = None
         self._buffer: AudioRingBuffer | None = None
         self._levels = AudioLevels()
+        # Operator gain over demodulated audio (#56). None means no
+        # override. Distinct from the RF gain index sent to the device.
+        self._input_gain: float | None = None
         self._last_iq_at = 0.0
         self._running = False
         # Latched locally rather than read off the client on demand: the
@@ -373,6 +377,13 @@ class SpyServerSource:
         if len(audio) == 0:
             return
         self._last_iq_at = time.monotonic()
+        # Operator gain before levels, for the same reason the sound-card
+        # path does it in that order (#56): measuring first would report
+        # pre-gain audio while the decoder receives post-gain audio.
+        # This is the SDR's second gain stage and is unrelated to the
+        # device gain passed to start_streaming -- that one is RF, this
+        # one is the operator's slider over demodulated audio.
+        audio = apply_input_gain(audio, self._input_gain)
         self._levels = self._calculate_levels(audio)
         self._buffer.add(audio)
         # After the ring buffer, never before: the decoder is the product
@@ -459,6 +470,18 @@ class SpyServerSource:
 
     def get_input_buffer(self) -> AudioRingBuffer | None:
         return self._buffer
+
+    @property
+    def input_gain(self) -> float | None:
+        return self._input_gain
+
+    def set_input_gain(self, gain: float | None) -> None:
+        """Change the operator gain, including mid-decode.
+
+        Read on the next block rather than baked in at start, so a live
+        session picks it up without losing the signal.
+        """
+        self._input_gain = gain
 
     def get_input_levels(self) -> AudioLevels:
         return self._levels
