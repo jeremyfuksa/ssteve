@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     import soundfile as sf
 
     from sstv_core.decode.fsk_decoder import FSKIDResult
+    from sstv_core.sdr.spyserver.client import SpyServerError
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +56,23 @@ DEAF_RMS = 0.0005
 #: noise floor at a usable gain measured ~0.005; at or above that, "raise
 #: the gain" would be bad advice.
 HEALTHY_RMS = 0.005
+
+
+def stall_should_end_listen(failure: SpyServerError | None) -> bool:
+    """Whether a stream failure means to stop listening now.
+
+    Any failure does. Whatever went wrong -- the server went silent, the
+    link dropped, the peer reset -- more audio is not coming, and waiting
+    out the timeout only buys a longer recording of a ring buffer that
+    stopped changing.
+
+    This exists because the CLI used to read `stream_failure` only after
+    the decode returned, which is at --timeout. A 4-hour 40m run on
+    2026-08-19 lost its stream at 27 minutes, kept "listening" to a frozen
+    buffer for another 3.5 hours, and reported the right error at the
+    wrong time. A frozen session and a quiet band looked identical.
+    """
+    return failure is not None
 
 
 def describe_level(rms: float) -> str:
@@ -558,9 +576,12 @@ def _decode_spyserver(args: argparse.Namespace) -> int:
     # progress callback is the earliest point it can be read, and the
     # flag says the number is "reported once bound", so report it there.
     monitor_reported = False
+    # Latched so a stream that fails mid-listen is announced once rather
+    # than on every progress tick until cancellation takes effect.
+    stall_reported = False
 
     def on_progress(progress) -> None:
-        nonlocal loudest_listening_rms, monitor_reported
+        nonlocal loudest_listening_rms, monitor_reported, stall_reported
         if not monitor_reported:
             # getattr, not attribute access: the source here is duck-typed
             # (AudioStreamManager is the other implementation, and tests
@@ -578,6 +599,28 @@ def _decode_spyserver(args: argparse.Namespace) -> int:
                     channels=1,
                 )
         listening = progress.state.value == "listening"
+
+        # A stalled stream is caught here rather than after the decode.
+        # The client detects it correctly and latches it, but the report
+        # below only runs once the decode returns -- at --timeout. That
+        # gap let a 4-hour run listen to a frozen buffer for 3.5 hours
+        # (2026-08-19, 40m). Cancelling hands control to the same
+        # reporting path, which still tells a stall from a disconnect.
+        if listening and stall_should_end_listen(src.stream_failure):
+            if not stall_reported:
+                stall_reported = True
+                log_event(
+                    "stream_ended",
+                    message="The stream stopped, so I'm ending the session here.",
+                    detail=(
+                        "Waiting out the timeout would only record a buffer "
+                        "that stopped changing."
+                    ),
+                    elapsed_sec=round(progress.elapsed_sec, 1),
+                )
+                asyncio.get_running_loop().create_task(rx.cancel())
+            return
+
         rms = getattr(progress.audio_levels, "rms", None)
         if listening and rms is not None:
             loudest_listening_rms = max(loudest_listening_rms, float(rms))
