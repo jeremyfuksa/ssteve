@@ -110,6 +110,10 @@ class RXManager:
     #: enough that a deaf receiver is obvious long before the timeout.
     LISTENING_HEARTBEAT_SEC: ClassVar[float] = 5.0
 
+    #: Waterfall FFT size (#53). Matches the default of the
+    #: `waterfall_fft_size` config key, which caps the range at 512-2048.
+    SPECTRUM_FFT_SIZE: ClassVar[int] = 1024
+
     #: Consecutive one-line sync intervals that mark the start of a picture
     #: (#102). Twelve because it has to outlast noise that happens to look
     #: regular for a moment: measured on ten real transmissions, 12 and 8
@@ -158,6 +162,10 @@ class RXManager:
         self._save_directory = save_directory or Path.home() / "sstv_images"
         self._state = RXState.IDLE
         self._progress_callback: Callable | None = None
+        # The waterfall (#53). Off unless something asks for it: a headless
+        # decode pays nothing, and an FFT 15 times a second is not free.
+        self._spectrum_callback: Callable | None = None
+        self._spectrum_producer: Any | None = None
         self._cancel_requested = False
         self._image_saver = ImageSaver(self._save_directory)
 
@@ -221,6 +229,45 @@ class RXManager:
             RXState.VIS_DETECTED,
             RXState.DECODING,
         )
+
+    def set_spectrum_callback(self, callback: Callable[[Any], None]) -> None:
+        """Receive waterfall frames while listening.
+
+        Separate from the progress callback on purpose. Spectrum runs at
+        10-20 Hz (frontend-spec 20.4) and the listening heartbeat is every
+        5 s; one channel for both would either flood the progress log or
+        starve the display.
+        """
+        self._spectrum_callback = callback
+
+    def get_spectrum_callback(self) -> Callable | None:
+        return self._spectrum_callback
+
+    def emit_spectrum(self, samples: Any, sample_rate: int) -> None:
+        """Turn a block of audio into a waterfall row, if anyone is watching.
+
+        Does nothing without a callback -- the FFT is pure cost for a
+        headless decode. The producer is built once and reused, so the
+        Hanning window and band mask are not recomputed per block.
+        """
+        if self._spectrum_callback is None:
+            return
+        if self._spectrum_producer is None:
+            from sstv_core.dsp.spectrum import SpectrumProducer
+
+            self._spectrum_producer = SpectrumProducer(
+                sample_rate=sample_rate,
+                fft_size=self.SPECTRUM_FFT_SIZE,
+            )
+        frame = self._spectrum_producer.feed(samples)
+        if frame is None:
+            return
+        try:
+            self._spectrum_callback(frame)
+        except Exception as exc:
+            # The waterfall is a display. A frontend that throws while
+            # rendering must not take the decode down with it.
+            logger.warning("Spectrum callback failed: %s", exc)
 
     def set_progress_callback(self, callback: Callable[[RXProgress], None]) -> None:
         """Set callback for progress updates."""
@@ -423,6 +470,14 @@ class RXManager:
                         )
 
                     if len(samples) > 0:
+                        # The waterfall, fed from the same blocks the VIS
+                        # detector sees. This is the tuning moment the
+                        # display exists for -- an operator finds the
+                        # signal here, before any decode has started.
+                        # Costs nothing unless a callback is set, and it
+                        # runs before the squelch `continue` below so a
+                        # squelched band still draws its noise floor.
+                        self.emit_spectrum(samples, self._sample_rate)
                         stream_position += len(samples)
                         vis_tail = np.concatenate((vis_tail, samples))[
                             -vis_tail_samples:

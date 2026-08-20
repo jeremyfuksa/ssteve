@@ -8,7 +8,9 @@ wires progress callbacks to WebSocket events, and handles session state updates.
 import asyncio
 import logging
 import time
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 from uuid import UUID
 
 import numpy as np
@@ -39,6 +41,44 @@ from sstv_core.decode.rx_manager import RXManager, RXProgress, RXState
 from sstv_core.encode.tx_manager import TXManager, TXProgress, TXState
 
 logger = logging.getLogger(__name__)
+
+
+def spectrum_frame_to_event(frame: Any) -> dict[str, Any]:
+    """Turn a waterfall row into the wire event (#53).
+
+    Every value is cast to a Python builtin. A frame computed from real
+    audio carries numpy scalars, and `json.dumps` raises on those -- a
+    failure that would only surface once a client was attached, which is
+    exactly the kind that reaches production.
+    """
+    return {
+        "event_type": "spectrum_update",
+        "start_hz": float(frame.start_hz),
+        "bin_hz": float(frame.bin_hz),
+        "magnitudes_db": [int(v) for v in frame.magnitudes_db],
+        "sync_detected": bool(frame.sync_detected),
+        "peak_hz": None if frame.peak_hz is None else float(frame.peak_hz),
+        "peak_db": None if frame.peak_db is None else int(frame.peak_db),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+async def broadcast_spectrum_frame(frame: Any) -> None:
+    """Relay one waterfall row to every app-channel client.
+
+    The app channel rather than the session channel, for two reasons.
+    Tuning happens before a session exists -- the waterfall is how the
+    operator finds the signal -- and the app channel is unbuffered, which
+    is right here: a frame describes the band *now*, so replaying a stale
+    row to a reconnecting client would draw a picture of the past.
+
+    Never raises. A client disconnecting mid-send must not take the decode
+    down with it.
+    """
+    try:
+        await websocket_manager.broadcast_app(spectrum_frame_to_event(frame))
+    except Exception as exc:
+        logger.warning("Spectrum broadcast failed: %s", exc)
 
 
 class DSPManager:
@@ -315,6 +355,24 @@ class DSPManager:
         )
 
         # Wire progress callback
+        def on_spectrum(frame: Any) -> None:
+            """Relay a waterfall row to the app channel.
+
+            Fire-and-forget like on_progress: rx_manager calls this from
+            the decode loop and must not wait on a socket.
+            """
+            _task = asyncio.create_task(  # noqa: RUF006
+                broadcast_spectrum_frame(frame)
+            )
+
+        # getattr, not a direct call: the waterfall is an optional display,
+        # and rx_manager itself treats it as off unless something asks. An
+        # RX implementation without a spectrum producer must still decode
+        # rather than fail at wiring time.
+        set_spectrum = getattr(rx_mgr, "set_spectrum_callback", None)
+        if set_spectrum is not None:
+            set_spectrum(on_spectrum)
+
         def on_progress(progress: RXProgress):
             """Relay rx_manager progress updates to the event loop."""
             # Fire-and-forget by design: task lifetime is tied to the running loop.
