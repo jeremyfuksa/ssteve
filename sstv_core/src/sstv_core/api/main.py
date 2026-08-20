@@ -290,6 +290,7 @@ def register_routes(app: FastAPI) -> None:
         devices,
         images,
         import_routes,
+        propagation,
         qso,
         smart_reply,
         transmit,
@@ -310,6 +311,7 @@ def register_routes(app: FastAPI) -> None:
     app.include_router(websocket.router, prefix="/api/v1", tags=["WebSocket"])
     app.include_router(import_routes.router, prefix="/api/v1", tags=["Import"])
     app.include_router(smart_reply.router, prefix="/api/v1", tags=["Smart Reply"])
+    app.include_router(propagation.router, prefix="/api/v1", tags=["Propagation"])
     app.include_router(qso.router, prefix="/api/v1", tags=["QSO Logging"])
 
 # =============================================================================

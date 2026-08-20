@@ -1279,3 +1279,31 @@ class ImportPreviewResponse(BaseModel):
         ...,
         description="Directory validation result"
     )
+
+
+class PropagationResponse(BaseModel):
+    """Whether the band should be carrying signal right now."""
+
+    band: str = Field(..., description="Amateur band the report covers")
+    band_group: str = Field(..., description="Source feed's band grouping")
+    time_of_day: str = Field(..., description="day or night, local time")
+    condition: str = Field(..., description="Reported band condition")
+    state: str = Field(..., description="OPEN, CLOSED, STORM or UNKNOWN")
+    explanation: str = Field(
+        ...,
+        description="The sentence a fault report needs, in plain language"
+    )
+    solar_flux: str = Field(..., description="10.7cm solar flux index")
+    k_index: str = Field(..., description="Planetary K index")
+    a_index: str = Field(default="", description="Planetary A index")
+    sunspots: str = Field(default="", description="Sunspot number")
+    xray: str = Field(default="", description="X-ray flux class")
+    updated: str = Field(default="", description="Source timestamp")
+    source_errors: list[str] = Field(
+        default_factory=list,
+        description="Source failures behind a partial report"
+    )
+    wwv_frequencies_hz: list[int] = Field(
+        default_factory=list,
+        description="WWV frequencies to cross-check against"
+    )
