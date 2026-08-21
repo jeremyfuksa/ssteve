@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 #: Longest edge of a generated thumbnail, in pixels. Big enough for the
 #: gallery grid and the history strip on a 1280x720 field laptop
-#: (frontend-spec 20.11), small enough that a hundred of them load without
+#: (frontend-contract 20.11), small enough that a hundred of them load without
 #: thought.
 THUMBNAIL_MAX_PX = 512
 

@@ -2,7 +2,7 @@
 
 PRODUCT.md calls a 300-3000 Hz waterfall non-negotiable, and it is how an
 operator tunes -- so this has to produce frames before a decode starts,
-not only during one. frontend-spec.md 20.4 sets the range, the 1900 Hz
+not only during one. frontend-contract.md 20.4 sets the range, the 1900 Hz
 centre, and a 10-20 Hz update rate.
 
 The contract is deliberately narrow. Magnitudes are sliced to the SSTV
@@ -112,7 +112,7 @@ class TestItMeasuresTheRightThing:
 
 
 class TestSyncIsItsOwnSignal:
-    """frontend-spec 20.4: the 1200 Hz sync pulse "must not read as just a
+    """frontend-contract 20.4: the 1200 Hz sync pulse "must not read as just a
     strong bin". The event therefore carries the detection -- leaving the
     frontend to infer it from magnitudes is what that line rules out.
     """
@@ -142,7 +142,7 @@ class TestSyncIsItsOwnSignal:
 
 
 class TestUpdateRate:
-    """10-20 Hz per frontend-spec 20.4. The producer decides, not the
+    """10-20 Hz per frontend-contract 20.4. The producer decides, not the
     caller: audio arrives in whatever blocks the source hands over, and a
     48 kHz stream in 1024-sample chunks would otherwise emit 47 frames a
     second."""

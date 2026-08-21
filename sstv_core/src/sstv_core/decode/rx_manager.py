@@ -279,7 +279,7 @@ class RXManager:
         """Receive waterfall frames while listening.
 
         Separate from the progress callback on purpose. Spectrum runs at
-        10-20 Hz (frontend-spec 20.4) and the listening heartbeat is every
+        10-20 Hz (frontend-contract 20.4) and the listening heartbeat is every
         5 s; one channel for both would either flood the progress log or
         starve the display.
         """

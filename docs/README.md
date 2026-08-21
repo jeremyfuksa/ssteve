@@ -39,10 +39,11 @@ docs/
 
 - **`backend-spec.md`** — core engine architecture, REST + WebSocket contract,
   database schema, accessibility algorithms. Authoritative for the API.
-- **`frontend-spec.md`** — **interaction** specification for the desktop UI: state
-  machines, component contracts, API mappings, error and empty states, accessibility
-  criteria, and the no-scroll viewport budget. Visual prescription (palette,
-  typography, design tokens) was removed on 2026-08-05; see its scope note.
+- **`frontend-contract.md`** — what the UI and the core engine agree on: API→UI
+  mapping, error and empty states, accessibility criteria, canvas and waterfall
+  requirements, documented auto-detect failure rates, Operating Conditions
+  requirements, and the 1280×720 no-scroll floor. Cited by shipped source code, so
+  section numbers are stable. Replaced `frontend-spec.md` on 2026-08-21.
 - **`TRANSMIT_SPEC.md`** — transmit pipeline: image preprocessing, callsign overlay,
   PTT control, audio encoding.
 - **`openapi.json`** — exported OpenAPI schema. Regenerate with
@@ -72,8 +73,8 @@ asserted things the tree contradicts. Recoverable via `git log` if ever needed.
 
 - `design/DESIGN_RATIONALE.md` — described a complete React design system (palette,
   typography, motion, component inventory) as "✅ 100% implemented" and
-  "production-ready." None of it was ever built, and its palette contradicted
-  `frontend-spec.md` §7.1. Its durable content — the hardware/software boundary, why
+  "production-ready." None of it was ever built, and its palette contradicted the
+  then-current frontend spec §7.1. Its durable content — the hardware/software boundary, why
   AFC and manual sync exist, PTT timing rationale — is now in `PRODUCT.md`.
 - `features/V1_FEATURE_LIST.md` — claimed "~50-60% complete", "API not wired to DSP
   (simulation only)", and "✅ UI components exist (CaptureView, TransmitView,
