@@ -20,6 +20,43 @@ records a different answer: **one window, where the small thing is fixed and
 the big thing is elastic.** The activity instrument's apparent "wasted space"
 was never its space — it belongs to the log.
 
+## 0. The governing frame: it is fishing
+
+SSTV is the radio equivalent of fishing. You can sit all day and not get a
+bite. Measured over a 10.5-hour capture, the band was **97.4% silent** — a
+2.6% duty cycle, median ~30 minutes between transmissions.
+
+Two consequences, and they pull in opposite directions. Holding both is the
+design problem:
+
+1. **For the 97.4%, the experience should be as simple as possible.** The
+   interface should ask nothing of an operator who is waiting. This is why
+   auto-first is the default posture rather than a convenience feature, and
+   why the log — not the instrument — gets the elastic space. The log is what
+   you look at while nothing is biting; it is what makes an eight-hour session
+   tolerable.
+
+2. **For the 2.6%, you must reach the tackle box at a moment's notice.** When
+   a signal appears you have 36–114 seconds and no second chance — miss it and
+   the band goes quiet for another half hour. Every control that can rescue a
+   decode in progress must be reachable *now*, without hunting.
+
+Nearly every decision in this document falls out of that tension:
+
+| Decision | Which side it serves |
+|---|---|
+| Receive is the default posture | The 97.4% — the common state needs no action |
+| Log takes the elastic space | The 97.4% — the waiting should be worth looking at |
+| Canvas never blank while listening | The 97.4% — silence must still read as *working* |
+| Gain + squelch on a thin strip | The 2.6% — these fail mid-decode, so they cannot be behind a gesture |
+| Everything else in a drawer | Both — closed while fishing, one gesture when it bites |
+| Theme and input in settings | The 97.4% — no failure rate, no decode-length window |
+
+**A tackle box is closed while you fish.** A permanent 15-control rail is
+fishing with the box upended on the deck: everything visible, nothing to hand.
+The drawer is the box — shut during the wait, open in one motion when it
+matters.
+
 ## 1. Window model
 
 One window containing two zones with different economics:
@@ -77,12 +114,44 @@ sending — louder than a modal, and harder to click through by reflex.
 (requirement 2). Its 200px → 80px compression is the shock absorber that lets
 the filmstrip survive at the floor.
 
-**Control rail** — gain, squelch, AFC with detected sync frequency displayed
-(requirement 5), mode. These stay in the primary interface. Requirement 3
-calls burying them a correctness failure rather than a taste choice, because
-auto-detect fails at documented rates (30–40% on fading signals for gain, ~20%
-in contest QRM for squelch, 100% for satellite work with wrong AFC range —
-see `frontend-contract.md` §20.3).
+**Thin control strip** — gain and squelch only, always visible, ~48px.
+
+**Manual controls drawer** — AFC range with detected sync frequency displayed
+(requirement 5), frequency offset, slant, FSKID. One gesture from the operating
+surface; the canvas and waterfall stay visible behind it.
+
+### Where a control lives
+
+The split above is derived from failure rates, not from vocabulary:
+
+| Placement | Test | Controls |
+|---|---|---|
+| **Thin strip** | Fails *during* a 36–114s decode; adjusted while watching the picture | Gain (30–40% on fading signals), squelch (~20% in contest QRM) |
+| **Drawer** | Fixes a signal problem, but set-and-leave within a session | AFC range, frequency offset, slant, FSKID |
+| **Settings** | Does not change in response to the signal | Input source, Operating Conditions theme, station details, paths |
+
+Requirement 3 calls burying gain/squelch/AFC a correctness failure rather than
+a taste choice. The drawer satisfies it on two conditions, both load-bearing:
+
+1. **It opens in one gesture from the operating surface** — the requirement's
+   real test is "reachable in under two seconds," not "permanently visible."
+2. **Failures surface themselves.** When auto-detection fails, the relevant
+   control comes forward unasked — the thin strip shows the failure, the drawer
+   holds the fix. Requirement 4 already demands failures point at the control
+   that fixes them. A drawer the operator must *remember to check* is settings
+   with an animation.
+
+A permanent 15-control rail shows every control whether or not any of them
+matter right now. The drawer shows what this moment needs — and, unlike the
+rail, it cannot be missed on failure.
+
+**Operating Conditions theme is settings, not drawer.** Requirement 8 explains
+why the feature exists (dark adaptation and sunlight legibility are
+physiological, not taste); it does not follow that the control needs primary
+placement. Theme has no failure rate and no decode-length window, and with a
+median ~30 minutes between transmissions, the switch is overwhelmingly made
+during silence. Putting it in the drawer would also dilute what the drawer is
+for — it stays useful only while everything in it is there for the same reason.
 
 **Transmit home** — compact and permanent: staged image thumbnail,
 callsign-overlay indicator, mode, Send. Small because picking happens in the
@@ -126,24 +195,52 @@ in a modal or expanded state that may scroll (requirement 10 permits scrolling
 for progressive disclosure) — not in a second window competing with the
 instrument.
 
-## Deliberately open
+## Control density — reframed, not settled
 
-**Control density.** PRODUCT.md marks the Auto (8 controls) vs Manual (12–15)
-split explicitly unresolved: no evidence either way, and the 20-participant
-user test was never run. This design is compatible with both — the control
-rail holds either count — and the fallback of progressive disclosure within a
-single interface fits the single-window model naturally. Not settled here.
+PRODUCT.md marks the Auto (8 controls) vs Manual (12–15) split explicitly
+unresolved: no evidence either way, and the 20-participant user test was never
+run. `frontend-contract.md` records §20.6's own "both fail" branch pointing at
+progressive disclosure within a single interface as the fallback.
 
-## Unproven
+**The drawer takes that fallback.** It dissolves the question as posed —
+"8 or 15?" assumes controls compete for permanent space. With a thin strip plus
+a drawer, the count visible at rest is small and the count *available* is
+complete, and no mode switch is needed to move between them.
 
-**The floor case fits.** At 1280×720 the filmstrip is one row and the
-waterfall is at its 80px minimum simultaneously. This is the tightest the
-design ever gets, and it is the field-ops case: sun, gloves, battery. The
-claim that it fits is a belief, not a measurement. **Test it in a wireframe
-before building it.**
+What remains genuinely open is narrower and more answerable:
 
-This repo's history is a catalogue of confident unmeasured claims. This one is
-labeled rather than asserted.
+- Does the drawer's disclosure logic show the right controls for a given
+  situation, or does the operator end up hunting?
+- Does a failure reliably pull its own control forward, or do operators still
+  miss clipping?
+
+Both are testable with a working prototype. Neither needs a 20-participant
+study to move forward.
+
+## The floor case: measured, not assumed
+
+Wireframed on 2026-08-21. At 1280×720, against ~680px of workspace after
+window chrome:
+
+| Region | Height |
+|---|---|
+| Top strip | 32 |
+| Canvas | 340 |
+| Waterfall (compressed to its 80px floor) | 80 |
+| Thin control strip — gain + squelch | 48 |
+| Log filmstrip — one row | 108 |
+| Status / source line | 24 |
+| **Total** | **632** — 48px slack |
+
+**It fits, and it fits because of the drawer.** Returning AFC, frequency
+offset, slant, and FSKID to a permanent rail costs roughly 180px of vertical
+that this budget does not have. The drawer is not a refinement of the
+single-window model; it is the mechanism that makes it possible at the field
+floor.
+
+Still unverified: legibility and touch-target sizes at this density with
+gloves and in direct sun. The pixels fit; whether they can be *operated* in
+the field-ops situation is a different claim and has not been tested.
 
 ## Provenance
 
@@ -154,6 +251,8 @@ Settled in conversation on 2026-08-21:
 - Transmit images come from the log, plus a file-picker escape hatch.
 - Window size is flexible; 1280×720 is the shrink floor, not the design target.
 - At the floor the log persists as a filmstrip rather than vanishing.
+- Manual controls live in a drawer; gain and squelch stay on a thin strip.
+- Input source and Operating Conditions theme both live in app settings.
 
 `DESIGN.md` and `prototype/` were deleted in commit 062b3ba. That was
 deliberate — the visual path they represented is abandoned and should not be
