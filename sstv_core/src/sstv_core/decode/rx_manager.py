@@ -1018,6 +1018,35 @@ class RXManager:
                 )
                 return None
 
+            # Nothing decoded is a failed reception, not a black picture.
+            # `decoder.reset()` allocates a zeroed frame up front, so
+            # `get_image()` below returns a perfectly valid all-black array
+            # whether every line decoded or none did -- `is not None` cannot
+            # tell those apart, and the line count is what can.
+            #
+            # Observed on air 2026-08-21: a false-positive VIS (ROBOT_36 at
+            # 0.853, just over the gate) started a decode of a signal that
+            # was not SSTV. No sync pulses meant no line starts, the budget
+            # expired at 0/240 lines, and the session then reported SAVING,
+            # COMPLETE and 100% and wrote an all-black 320x240 PNG into the
+            # image library. For a receiver an operator is meant to walk away
+            # from, manufacturing a successful-looking result out of nothing
+            # is worse than any honest failure: it costs trust in every image
+            # in the library, and such a frame accepted as a reference render
+            # would pin black as correct.
+            if line_number == 0:
+                logger.warning(
+                    "Decode produced no scanlines; reporting failure rather "
+                    "than saving an empty frame."
+                )
+                self._state = RXState.ERROR
+                self._emit_progress(
+                    detected_mode, vis_confidence, 0, 0, total_lines,
+                    time.time() - start_time, 0,
+                    "I detected a signal but couldn't decode any of it.",
+                )
+                return None
+
             # Phase 5: Save image
             if save_image:
                 self._state = RXState.SAVING
