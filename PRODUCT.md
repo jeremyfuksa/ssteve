@@ -106,11 +106,11 @@ nothing holding them together.
 
 The consequence is a standard, not a slogan. **Any feature that does not serve the
 point of view is a liability.** The failure mode for SSTeVe is becoming MMSSTV with
-better typography. `DESIGN.md` carries the current visual argument — a decode is a
-record being typeset, not a machine being monitored — and under this framing that
-document is product thinking, not decoration. It does not need user validation to be
-legitimate; it needs to be true to the medium and held consistently, which is a craft
-standard and checkable without users.
+better typography. The visual world is an open decision: a proposed system and its
+prototype were abandoned on 2026-08-21 and must not be recovered from git history.
+What survives is the standard itself — a visual argument does not need user validation
+to be legitimate; it needs to be true to the medium and held consistently, which is a
+craft standard and checkable without users.
 
 Two things a neighboring SSTV application could not truthfully copy:
 
@@ -212,15 +212,12 @@ exception — factual and direct, never conversational.
 
 - **The shipping UI.** `sstv_desktop/` contains a README and nothing else — no `.tsx`,
   no `package.json`, no component code.
-- **A working HTML/CSS/JS prototype does exist** at `prototype/` (~2,900 lines across
-  `index.html`, `style.css`, `app.js`, with screenshots in `prototype/shots/`). It is
-  unwired: every value is synthetic except the decoded images, which are real reference
-  captures. It proves the visual argument and the interaction model; it is not the
-  product.
-- **`DESIGN.md` describes an earlier revision than the prototype's current state.** The
-  document details a four-column control table; the latest screenshots (`v10-session`)
-  show that replaced by a right-hand control rail with the record's fields and a session
-  list on the left. Reconcile before treating any component section as current.
+- **No visual system.** A proposed one (`DESIGN.md`) and a working HTML/CSS/JS
+  prototype (`prototype/`) were deleted on 2026-08-21 — a deliberate reset, not an
+  accident. That design path is abandoned; do not recover either from git history.
+  The window model is settled — see
+  `docs/superpowers/specs/2026-08-21-single-window-activity-log-design.md` — but its
+  visual expression is undecided.
 
 ### Interaction requirements (distilled from the December 2025 review; behavior only)
 
@@ -291,9 +288,9 @@ not what it must look like.
     - This follows the SWL-logging convention hams already have, rather than inventing
       a parallel one: "I heard you" and "we worked each other" have always been separate
       records, and the distinction is never blurred.
-    - **This is a craft requirement, not only a data one.** `DESIGN.md` argues the
-      interface is a record being typeset. A record that quietly conflates "I heard
-      this" with "someone in Germany heard this" is a dishonest record.
+    - **This is a craft requirement, not only a data one.** A record that quietly
+      conflates "I heard this" with "someone in Germany heard this" is a dishonest
+      record.
 
 13. **Silence gets an explanation the receive chain cannot fabricate.** Because the band
     is silent 97.4% of the time, "nothing is happening" is the interface's most common
@@ -340,7 +337,7 @@ Modes are named as operators name them: Scottie S1, Martin M1, Robot 36.
 
 ### Explicitly undecided
 
-- **Control density.** `frontend-spec.md` §20 records an Auto mode (8 controls) and a
+- **Control density.** `docs/core/frontend-contract.md` records an Auto mode (8 controls) and a
   Manual mode (12–15 controls) as a decision, but §20.6 defers the choice to a
   20-participant user test that was never run. No evidence exists for either. The
   tension between novice simplicity and operational flexibility is real and unresolved;
@@ -465,17 +462,15 @@ overlay, PD/Wraase modes.
   without condescension. Never formal-instrument, never cute.
 - Error copy is first person with contractions and a concrete `suggested_action`.
 - Screen-reader output is factual and direct — the voice does not follow it there.
-- **A visual proposal exists and is not yet committed.** `DESIGN.md` (2026-08-05)
-  documents a visual world proven in a working prototype at `prototype/` — departure
-  board meets segmented travel document, with a typographic confidence grammar and
-  three Operating Conditions modes as pure token overrides. It is measured (contrast
-  ratios computed per mode) and honest about its gaps. Treat it as the leading
-  candidate and the current argument, not as shipped work: `sstv_desktop/` is still
-  empty, and the prototype is unwired to the backend.
-- The two contradictory palette/typography specs that preceded it were removed on
-  2026-08-05 (`docs/design/DESIGN_RATIONALE.md` deleted outright; the visual sections
-  of `frontend-spec.md` and `backend-spec.md` stripped). Do not recover them from git
-  history.
+- **The visual world is undecided, after two resets.** Two contradictory
+  palette/typography specs were removed on 2026-08-05
+  (`docs/design/DESIGN_RATIONALE.md` deleted outright; the visual sections of the
+  frontend and backend specs stripped). A later proposal — `DESIGN.md` plus a working
+  prototype at `prototype/` — was deleted on 2026-08-21 when that direction was
+  abandoned. **Do not recover any of them from git history.** What is settled is
+  behavior, not appearance: the Operating Conditions requirements in
+  `docs/core/frontend-contract.md` §20.5 name physiological and environmental
+  conditions, and any future visual system must satisfy them.
 
 ## Evidence on Hand
 
@@ -498,12 +493,7 @@ overlay, PD/Wraase modes.
   the foundation for the decode-quality harness, and the reason a Hough-vs-timing
   comparison can be settled by measurement rather than argument.
 - **Documented failure rates** for gain, squelch, and AFC auto-detection
-  (`frontend-spec.md` §20.3) — from domain-expert review, not measured in the field.
-- **A running prototype and its design record** — `prototype/` plus `DESIGN.md`, with
-  contrast ratios computed per Operating Conditions mode and a self-reported defect log.
-  Evidence that the visual argument holds up in a real browser at real viewport sizes;
-  not evidence that anyone wants it.
-
+  (`docs/core/frontend-contract.md` §20.3) — from domain-expert review, not measured in the field.
 **Absent — must not be fabricated:** no users, no user testing (the §20.6 protocol was
 never run), no telemetry, no SUS scores, no beta testers, no press, no pricing or
 licensing decision, no deployment or distribution channel. The "8.5/10 → 9.5/10" design
