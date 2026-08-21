@@ -336,11 +336,30 @@ pixels. Whatever it does not need belongs to the log.
 
 #### Waterfall Display Specifications
 
-**Purpose:** Real-time frequency spectrum visualization for tuning assistance
+**Purpose:** proof of life. Continuous confirmation that audio is flowing and that a
+signal occupies the band where the operator expects one. Tuning assistance is a
+secondary benefit on the radio path, not the reason the display exists.
 
-**Position & Size:**
-- **Auto Mode:** Integrated into bottom 25% of canvas area (overlay during listening, hidden during decode)
-- **Manual Mode:** Dedicated bottom section, always visible, 20-30% of viewport height
+**It doubles as the silence display.** The band is quiet 97.4% of the time, and
+`dsp/spectrum.py` already emits spectrum frames *before* a decode starts. The same
+feed that shows a signal shows the live noise floor when there is none — so "the
+canvas is never blank while listening" and "show something during silence" are one
+display, not two. It must never let rising noise read as an incoming picture.
+
+**Position & Size:** a full-width strip below the canvas, always visible, **~64px**.
+It does not scale with the viewport.
+
+> **Resized and reframed 2026-08-21.** This section previously specified 200px
+> ("Manual Mode") or 25% of the canvas, on the grounds that the waterfall is "how
+> the operator tunes." That is true of a manual-tuning application. It is not true
+> here: AFC locks automatically and reports its detected sync frequency, VIS reads
+> the mode, and the drawer holds the overrides. Nobody reads 1900 Hz off this
+> display to make a decision.
+>
+> What remains is the job requirement 1 actually assigns it — continuous visual
+> proof that audio is flowing and that a signal is where the operator thinks it is.
+> That is a **presence** display, not a measurement instrument, and presence needs
+> a strip rather than a panel. The reclaimed height goes to the log.
 
 **Frequency Range:**
 - Horizontal axis: 300 Hz to 3000 Hz (covers SSTV signal range)
@@ -392,30 +411,56 @@ physiological or environmental condition, not a preference.
 
 ---
 
-### 20.11 Viewport Constraint
+### 20.11 Window Size and Shape
 
-**Minimum target: 1280×720.** The field-laptop floor, and 1024×576 effective
-at Windows' common 125% scaling. This is the size the window must shrink to
-without breaking — not the size the interface is designed for.
+**The window must fit inside 1280×720.** That is the field-laptop guarantee, and
+1024×576 effective at Windows' common 125% scaling. It is the size the window must
+be able to shrink to — not the size the interface is designed for.
 
-**No-scroll policy.** The main application shell never scrolls, horizontally
-or vertically. Progressive disclosure (modals, expanded panels) may scroll
-when necessary.
+**The window is not 16:9.** Nothing in this interface is:
 
-Rationale: instrument interfaces do not scroll; scrolling hides information
-that may be critical, and it is hostile to gloves and touchpads in field
-operation.
+| Element | Its shape |
+|---|---|
+| SSTV frames | 320×256 (5:4) and 320×240 (4:3) |
+| Signal-presence strip | a wide band — wants width, not height |
+| Log | a grid — tiles to any shape, wants rows |
+| Control strip | thin — indifferent |
 
-**Larger viewports gain breathing room, not a different layout.** See the
-single-window design doc for how that resolves — a fixed-cost activity
-instrument with an elastic log region absorbing the remainder.
+> **Corrected 2026-08-21.** This section previously required the UI to "fit within
+> a 16:9 frame," but the justification it gave was field laptops at 1280×720. That
+> is a constraint on how much room is *guaranteed*, not on what shape the window
+> should be — a 1280×720 laptop displays a 1020×880 window perfectly well; it
+> simply cannot display one 1400px wide. Forcing a 5:4 picture, a wide strip and a
+> row grid into 16:9 produced a canvas stretched wide and half empty.
 
-> The two layout budgets this section previously carried (Auto Mode and Manual
-> Mode, each a distinct arrangement of columns) were retired 2026-08-21 with
-> the Auto/Manual split itself. The 1280×720 floor and the no-scroll rule are
-> operational constraints and survive; the layouts were design-path residue.
+Sized to its content, the window is **taller than wide** — roughly 1020×880 at a
+2× canvas.
 
----
+**No-scroll policy.** The main shell never scrolls. Progressive disclosure (modals,
+the manual-controls drawer, expanded log states) may scroll when necessary.
+
+#### Canvas scale is what degrades
+
+A true 2× canvas is 640×512. With the top strip, the presence strip, the control
+strip and a log row, the window wants ~880px of height; a 720p laptop has ~680px
+of workspace. It does not fit, and no amount of aspect freedom changes that —
+the shortfall is in the picture itself.
+
+So **scale degrades first**, and everything else holds:
+
+| Window | Canvas | Presence strip | Log |
+|---|---|---|---|
+| 1280×720 (field floor) | 1.5× — 480×384 | 64px | 1–2 rows |
+| ~1020×880 | 2× — 640×512 | 64px | 4 rows |
+| larger | 2× (3× above ~1400 tall) | 64px | grid |
+
+This is the right thing to give up. Under the previous model the *presence strip*
+compressed toward 80px and the log to a single row — but a display with four
+seconds of history is not proof of anything, and requirement 1 depends on it.
+A picture at 1.5× is still a legible picture.
+
+Larger viewports gain **rows and picture scale, not a different layout**. Regions
+never move or reflow.
 
 ## Open: control density
 

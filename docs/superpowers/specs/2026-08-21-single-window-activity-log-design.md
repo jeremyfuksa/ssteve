@@ -219,28 +219,35 @@ study to move forward.
 
 ## The floor case: measured, not assumed
 
-Wireframed on 2026-08-21. At 1280×720, against ~680px of workspace after
-window chrome:
+Wireframed 2026-08-21. Two windows measured.
+
+**At ~1020×880 — what the UI actually wants:**
 
 | Region | Height |
 |---|---|
 | Top strip | 32 |
-| Canvas | 340 |
-| Waterfall (compressed to its 80px floor) | 80 |
-| Thin control strip — gain + squelch | 48 |
-| Log filmstrip — one row | 108 |
-| Status / source line | 24 |
-| **Total** | **632** — 48px slack |
+| Canvas at 2× (640×512) + status gutter | 536 |
+| Signal-presence strip | 64 |
+| Control strip — gain + squelch | 44 |
+| Log — 4 rows | 152 |
+| **Total** | **828** in an 880px window |
 
-**It fits, and it fits because of the drawer.** Returning AFC, frequency
-offset, slant, and FSKID to a permanent rail costs roughly 180px of vertical
-that this budget does not have. The drawer is not a refinement of the
-single-window model; it is the mechanism that makes it possible at the field
-floor.
+**At the 1280×720 field floor,** the same layout with the canvas at 1.5×
+(480×384) and the log at 1–2 rows fits in ~680px of workspace with room to
+spare. Nothing moves; the picture is smaller and there are fewer log rows.
 
-Still unverified: legibility and touch-target sizes at this density with
-gloves and in direct sun. The pixels fit; whether they can be *operated* in
-the field-ops situation is a different claim and has not been tested.
+**Two things make it fit**, and neither is layout cleverness:
+
+1. **The drawer.** Returning AFC, offset, slant and FSKID to a permanent rail
+   costs ~180px this budget does not have.
+2. **Sizing the canvas to the picture.** The earlier draft gave the canvas the
+   largest region and then under-filled it — 880×340 labelled "2×" for a frame
+   that needs 640×512. Sizing honestly returned enough room for a signal panel
+   and three more log rows.
+
+Still unverified: legibility and touch-target sizes with gloves and in direct
+sun. The pixels fit; whether they can be *operated* in field conditions is a
+different claim and has not been tested.
 
 ## Provenance
 
@@ -253,6 +260,12 @@ Settled in conversation on 2026-08-21:
 - At the floor the log persists as a filmstrip rather than vanishing.
 - Manual controls live in a drawer; gain and squelch stay on a thin strip.
 - Input source and Operating Conditions theme both live in app settings.
+- The window is whatever shape serves the UI; 1280×720 is a fit constraint, not
+  an aspect ratio.
+- Canvas scale is what degrades on a small window — not the presence strip, not
+  the log.
+- The waterfall is a presence display, not a tuning instrument: everything is
+  automatic, so its job is visual proof that reception is happening.
 
 `DESIGN.md` and `prototype/` were deleted in commit 062b3ba. That was
 deliberate — the visual path they represented is abandoned and should not be

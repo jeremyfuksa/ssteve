@@ -104,6 +104,19 @@ contradicts the "recognized and declined" rule above.*
   MMSSTV import review) cannot be a second window. It is a modal or an expanded
   state, which requirement 10 permits for progressive disclosure.*
 
+- The window must **fit inside 1280×720**, but it is **not 16:9**. Shape is
+  whatever serves the UI.
+
+  *Sized to its content the window is taller than wide — roughly 1020×880 at a 2×
+  canvas. 16:9 was a screen measurement mistaken for a UI requirement; forcing a
+  5:4 picture, a wide presence strip and a row grid into it produced a canvas
+  stretched wide and half empty. Recorded in `frontend-contract.md` §20.11.*
+
+  *When the window is too small for everything, **canvas scale degrades first** —
+  1.5× at the field floor, 2× at ~1020×880. The presence strip and the log hold.
+  A picture at 1.5× is still legible; a presence display with four seconds of
+  history is not proof of anything.*
+
 - Display view for the rx/tx image must be **no bigger than it needs to be**.
 
   *The canvas is sized to the picture, not to a share of the viewport. SSTV
@@ -111,6 +124,15 @@ contradicts the "recognized and declined" rule above.*
   Robot 36. The canvas shows the current mode's frame at a whole-number scale and
   claims no space it is not using to display pixels. Whatever it does not need
   belongs to the log. Rule recorded in `docs/core/frontend-contract.md` §20.4.*
+
+- The waterfall is a **presence display, not a tuning instrument**.
+
+  *Because everything is automatic — AFC locks and reports its frequency, VIS reads
+  the mode — nobody reads a number off the spectrum to make a decision. Its job is
+  visual proof that reception is happening, which needs a ~64px strip rather than
+  the 200px panel the old spec assigned it. It doubles as the silence display: the
+  same spectrum feed shows the live noise floor when nothing is on the air, which
+  is 97.4% of the time.*
 
 ### The record
 
