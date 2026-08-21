@@ -195,6 +195,12 @@ exception — factual and direct, never conversational.
 
 ### Not built
 
+- **Three modes sit in `SSTVMode` but are not detected.** The enum carries 14 entries;
+  `CorrelationVISDetector.SUPPORTED_MODES` builds templates for 11. PD 160 and Wraase
+  SC2-180 are therefore recognized by `from_vis_code` but never matched from a signal —
+  a PD 160 transmission fails VIS detection rather than being named and declined. Either
+  promote them to detected or drop them from the enum; today they are neither. Found
+  2026-08-21.
 - **Decoders for 8 of the 11 VIS-detectable modes.** Scottie S1, Martin M1, and Robot 36
   decode; Scottie S2/DX, Martin M2, Robot 72, and PD 90/120/160/180/240 are recognized
   by VIS but have no decoder. Robot 72 and PD 120 are both common on the air. Since

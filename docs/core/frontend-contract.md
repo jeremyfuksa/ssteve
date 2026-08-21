@@ -282,8 +282,26 @@ def auto_threshold_squelch(audio_stream, duration_sec=1.0):
 #### Canvas Specifications
 
 **Size & Position:**
-- **Auto Mode:** 60% of viewport height, 70% of viewport width (centered)
-- **Manual Mode:** 50-60% of viewport height, 55-65% of viewport width (left-center, with telemetry panel on right)
+
+The canvas is sized to the *picture*, not to a share of the viewport. SSTV frames
+are small and fixed. The three implemented modes are 320×256 (Scottie S1, Martin M1)
+and 320×240 (Robot 36) — verified in `decode/scottie_decoder.py:39`,
+`decode/martin_decoder.py:36`, and `decode/robot_decoder.py:37`. PD modes are larger
+(commonly cited as 640×496) but have no decoder here, so treat that figure as
+unverified until one exists. Either way the frames are small and fixed, so a canvas
+expressed as a percentage of viewport height either crops the image or surrounds it
+with dead space at every size but one.
+
+Rule: the canvas occupies the smallest area that shows the current mode's frame at
+a whole-number scale, plus its status affordances. It grows in integer steps (1×,
+2×, 3×) as the window allows, and never claims space it is not using to display
+pixels. Whatever it does not need belongs to the log.
+
+> Replaced the previous viewport-percentage rule on 2026-08-21. That rule gave the
+> canvas the largest region in the layout and then under-filled it: a 320×256 frame
+> labeled "2×" needs 640×512, which does not fit in a 340px-tall canvas.
+
+**Position:** left-center, with the transmit home and/or telemetry to its right.
 
 **Content States:**
 1. **Idle (No Capture Active):**
