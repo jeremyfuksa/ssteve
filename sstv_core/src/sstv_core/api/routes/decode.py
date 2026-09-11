@@ -282,6 +282,7 @@ async def start_decode(
             source=request.source.value,
             band=request.band,
             frequency_hz=request.frequency_hz,
+            file_path=request.file_path,
         )
 
         # Build WebSocket URL

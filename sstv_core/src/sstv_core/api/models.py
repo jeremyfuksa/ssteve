@@ -69,6 +69,7 @@ class DecodeSource(str, Enum):
 
     AUDIO = "audio"
     SPYSERVER = "spyserver"
+    FILE = "file"
 
 
 class ModeDetectionRequest(BaseModel):
@@ -622,6 +623,14 @@ class DecodeStartRequest(BaseModel):
         description=(
             "SpyServer only: tune this exact frequency in Hz. With neither "
             "band nor frequency_hz, the saved spyserver_frequency_hz is used"
+        ),
+    )
+    file_path: str | None = Field(
+        default=None,
+        max_length=1024,
+        description=(
+            "File only: a recording on the server's disk (WAV, FLAC, OGG), "
+            "replayed in real time through the live pipeline"
         ),
     )
 

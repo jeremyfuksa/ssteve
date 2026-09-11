@@ -400,9 +400,14 @@ POST /decode/start
     mode: "ScottieS1" | "MartinM1" | "Robot36"
     device_id: string
     enable_auto_save: boolean
-    source: "audio" | "spyserver"    # default "audio" (#134)
+    source: "audio" | "spyserver" | "file"   # default "audio" (#134, #61)
     band: "80m" | "40m" | "20m" | "15m" | "10m" | null   # spyserver only
     frequency_hz: int | null         # spyserver only; not with band
+    file_path: string | null         # file only: a recording on the server's
+    # disk (WAV/FLAC/OGG), replayed in real time through the live pipeline --
+    # same VIS, scanline, spectrum and completion events as a live decode.
+    # The listen phase ends with the recording. Provenance: source "file",
+    # heard_at null. Squelch applies to "audio" only.
     # spyserver reads host/port/gain/stall timeout from saved config
     # (PATCH /config spyserver_*). Neither band nor frequency_hz tunes the
     # saved spyserver_frequency_hz. 400 with suggested_action for an FM or

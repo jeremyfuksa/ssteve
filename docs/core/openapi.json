@@ -642,7 +642,8 @@
         "description": "Where a decode session's audio comes from (#134).",
         "enum": [
           "audio",
-          "spyserver"
+          "spyserver",
+          "file"
         ],
         "title": "DecodeSource",
         "type": "string"
@@ -695,6 +696,19 @@
             ],
             "description": "Audio input device ID (null for system default)",
             "title": "Device Id"
+          },
+          "file_path": {
+            "anyOf": [
+              {
+                "maxLength": 1024,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "File only: a recording on the server's disk (WAV, FLAC, OGG), replayed in real time through the live pipeline",
+            "title": "File Path"
           },
           "frequency_hz": {
             "anyOf": [
