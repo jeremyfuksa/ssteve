@@ -108,3 +108,48 @@ class TestSpectrumCallback:
         manager.emit_spectrum(_tone(1500.0, 4096), RATE)
 
         assert manager._spectrum_producer is first
+
+
+@pytest.mark.slow
+@pytest.mark.integration
+async def test_the_waterfall_keeps_running_while_a_picture_decodes() -> None:
+    """Frames flow through the decode, not only the listen before it.
+
+    The single-window design makes the waterfall "always visible" and its
+    job "visual proof that reception is happening". Until 2026-09-11 only
+    the listen loop fed it, so it froze the moment a decode began -- the
+    one stretch when reception most certainly is happening. Measured over
+    the API on a 124 s Martin M1 replay: 22 frames, all before VIS.
+
+    The mode is forced so the whole replay is decode phase, and so the
+    test does not depend on VIS detection (see #137).
+    """
+    from sstv_core.encode.robot_encoder import Robot36Encoder
+    from tests.decode.regression.test_realtime_starvation import (
+        RealtimeSource,
+        _gradient,
+    )
+
+    encoder = Robot36Encoder()
+    audio = encoder.encode_image(
+        _gradient(encoder.config.width, encoder.config.height), include_vis=True
+    )
+    source = RealtimeSource(audio, speed=4.0)
+    manager = RXManager(stream_manager=source, sample_rate=RATE)
+
+    state = {"now": None}
+    decode_frames: list[SpectrumFrame] = []
+    manager.set_progress_callback(lambda p: state.update(now=p.state.value))
+    manager.set_spectrum_callback(
+        lambda f: decode_frames.append(f) if state["now"] == "decoding" else None
+    )
+
+    await manager.receive(mode="Robot36", timeout_sec=30.0, save_image=False)
+
+    # ~9 s of wall clock for 36 s of audio at 4x. The throttle counts audio
+    # time (10-20 frames per second of signal), so a working waterfall
+    # yields hundreds; one frame per turn would still be dozens.
+    assert len(decode_frames) > 50, (
+        f"{len(decode_frames)} waterfall frames during the decode -- the "
+        "waterfall froze while the picture came in"
+    )

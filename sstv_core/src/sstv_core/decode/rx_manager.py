@@ -719,6 +719,13 @@ class RXManager:
                         "Is the machine overloaded?"
                     )
                 samples = ring_buffer.pop(len(ring_buffer))
+                # The waterfall keeps running through the decode. It is the
+                # "always visible" proof that reception is happening, and
+                # only the listen loop fed it, so it froze the moment a
+                # picture began. Read-only: the frame is computed from a
+                # copy, and the decoder gets these samples untouched.
+                if len(samples):
+                    self.emit_spectrum(samples, self._sample_rate)
                 if len(samples) == 0:
                     stalled_sec = time.monotonic() - last_audio_time
                     if stalled_sec > end_of_signal_sec and line_number > 0:
