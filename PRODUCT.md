@@ -396,11 +396,13 @@ serving the argument, not by existing in the backend.
   migration feature. It is how an operator's existing library survives the switch, and
   it serves problem #1 directly.
 - **QSO logging** (`smart_features/qso_logger.py`, QSO routes) — an operator running a
-  real station logs contacts. Promoted out of post-MVP. **Needs schema work before it
-  ships:** the `QSO` model is a contact record end to end (`is_sent` "we initiated",
-  `report` for an exchanged RST, ADIF export asserting `QSL_RCVD`) with no way to
-  express "I only heard this." Interaction requirement 12 requires three record types
-  and a hard export block; today's schema can represent exactly one.
+  real station logs contacts. Promoted out of post-MVP. The schema work interaction
+  requirement 12 needed landed in #69 (2026-09-11). Records carry `record_type` (qso /
+  reception_report / remote_reception). Images carry `source`, `receiver` and
+  `heard_at`. A remote picture can only be logged as a remote reception, and ADIF
+  exports contacts only, with a second guard in the formatter. "Remote" is decided per
+  server (`spyserver_my_stations`), never by transport: the owner's own Airspy reached
+  over SpyServer is their station.
 - **FSKID and auto-RSV** (`decode/fsk_decoder.py`, `encode/fsk_generator.py`,
   `docs/features/`) — signal-path features a serious operator expects and a newcomer
   never notices. They belong to the record being accurate.

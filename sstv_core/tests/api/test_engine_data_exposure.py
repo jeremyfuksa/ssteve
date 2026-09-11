@@ -47,6 +47,9 @@ def _db_image(**overrides):
         fskid_detected=True,
         fskid_confidence=0.94,
         fskid_checksum_valid=True,
+        source="spyserver",
+        receiver="airspy.local:5555",
+        heard_at="my_station",
     )
     base.update(overrides)
     return SimpleNamespace(**base)
@@ -70,6 +73,12 @@ class TestImageMetadataCarriesRSVAndFSKID:
         # Contract drift, same issue item 6.
         assert api.filename == "20260809_143000_MartinM1_W1AW.png"
         assert api.rx_quality_score == pytest.approx(0.87)
+        # Provenance (#69).
+        assert (api.source, api.receiver, api.heard_at) == (
+            "spyserver",
+            "airspy.local:5555",
+            "my_station",
+        )
 
     def test_absent_metrics_stay_null_rather_than_zero(self):
         """A TX image or a pre-RSV decode must not report a fabricated 0."""

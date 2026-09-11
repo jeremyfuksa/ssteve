@@ -10,6 +10,7 @@ Ref: backend-spec.md §6.3 (Smart QSO Logging)
 
 import logging
 from datetime import datetime, timezone
+from enum import Enum
 from typing import Any
 from uuid import UUID
 
@@ -23,9 +24,11 @@ from sstv_core.api.image_lookup import resolve_image_uuid
 
 from ...database.models import QSO
 from ...smart_features.qso_logger import (
+    RecordTypeError,
     create_qso_with_image,
     export_qsos_to_adif,
     populate_qso_from_image,
+    record_type_for,
     validate_callsign,
 )
 
@@ -46,6 +49,14 @@ def get_db() -> Session:
 # =============================================================================
 
 
+class RecordType(str, Enum):
+    """What a log entry claims (PRODUCT.md interaction requirement 12)."""
+
+    QSO = "qso"  # two-way exchange from the operator's station
+    RECEPTION_REPORT = "reception_report"  # heard at the operator's station
+    REMOTE_RECEPTION = "remote_reception"  # heard at someone else's receiver
+
+
 class LogQSORequest(BaseModel):
     """Request to log a QSO."""
 
@@ -60,6 +71,14 @@ class LogQSORequest(BaseModel):
     report: str | None = Field(None, description="Override signal report")
     comments: str | None = Field(None, description="Additional comments")
     is_sent: bool | None = Field(False, description="True if we initiated contact")
+    record_type: RecordType | None = Field(
+        None,
+        description=(
+            "What this entry claims. Defaults to qso, or remote_reception for "
+            "a picture heard at someone else's receiver -- which can't be "
+            "logged as anything else"
+        ),
+    )
 
 
 class QSOResponse(BaseModel):
@@ -74,6 +93,7 @@ class QSOResponse(BaseModel):
     report: str | None
     comments: str | None
     is_sent: bool
+    record_type: RecordType
     image_ids: list[UUID] = Field(default_factory=list)
 
 
@@ -158,6 +178,10 @@ async def log_qso(
             image_id=db_image.id,
             overrides=overrides
         )
+        qso_fields["record_type"] = record_type_for(
+            db_image,
+            request.record_type.value if request.record_type else None,
+        )
 
         # Validate callsign
         if not validate_callsign(qso_fields["callsign"]):
@@ -196,9 +220,19 @@ async def log_qso(
             report=qso.report,
             comments=qso.comments,
             is_sent=qso.is_sent,
+            record_type=RecordType(qso.record_type),
             image_ids=[request.image_id],  # already the public UUID
         )
 
+    except RecordTypeError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "RECORD_TYPE_NOT_ALLOWED",
+                "message": str(e),
+                "suggested_action": e.suggested_action,
+            },
+        ) from e
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -227,6 +261,7 @@ async def list_qsos(
     callsign_filter: str | None = None,
     start_date: datetime | None = None,
     end_date: datetime | None = None,
+    record_type: RecordType | None = None,
     db: Session = Depends(get_db),
 ) -> QSOListResponse:
     """List QSOs with filtering and pagination.
@@ -237,6 +272,7 @@ async def list_qsos(
         callsign_filter: Optional callsign substring filter
         start_date: Optional start date filter
         end_date: Optional end date filter
+        record_type: Optional record type filter
         db: Database session
 
     Returns:
@@ -246,6 +282,8 @@ async def list_qsos(
     # Build query
     query = db.query(QSO)
 
+    if record_type:
+        query = query.filter(QSO.record_type == record_type.value)
     if callsign_filter:
         query = query.filter(QSO.callsign.ilike(f"%{callsign_filter}%"))
     if start_date:
@@ -271,6 +309,7 @@ async def list_qsos(
             report=qso.report,
             comments=qso.comments,
             is_sent=qso.is_sent,
+            record_type=RecordType(qso.record_type),
             image_ids=(
                 [db_image_id_to_uuid(img.id) for img in qso.images]
                 if qso.images
@@ -381,6 +420,7 @@ async def get_qso(
         report=qso.report,
         comments=qso.comments,
         is_sent=qso.is_sent,
+        record_type=RecordType(qso.record_type),
         image_ids=(
             [db_image_id_to_uuid(img.id) for img in qso.images]
             if qso.images

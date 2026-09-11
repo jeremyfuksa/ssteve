@@ -78,6 +78,20 @@ def run_migrations_online() -> None:
     In this scenario we create an Engine and associate a connection
     with the context.
     """
+    # The app upgrades its own database at startup (init_database) and
+    # hands over the connection. Resolving a URL here instead would
+    # migrate ~/.ssteve -- whatever database the app actually opened.
+    injected = config.attributes.get("connection")
+    if injected is not None:
+        context.configure(
+            connection=injected,
+            target_metadata=target_metadata,
+            render_as_batch=True,
+        )
+        with context.begin_transaction():
+            context.run_migrations()
+        return
+
     # Build configuration with our URL
     configuration = config.get_section(config.config_ini_section, {})
     configuration["sqlalchemy.url"] = get_database_url()

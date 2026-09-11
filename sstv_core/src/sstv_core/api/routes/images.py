@@ -119,6 +119,9 @@ def _db_image_to_api(db_image) -> ImageMetadata:
         fskid_detected=db_image.fskid_detected,
         fskid_confidence=db_image.fskid_confidence,
         fskid_checksum_valid=db_image.fskid_checksum_valid,
+        source=db_image.source,
+        receiver=db_image.receiver,
+        heard_at=db_image.heard_at,
     )
 
 
@@ -131,6 +134,11 @@ async def list_images(
     ),
     mode: SSTVMode | None = Query(default=None, description="Filter by SSTV mode"),
     callsign: str | None = Query(default=None, description="Filter by callsign"),
+    source: str | None = Query(
+        default=None,
+        pattern="^(audio|spyserver|file|sample)$",
+        description="Filter by how the audio arrived",
+    ),
     session: Session = Depends(get_db_session),
 ) -> ImageListResponse:
     """List images with pagination and optional filtering.
@@ -165,6 +173,9 @@ async def list_images(
     if callsign:
         # Case-insensitive callsign match
         query = query.filter(SSTVImage.callsign.ilike(f"%{callsign}%"))
+
+    if source:
+        query = query.filter(SSTVImage.source == source)
 
     # Get total count before pagination
     total = query.count()

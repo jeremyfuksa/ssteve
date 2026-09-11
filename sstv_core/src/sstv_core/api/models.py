@@ -466,6 +466,14 @@ class Configuration(BaseModel):
         le=120.0,
         description="Seconds without IQ before the stream is considered stalled",
     )
+    spyserver_my_stations: list[str] = Field(
+        default_factory=list,
+        description=(
+            "SpyServers that are your own receiver, as 'host:port'. Decodes "
+            "from any other server are remote receptions and never export "
+            "as QSOs"
+        ),
+    )
 
     # Decoder detail
     vis_detection_threshold: float = Field(
@@ -990,6 +998,24 @@ class ImageMetadata(BaseModel):
     fskid_checksum_valid: bool | None = Field(
         default=None,
         description="FSKID checksum passed; false means the callsign is suspect"
+    )
+
+    # Provenance (#69): on the row, so the Log reads correctly a week later.
+    # All null = unknown (decoded before provenance existed, or imported).
+    source: str | None = Field(
+        default=None,
+        description="How the audio arrived: audio | spyserver | file | sample"
+    )
+    receiver: str | None = Field(
+        default=None,
+        description="The receiver that heard it, e.g. 'airspy.local:5555'"
+    )
+    heard_at: str | None = Field(
+        default=None,
+        description=(
+            "my_station | remote. Signal figures on a remote row are real "
+            "measurements of someone else's path"
+        ),
     )
 
 

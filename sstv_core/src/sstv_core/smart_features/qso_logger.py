@@ -12,6 +12,47 @@ from sqlalchemy.orm import Session
 from ..database.models import QSO, QSOImage, SSTVImage
 
 
+class RecordTypeError(ValueError):
+    """A log entry that would claim more than the picture's provenance allows."""
+
+    def __init__(self, message: str, suggested_action: str) -> None:
+        super().__init__(message)
+        self.suggested_action = suggested_action
+
+
+def record_type_for(image: SSTVImage, requested: str | None) -> str:
+    """Decide what kind of record a picture can become.
+
+    The provenance on the image wins over the request. A picture heard at
+    someone else's receiver is a remote reception whatever the operator
+    asks for -- asking for "qso" is refused rather than quietly changed,
+    so nobody believes they logged a contact they didn't.
+
+    Unknown provenance (rows from before #69, imports) keeps today's
+    behavior: the operator's word, defaulting to a contact.
+    """
+    if image.source == "sample":
+        raise RecordTypeError(
+            "That picture came from a sample recording, not the air, so "
+            "there's nothing to log.",
+            suggested_action="Log a picture you decoded off the air.",
+        )
+    if image.heard_at == "remote":
+        if requested in (None, "remote_reception"):
+            return "remote_reception"
+        where = image.receiver or "someone else's receiver"
+        raise RecordTypeError(
+            f"{where} heard that picture, not your station, so I can only "
+            "log it as a remote reception.",
+            suggested_action=(
+                "Log it as remote_reception. If that server really is your "
+                "own receiver, add it to spyserver_my_stations -- that "
+                "counts for decodes from then on, not this one."
+            ),
+        )
+    return requested or "qso"
+
+
 def populate_qso_from_image(
     session: Session,
     image_id: int,
@@ -121,6 +162,7 @@ def create_qso_with_image(
         report=qso_fields.get("report"),
         comments=qso_fields.get("comments"),
         is_sent=qso_fields.get("is_sent", False),
+        record_type=qso_fields.get("record_type", "qso"),
     )
     session.add(qso)
     session.flush()  # Get QSO ID
@@ -151,8 +193,10 @@ def export_qsos_to_adif(
         ADIF format string
 
     """
-    # Build query
-    query = session.query(QSO)
+    # Contacts only. Reception reports follow SWL conventions, not ADIF's,
+    # and a remote reception exported here would put a QSO that never
+    # happened into LoTW, eQSL or Club Log (PRODUCT.md requirement 12).
+    query = session.query(QSO).filter(QSO.record_type == "qso")
 
     if start_date:
         query = query.filter(QSO.start_time >= start_date)
@@ -190,7 +234,24 @@ def _format_qso_as_adif(qso: QSO) -> str:
     Returns:
         ADIF record string (without EOR marker)
 
+    Raises:
+        ValueError: If the record is not a contact, or any picture on it
+            was heard at someone else's receiver. The export query already
+            leaves these out; this is the block PRODUCT.md calls absolute,
+            so it holds for any future caller that doesn't.
+
     """
+    if qso.record_type != "qso":
+        raise ValueError(
+            f"Record {qso.id} is a {qso.record_type}, not a contact, and "
+            "ADIF is for contacts."
+        )
+    if any(image.heard_at == "remote" for image in qso.images):
+        raise ValueError(
+            f"Record {qso.id} has a picture heard at someone else's "
+            "receiver, so it can't be exported as a contact."
+        )
+
     fields = []
 
     # Required fields
