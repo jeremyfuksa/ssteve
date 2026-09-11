@@ -190,6 +190,9 @@ class TestSourceSelection:
             assert built["frequency_hz"] == 14_230_000
             assert built["gain"] == 6
             assert isinstance(captured["stream_manager"], FakeSource)
+            # The -40 dB default squelch cost real captures most of their
+            # VIS detections; SpyServer starts open, like the CLI.
+            assert captured["auto_squelch"] is False
             await _wait_for_state(session.session_id, DecodeState.STOPPED)
         finally:
             session_manager.reset()

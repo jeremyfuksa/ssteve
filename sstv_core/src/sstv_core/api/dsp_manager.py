@@ -485,7 +485,16 @@ class DSPManager:
             save_directory=save_directory,
             auto_afc=bool(decode_config["auto_afc"]),
             afc_range_hz=float(decode_config["afc_range_hz"]),
-            auto_squelch=bool(decode_config["auto_squelch"]),
+            # Open for SpyServer, as in the CLI -- the path every live decode
+            # came through. The threshold is absolute, and SpyServer audio
+            # sits wherever the receiver's gain puts it: two raw 20m
+            # captures (KD2TT, VA2PGB) median -42 dB, and a -40 dB squelch
+            # cut VIS detection to 2/10 and 8/10 from 10/10 open, because
+            # skipped chunks also break the correlator's continuity. Still
+            # live-adjustable through PATCH /decode/{id}.
+            auto_squelch=(
+                bool(decode_config["auto_squelch"]) and sdr_source is None
+            ),
             squelch_threshold_db=float(decode_config["squelch_threshold_db"]),
             slant_correction=bool(decode_config["decoder.slant_auto_correct"]),
         )
