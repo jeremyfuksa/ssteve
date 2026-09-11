@@ -235,6 +235,19 @@ class DSPManager:
             # degrees of slant on pictures that had none.
             "decoder.slant_auto_correct": False,
         }
+        # Where /config stores each one (routes/config.py _FIELD_TO_MANAGER_KEY).
+        # This read the flat names until 2026-09-11, and no flat
+        # "auto_squelch" exists in storage -- so every saved squelch and AFC
+        # setting silently fell back to the defaults above, and an operator
+        # could not turn squelch off for a decode at all.
+        storage_keys = {
+            "auto_afc": "decoder.afc_enabled",
+            "afc_range_hz": "decoder.afc_range_hz",
+            "auto_squelch": "audio.auto_squelch",
+            "squelch_threshold_db": "audio.squelch_threshold_db",
+            "image_save_directory": "image_save_directory",
+            "decoder.slant_auto_correct": "decoder.slant_auto_correct",
+        }
         session_factory = self._db_session_factory
         if session_factory is None:
             return defaults
@@ -245,7 +258,7 @@ class DSPManager:
             with session_factory() as db_session:
                 config = ConfigManager(db_session)
                 return {
-                    key: config.get(key, default)
+                    key: config.get(storage_keys[key], default)
                     for key, default in defaults.items()
                 }
 
