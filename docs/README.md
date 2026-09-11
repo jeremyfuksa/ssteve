@@ -21,6 +21,8 @@
 | Who this is for and what must stay true | [`../PRODUCT.md`](../PRODUCT.md) |
 | Backend architecture and the API contract | [`core/backend-spec.md`](core/backend-spec.md) |
 | Build commands, module map, definition of done | [`../CLAUDE.md`](../CLAUDE.md) |
+| How work gets filed, labelled and released | [`PROCESS.md`](PROCESS.md) |
+| What is in scope, and what is a Must | [`../moscow.md`](../moscow.md) |
 
 ---
 

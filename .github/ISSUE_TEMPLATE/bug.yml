@@ -1,0 +1,39 @@
+name: Bug
+description: Something doesn't work
+labels: ["bug"]
+body:
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact
+      description: Who is affected, and what can they not do? This sets the severity.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: What was measured
+      description: >
+        Commands, output, `file.py:line`, the band and the hardware if it was
+        live. SSTV is noisy: "it seemed worse" is not a finding, and a quiet
+        band is not a fault — see the sstv-rf-diagnosis skill before blaming
+        the receiver.
+    validations:
+      required: true
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - "high — data loss, a record that lies, or the headline feature doesn't work"
+        - "medium — a real problem with a workaround or a narrower trigger"
+        - "low — polish, test reliability, documentation"
+    validations:
+      required: true
+  - type: input
+    id: area
+    attributes:
+      label: Area
+      description: engine, sdr, api, desktop, cli, ci, accessibility — add the label too.
+    validations:
+      required: false

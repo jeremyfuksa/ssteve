@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: How work happens here
+    url: https://github.com/jeremyfuksa/ssteve/blob/main/docs/PROCESS.md
+    about: Labels, milestones, the Horizon field, and the three gates before a push.

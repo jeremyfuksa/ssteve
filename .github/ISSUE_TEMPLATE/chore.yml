@@ -1,0 +1,26 @@
+name: Chore
+description: Maintenance, verification, or work no user notices
+labels: ["chore"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        No user story and no impact statement on purpose. A flaky test has no
+        user, and a required field that can only be filled with filler teaches
+        everyone to skim the form.
+  - type: textarea
+    id: what
+    attributes:
+      label: What needs doing
+    validations:
+      required: true
+  - type: textarea
+    id: blocked
+    attributes:
+      label: What it needs that we don't have
+      description: >
+        Hardware on the bench, a capture of a mode we have never heard, a live
+        band opening. Several issues here are blocked on exactly this, and
+        saying so is what stops them being re-triaged every sweep.
+    validations:
+      required: false
