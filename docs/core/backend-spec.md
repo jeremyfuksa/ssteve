@@ -400,6 +400,13 @@ POST /decode/start
     mode: "ScottieS1" | "MartinM1" | "Robot36"
     device_id: string
     enable_auto_save: boolean
+    source: "audio" | "spyserver"    # default "audio" (#134)
+    band: "80m" | "40m" | "20m" | "15m" | "10m" | null   # spyserver only
+    frequency_hz: int | null         # spyserver only; not with band
+    # spyserver reads host/port/gain/stall timeout from saved config
+    # (PATCH /config spyserver_*). Neither band nor frequency_hz tunes the
+    # saved spyserver_frequency_hz. 400 with suggested_action for an FM or
+    # unknown band, both given, no saved host, or tuning on "audio".
   Response:
     session_id: uuid
     status: "listening"
@@ -657,6 +664,18 @@ live preview remains an open item.)
   "timestamp": "2026-08-07T14:32:01Z"
 }
 ```
+
+SpyServer sessions add three error codes, all `recoverable: true` with the
+source's own `suggested_action` (#134):
+
+| `error_code` | When | Session state |
+|---|---|---|
+| `SPYSERVER_UNAVAILABLE` | Opening the stream failed: unreachable host, protocol mismatch, gain past the device's range | `failed` |
+| `STREAM_STALLED` | Connected, then the server stopped sending | `failed`, as soon as the next listening heartbeat notices |
+| `STREAM_LOST` | The connection dropped | `failed`, as soon as the next listening heartbeat notices |
+
+A dead stream always ends the session with one of these two codes rather than
+listening on to the timeout. Without them it looks identical to a quiet band.
 
 **Transmit WebSocket:** `ws://localhost:8000/api/v1/ws/transmit/{tx_id}`
 

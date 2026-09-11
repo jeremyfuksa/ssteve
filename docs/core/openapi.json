@@ -564,6 +564,81 @@
         "title": "Configuration",
         "type": "object"
       },
+      "DecodeAdjustRequest": {
+        "description": "Live changes to a running decode (#56).\n\nEvery field is optional and only what is sent gets changed, so a\nclient moving one control cannot silently reset another. An empty\nbody is refused rather than accepted as a no-op -- it is a mistake\nworth naming.\n\nThese three exist as live controls for operational reasons\n(PRODUCT.md #3): input-gain auto-detect fails on QSB, auto-only AFC\nis dangerous for satellite Doppler, and auto squelch fails in contest\nQRM. All three are mid-transmission problems, which is when stopping\nto reconfigure costs the picture.",
+        "properties": {
+          "afc_range_hz": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Afc Range Hz"
+          },
+          "auto_afc": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auto Afc"
+          },
+          "auto_squelch": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auto Squelch"
+          },
+          "input_gain": {
+            "anyOf": [
+              {
+                "maximum": 2.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Operator gain multiplier; matches input_gain_override",
+            "title": "Input Gain"
+          },
+          "squelch_threshold_db": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Squelch Threshold Db"
+          }
+        },
+        "title": "DecodeAdjustRequest",
+        "type": "object"
+      },
+      "DecodeSource": {
+        "description": "Where a decode session's audio comes from (#134).",
+        "enum": [
+          "audio",
+          "spyserver"
+        ],
+        "title": "DecodeSource",
+        "type": "string"
+      },
       "DecodeStartRequest": {
         "description": "Request to start a decode session.",
         "properties": {
@@ -572,6 +647,19 @@
             "description": "Enable VIS-based mode auto-detection",
             "title": "Auto Detect",
             "type": "boolean"
+          },
+          "band": {
+            "anyOf": [
+              {
+                "maxLength": 8,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "SpyServer only: tune a band's SSTV calling frequency (80m, 40m, 20m, 15m, 10m)",
+            "title": "Band"
           },
           "callsign": {
             "anyOf": [
@@ -600,6 +688,20 @@
             "description": "Audio input device ID (null for system default)",
             "title": "Device Id"
           },
+          "frequency_hz": {
+            "anyOf": [
+              {
+                "maximum": 4294967295.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "SpyServer only: tune this exact frequency in Hz. With neither band nor frequency_hz, the saved spyserver_frequency_hz is used",
+            "title": "Frequency Hz"
+          },
           "mode": {
             "anyOf": [
               {
@@ -616,6 +718,11 @@
             "description": "Save decoded image to library",
             "title": "Save Image",
             "type": "boolean"
+          },
+          "source": {
+            "$ref": "#/components/schemas/DecodeSource",
+            "default": "audio",
+            "description": "Where to listen: 'audio' is a sound-card input (device_id), 'spyserver' is the SpyServer saved in config (spyserver_host)"
           },
           "timeout_seconds": {
             "anyOf": [
@@ -1324,14 +1431,38 @@
                 "type": "null"
               }
             ],
-            "description": "Path to thumbnail image",
+            "description": "Local filesystem path to the thumbnail. Present for a local tool reading the library directly; a client that fetches over HTTP wants `thumbnail_url` instead",
             "title": "Thumbnail Path"
+          },
+          "thumbnail_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where to GET the thumbnail. Null when none has been generated -- the client should fall back to `url` rather than show a gap",
+            "title": "Thumbnail Url"
           },
           "timestamp": {
             "description": "Capture/transmit timestamp (UTC)",
             "format": "date-time",
             "title": "Timestamp",
             "type": "string"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where to GET this image's bytes. `filepath` is an absolute local path a webview cannot use, so this is what the gallery and canvas actually fetch",
+            "title": "Url"
           },
           "width": {
             "anyOf": [
@@ -2092,6 +2223,82 @@
         "title": "TemplateInfo",
         "type": "object"
       },
+      "TestPTTRequest": {
+        "description": "Key the radio briefly, to prove the chain works (#59).",
+        "properties": {
+          "duration_sec": {
+            "default": 1.0,
+            "description": "How long to hold PTT. Bounded because this keys a real transmitter",
+            "maximum": 5.0,
+            "minimum": 0.1,
+            "title": "Duration Sec",
+            "type": "number"
+          },
+          "method": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "serial, vox or none. Omit to use the stored setting",
+            "title": "Method"
+          },
+          "serial_port": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Serial Port"
+          },
+          "serial_signal": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "RTS or DTR",
+            "title": "Serial Signal"
+          }
+        },
+        "title": "TestPTTRequest",
+        "type": "object"
+      },
+      "TestTonePlayRequest": {
+        "description": "Play a tone on an output device, to prove audio reaches it (#59).",
+        "properties": {
+          "device_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Output device; omit for the system default",
+            "title": "Device Id"
+          },
+          "duration_sec": {
+            "default": 1.0,
+            "maximum": 10.0,
+            "minimum": 0.1,
+            "title": "Duration Sec",
+            "type": "number"
+          }
+        },
+        "title": "TestTonePlayRequest",
+        "type": "object"
+      },
       "TransmitRequest": {
         "description": "Request to transmit an SSTV image.",
         "properties": {
@@ -2714,6 +2921,63 @@
         ]
       }
     },
+    "/api/v1/decode/{session_id}": {
+      "patch": {
+        "description": "Change gain, squelch or AFC on a decode already running (#56).\n\nBefore this, decode config was read once at session start and there\nwas no way in: an operator had to stop, patch `/config`, restart, and\nlose the transmission they were trying to rescue. PRODUCT.md #3 keeps\nthese three reachable precisely because each fails in a situation\nthat is already in progress -- QSB, Doppler, contest QRM.\n\nOnly the fields sent are changed, so moving one control cannot reset\nanother.",
+        "operationId": "adjust_decode_api_v1_decode__session_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DecodeAdjustRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Adjust Decode Api V1 Decode  Session Id  Patch",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Adjust Decode",
+        "tags": [
+          "Decode",
+          "decode"
+        ]
+      }
+    },
     "/api/v1/devices/apply_settings": {
       "post": {
         "description": "Apply recommended or custom device settings.\n\nAccepts a partial configuration update with PTT, audio, and timing\nparameters. Validates settings and updates the global configuration.\n\nReturns:\n    - Updated configuration after applying settings\n    - List of fields that were updated\n\nRaises:\n    400 Bad Request: If settings are invalid\n    404 Not Found: If referenced devices don't exist",
@@ -2828,6 +3092,96 @@
           }
         },
         "summary": "List Serial Ports",
+        "tags": [
+          "Devices",
+          "devices"
+        ]
+      }
+    },
+    "/api/v1/devices/test_ptt": {
+      "post": {
+        "description": "Key the radio briefly and report what happened (#59).\n\nOnboarding-critical: this is how an operator proves the radio keys\nbefore ever putting a signal on the air. The error matters more than\nthe success -- somebody runs this precisely because the chain does\nnot work yet, so a failure has to name the cause and a way forward.",
+        "operationId": "test_ptt_api_v1_devices_test_ptt_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestPTTRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Test Ptt Api V1 Devices Test Ptt Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Test Ptt",
+        "tags": [
+          "Devices",
+          "devices"
+        ]
+      }
+    },
+    "/api/v1/devices/test_tone": {
+      "post": {
+        "description": "Play a 1900 Hz tone, to prove audio reaches the radio (#59).\n\n1900 Hz is the SSTV centre frequency, so this also exercises the\npassband -- a misrouted or over-filtered path fails here rather than\non the air.",
+        "operationId": "test_tone_api_v1_devices_test_tone_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestTonePlayRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Test Tone Api V1 Devices Test Tone Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Test Tone",
         "tags": [
           "Devices",
           "devices"
@@ -3016,6 +3370,92 @@
           }
         },
         "summary": "Get Image",
+        "tags": [
+          "Images",
+          "images"
+        ]
+      }
+    },
+    "/api/v1/images/{image_id}/file": {
+      "get": {
+        "description": "Serve the image's own bytes.\n\nWhat the gallery, the canvas idle state and the detail view fetch.",
+        "operationId": "get_image_file_api_v1_images__image_id__file_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "image_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Image Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Image File",
+        "tags": [
+          "Images",
+          "images"
+        ]
+      }
+    },
+    "/api/v1/images/{image_id}/thumbnail": {
+      "get": {
+        "description": "Serve a small version, for the grid and the history strip.\n\nFalls back to the full image when a thumbnail cannot be made, because\na gallery cell showing the picture slightly too large is better than\none showing nothing.",
+        "operationId": "get_image_thumbnail_api_v1_images__image_id__thumbnail_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "image_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Image Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Image Thumbnail",
         "tags": [
           "Images",
           "images"
