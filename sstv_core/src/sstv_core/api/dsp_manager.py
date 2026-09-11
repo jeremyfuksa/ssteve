@@ -34,6 +34,7 @@ from sstv_core.api.scanlines import rows_to_rgb_payload
 from sstv_core.api.session_manager import session_manager
 from sstv_core.api.websocket_manager import websocket_manager
 from sstv_core.audio.device_manager import AudioDeviceManager
+from sstv_core.audio.file_source import FileSource
 from sstv_core.audio.ptt_controller import PTTController, PTTMethod
 from sstv_core.audio.stream_manager import AudioStreamManager
 from sstv_core.decode.fsk_decoder import FSKIDResult
@@ -437,6 +438,7 @@ class DSPManager:
         source: str = "audio",
         band: str | None = None,
         frequency_hz: int | None = None,
+        file_path: str | None = None,
     ) -> None:
         """Start real decode operation for a session.
 
@@ -451,6 +453,7 @@ class DSPManager:
             source: "audio" (sound card) or "spyserver" (saved server)
             band: SpyServer only -- tune this band's calling frequency
             frequency_hz: SpyServer only -- tune this exact frequency
+            file_path: File only -- the recording to replay
 
         Raises:
             ValueError: If device_id matches no known audio device
@@ -473,6 +476,12 @@ class DSPManager:
         # or an untunable band fails the request instead of silently opening
         # the default device or starting a session that can't hear anything.
         sdr_source: SpyServerSource | None = None
+        file_source: FileSource | None = None
+        if file_path is not None and source != "file":
+            raise DecodeSourceError(
+                "A file_path only means something when decoding a recording.",
+                suggested_action="Send source: file, or drop file_path.",
+            )
         device_index: int | None = None
         if source == "spyserver":
             target = await self._resolve_spyserver_target(band, frequency_hz)
@@ -493,16 +502,44 @@ class DSPManager:
                 "heard_at": "my_station" if receiver in own else "remote",
                 "frequency_hz": int(target["frequency_hz"]),
             }
-        else:
-            if band is not None or frequency_hz is not None:
+        elif band is not None or frequency_hz is not None:
+            raise DecodeSourceError(
+                "Band and frequency only mean something for a SpyServer "
+                "-- a sound card or a recording hears whatever it was tuned to.",
+                suggested_action=(
+                    "Send source: spyserver, or drop band/frequency_hz."
+                ),
+            )
+        elif source == "file":
+            if not file_path:
                 raise DecodeSourceError(
-                    "Band and frequency only mean something for a SpyServer "
-                    "-- a sound card hears whatever the radio is tuned to.",
-                    suggested_action=(
-                        "Send source: spyserver, or tune the radio and drop "
-                        "band/frequency_hz."
-                    ),
+                    "I need a recording to decode.",
+                    suggested_action="Send file_path along with source: file.",
                 )
+            try:
+                file_source = FileSource(Path(file_path).expanduser())
+            except (OSError, RuntimeError, ValueError) as exc:
+                # soundfile raises LibsndfileError (a RuntimeError) for a
+                # missing file and an unreadable one alike.
+                raise DecodeSourceError(
+                    f"I couldn't read {file_path} as audio.",
+                    suggested_action=(
+                        "Check the path on the server, and that it's a WAV, "
+                        "FLAC or OGG recording."
+                    ),
+                ) from exc
+            # The listen phase ends with the recording rather than sitting
+            # on silence until the request's timeout.
+            timeout_seconds = min(timeout_seconds, file_source.duration_sec + 2.0)
+            # Where a recording was heard is not something the file says.
+            # Unknown, never guessed.
+            provenance = {
+                "source": "file",
+                "receiver": None,
+                "heard_at": None,
+                "frequency_hz": None,
+            }
+        else:
             device_index = self._resolve_device_index(device_id)
             # A sound card is the operator's own radio. PRODUCT.md exists
             # partly to kill the virtual-cable chain that would make this
@@ -531,8 +568,8 @@ class DSPManager:
         ).expanduser()
         rx_mgr = RXManager(
             # RXManager starts and stops whichever source it is given; the
-            # SpyServer source demodulates to the same 48 kHz.
-            stream_manager=sdr_source if sdr_source is not None else self._stream_manager,
+            # SpyServer and file sources both deliver the same 48 kHz.
+            stream_manager=sdr_source or file_source or self._stream_manager,
             sample_rate=48000,
             save_directory=save_directory,
             auto_afc=bool(decode_config["auto_afc"]),
@@ -542,10 +579,14 @@ class DSPManager:
             # sits wherever the receiver's gain puts it: two raw 20m
             # captures (KD2TT, VA2PGB) median -42 dB, and a -40 dB squelch
             # cut VIS detection to 2/10 and 8/10 from 10/10 open, because
-            # skipped chunks also break the correlator's continuity. Still
+            # skipped chunks also break the correlator's continuity. Those
+            # captures are recordings, so a file replay is open for the same
+            # reason: the squelch is a sound-card setting. Still
             # live-adjustable through PATCH /decode/{id}.
             auto_squelch=(
-                bool(decode_config["auto_squelch"]) and sdr_source is None
+                bool(decode_config["auto_squelch"])
+                and sdr_source is None
+                and file_source is None
             ),
             squelch_threshold_db=float(decode_config["squelch_threshold_db"]),
             slant_correction=bool(decode_config["decoder.slant_auto_correct"]),
