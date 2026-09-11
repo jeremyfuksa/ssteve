@@ -12,7 +12,7 @@ architecture: Modular Headless Core + FastAPI + SQLite
 
 This document defines the backend architecture, REST/WebSocket API, Python core engine, database schema, and implementation details for the SSTeVe SSTV platform.
 
-**For frontend/UI specifications, see:** `frontend-spec.md`
+**For frontend/UI specifications, see:** `frontend-contract.md`
 
 ---
 
@@ -2222,7 +2222,7 @@ sequenceDiagram
 
 > **Removed 2026-08-05.** This section previously specified a color palette,
 > typography, and motion vocabulary for a UI that has never been built, and it
-> contradicted the palette in `frontend-spec.md` §7.1. Both have been stripped so the
+> contradicted the palette in the retired `frontend-spec.md` §7.1. Both have been stripped so the
 > visual world can be chosen deliberately. See `PRODUCT.md` § Brand Commitments — the
 > visual world is recorded there as an open decision.
 >
@@ -2348,7 +2348,7 @@ sstv-core --cli --verbose --mode ScottieS1 --rx
 - Normal text: 4.5:1 minimum
 - Large text: 3:1 minimum
 - UI components: 3:1 minimum
-- Sunlight operating mode raises the floor to 7:1 (AAA) — see `frontend-spec.md` §20.5
+- Sunlight operating mode raises the floor to 7:1 (AAA) — see `frontend-contract.md` §20.5
 
 **Keyboard Navigation:**
 - All functions accessible via keyboard

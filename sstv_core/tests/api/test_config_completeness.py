@@ -65,7 +65,7 @@ class TestMappingCompleteness:
         assert accessibility <= set(_FIELD_TO_MANAGER_KEY.values())
 
     def test_mvp_guidance_toggle_is_reachable(self):
-        """frontend-spec §19.2/§19.8 marks this MVP; PR #44 shipped the engine."""
+        """frontend-contract §19.8 marks this MVP; PR #44 shipped the engine."""
         assert (
             _FIELD_TO_MANAGER_KEY.get("stereo_guidance_enabled")
             == "accessibility.stereo_guidance_enabled"

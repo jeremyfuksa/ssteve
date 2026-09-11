@@ -257,4 +257,4 @@ For full project status, see: `docs/PROJECT_STATUS.md`
 
 For backend architecture spec, see: `docs/backend-spec.md`
 
-For frontend UI spec, see: `docs/frontend-spec.md`
+For frontend UI contract, see: `docs/core/frontend-contract.md`

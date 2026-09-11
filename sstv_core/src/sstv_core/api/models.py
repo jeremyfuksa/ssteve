@@ -1114,7 +1114,7 @@ class ScanlineUpdateEvent(BaseModel):
 
 
 class SpectrumUpdateEvent(BaseModel):
-    """One waterfall row (#53, frontend-spec 20.4).
+    """One waterfall row (#53, frontend-contract 20.4).
 
     Sliced to 300-3000 Hz and quantised to integer dBFS by the producer.
     At 48 kHz with 1024 bins that is ~58 values rather than 512, because

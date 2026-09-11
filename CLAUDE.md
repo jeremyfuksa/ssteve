@@ -90,17 +90,19 @@ A December 2025 multi-perspective review of the UI settled these points (the rev
 
 Design targets **operating situations**, not user archetypes: at-the-desk monitoring, field ops, degraded signal, receive-only (SDR/SpyServer), eyes-free, and scripted/headless. The four archetypes the specs still name (Makers, Activators, Preppers, Old Guard) were unsourced spec inheritance and were replaced on 2026-08-07 — see `PRODUCT.md` "Users". Do not restore them.
 
-**The visual world has a leading proposal, not a commitment.** `DESIGN.md` documents a
-visual system proven in a working prototype at `prototype/` — read it before any UI
-work. It is measured and cited but unshipped: `sstv_desktop/` is still empty and the
-prototype is unwired to the backend. Note `DESIGN.md` describes an earlier revision
-than the current prototype in one respect, flagged in its own §1.
+**The window model is settled; the visual world is not.** One window: a fixed-cost
+activity instrument (canvas, waterfall, controls, a subordinate transmit home) with an
+elastic log region taking the remainder. Receive is the default posture and transmit
+borrows the canvas. See
+`docs/superpowers/specs/2026-08-21-single-window-activity-log-design.md` before any UI
+work. `sstv_desktop/` is still empty — nothing is built.
 
-Two contradictory palette/typography specs predated it; neither was ever implemented,
-and both were removed on 2026-08-05 (`docs/design/DESIGN_RATIONALE.md` deleted; the
-visual sections of `frontend-spec.md` §7.1/§19.6/§20.4–20.5 and `backend-spec.md` §7.1
-stripped). Do not resurrect them from git history and do not treat any surviving color
-reference as binding.
+**Three visual directions have been deleted, and none may be recovered from git
+history.** Two contradictory palette/typography specs went on 2026-08-05
+(`docs/design/DESIGN_RATIONALE.md`, plus the visual sections of the frontend and
+backend specs). A later proposal — `DESIGN.md` and a working prototype at `prototype/`
+— went on 2026-08-21 when Jeremy abandoned that direction. Do not resurrect any of
+them, and do not treat any surviving color reference as binding.
 
 ## Definition of Done
 
@@ -115,14 +117,17 @@ Work is done when, from `sstv_core/`:
 - `PRODUCT.md` — durable product truth: users, operating context, interaction
   requirements, scope, open decisions, and what must not be fabricated. **Authoritative
   where it conflicts with anything in `docs/core/`.** Read before any UI work.
-- `DESIGN.md` — the visual system, proven in `prototype/`. Read alongside `PRODUCT.md`
-  before UI work.
+- `docs/superpowers/specs/2026-08-21-single-window-activity-log-design.md` — the
+  window model (single window, fixed instrument, elastic log). Read alongside
+  `PRODUCT.md` before UI work.
 - `docs/core/backend-spec.md` — backend architecture and REST/WebSocket API contract.
   The API contract is current; its product framing is not (see the header note in the
   file).
-- `docs/core/frontend-spec.md` — UI **interaction** spec (state machines, component
-  contracts, API mappings, viewport budget). Visual prescription was removed 2026-08-05;
-  its product framing is superseded (see the header note in the file).
+- `docs/core/frontend-contract.md` — what the UI and engine agree on: API→UI mapping,
+  error and empty states, accessibility criteria, waterfall requirements, documented
+  auto-detect failure rates, Operating Conditions requirements, and the 1280×720
+  no-scroll floor. Cited by shipped source; keep section numbers stable. Replaced
+  `frontend-spec.md`, retired 2026-08-21.
 - `docs/core/openapi.json` — exported OpenAPI schema
 - `docs/BETA_LAUNCH_PLAN.md` — beta roadmap and priorities
 - `docs/status/` — phase summaries and `PROJECT_STATUS.md` (what works / what doesn't)

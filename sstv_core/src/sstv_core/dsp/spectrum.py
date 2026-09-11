@@ -1,6 +1,6 @@
 """Spectrum frames for the waterfall (#53).
 
-PRODUCT.md calls a 300-3000 Hz waterfall non-negotiable, and frontend-spec
+PRODUCT.md calls a 300-3000 Hz waterfall non-negotiable, and frontend-contract
 20.4 explains why: it is how the operator tunes. That makes it a display
 the backend has to feed *before* a decode starts, not a decoration on one.
 
@@ -23,7 +23,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-#: The band the waterfall shows (frontend-spec 20.4). Everything outside is
+#: The band the waterfall shows (frontend-contract 20.4). Everything outside is
 #: real energy the display never draws, so it is dropped here rather than
 #: sent and ignored.
 SPECTRUM_MIN_HZ = 300.0
@@ -71,7 +71,7 @@ class SpectrumProducer:
     """Turns audio blocks into waterfall rows at a bounded rate.
 
     ``compute`` is the unpaced primitive: one buffer in, one frame out.
-    ``feed`` adds the 10-20 Hz throttle from frontend-spec 20.4, because
+    ``feed`` adds the 10-20 Hz throttle from frontend-contract 20.4, because
     audio arrives in whatever blocks the source chooses -- a 48 kHz stream
     in 1024-sample chunks would otherwise produce 47 frames a second, and
     the pacing decision belongs with the producer rather than every caller.
