@@ -22,25 +22,9 @@ if TYPE_CHECKING:
     from sstv_core.decode.fsk_decoder import FSKIDResult
     from sstv_core.sdr.spyserver.client import SpyServerError
 
+from sstv_core.sdr.bands import BAND_PRESETS, FM_BANDS
+
 logger = logging.getLogger(__name__)
-
-# SSTV calling frequencies per band (PRODUCT.md "Push-button band access").
-# HF only: FM demodulation is out of scope, so the 2m entries -- 145.500
-# simplex and the 145.800 ARISS downlink -- are deliberately absent rather
-# than tuned and mis-demodulated as SSB. 20m resolves to 14.230; the other
-# common 20m frequency, 14.233, is reachable via --frequency.
-BAND_PRESETS: dict[str, int] = {
-    "80m": 3_845_000,
-    "40m": 7_171_000,
-    "20m": 14_230_000,
-    "15m": 21_340_000,
-    "10m": 28_680_000,
-}
-
-#: Bands we can name but not demodulate. Called out by name so the error
-#: says why, instead of "unknown band" for a frequency an operator can
-#: plainly see is a real SSTV calling frequency.
-FM_BANDS: frozenset[str] = frozenset({"2m"})
 
 
 #: RMS below which the receiver is effectively deaf rather than merely on

@@ -40,8 +40,24 @@ from sstv_core.decode.fsk_decoder import FSKIDResult
 from sstv_core.decode.rsv import DecodeMetrics, RSVCalculator
 from sstv_core.decode.rx_manager import RXManager, RXProgress, RXState
 from sstv_core.encode.tx_manager import TXManager, TXProgress, TXState
+from sstv_core.sdr.bands import BAND_PRESETS, FM_BANDS
+from sstv_core.sdr.source import SpyServerSource
+from sstv_core.sdr.spyserver.client import SpyServerError, StreamStalledError
 
 logger = logging.getLogger(__name__)
+
+
+class DecodeSourceError(ValueError):
+    """A decode source the request named but I can't open (#134).
+
+    A ValueError so the route's existing 400 path catches it, and carrying
+    its own suggested_action so that path stops telling a SpyServer
+    listener to check their sound cards.
+    """
+
+    def __init__(self, message: str, suggested_action: str) -> None:
+        super().__init__(message)
+        self.suggested_action = suggested_action
 
 
 def spectrum_frame_to_event(frame: Any) -> dict[str, Any]:
@@ -127,6 +143,12 @@ class DSPManager:
 
         # Accessibility guidance player per decode session (absent = disabled).
         self._guidance_players: dict[UUID, GuidancePlayer] = {}
+
+        # SpyServer source per decode session (absent = sound card). Kept
+        # so completion can read the stream's latched failure: a stream
+        # that died and a band with no SSTV on it both end with no image,
+        # and only the source can tell them apart.
+        self._sdr_sources: dict[UUID, SpyServerSource] = {}
 
         logger.info(
             "DSPManager initialized (database: %s)",
@@ -262,6 +284,80 @@ class DSPManager:
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, read)
 
+    async def _read_spyserver_config(self) -> dict:
+        """Read the saved SpyServer settings; documented defaults without a DB."""
+        from sstv_core.config.manager import SpyServerSettings
+
+        defaults = SpyServerSettings().model_dump()
+        session_factory = self._db_session_factory
+        if session_factory is None:
+            return defaults
+
+        def read() -> dict:
+            from sstv_core.config.manager import ConfigManager
+
+            with session_factory() as db_session:
+                config = ConfigManager(db_session)
+                return {
+                    key: config.get(f"spyserver.{key}", default)
+                    for key, default in defaults.items()
+                }
+
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, read)
+
+    async def _resolve_spyserver_target(
+        self, band: str | None, frequency_hz: int | None
+    ) -> dict:
+        """Return the saved SpyServer settings, tuned as the request asked.
+
+        The same precedence as the CLI: an exact frequency, else a band's
+        calling frequency, else the saved frequency. Host, port, gain and
+        stall timeout only come from config -- the shell saves a server
+        once rather than sending it with every start.
+
+        Raises:
+            DecodeSourceError: Nothing to connect to, or nothing tunable.
+
+        """
+        target = await self._read_spyserver_config()
+
+        if band is not None and frequency_hz is not None:
+            raise DecodeSourceError(
+                f"You gave me both a band ({band}) and a frequency "
+                f"({frequency_hz} Hz), and I don't know which you meant.",
+                suggested_action="Send band or frequency_hz, not both.",
+            )
+        if frequency_hz is not None:
+            target["frequency_hz"] = frequency_hz
+        elif band is not None:
+            name = band.lower()
+            hf_bands = ", ".join(sorted(BAND_PRESETS))
+            if name in FM_BANDS:
+                raise DecodeSourceError(
+                    f"I can't listen on {band} yet -- it's FM, and I only "
+                    "demodulate SSB.",
+                    suggested_action=f"Use an HF band for now: {hf_bands}.",
+                )
+            if name not in BAND_PRESETS:
+                raise DecodeSourceError(
+                    f"I don't know a calling frequency for '{band}'.",
+                    suggested_action=(
+                        f"Try one of: {hf_bands} -- or send frequency_hz."
+                    ),
+                )
+            target["frequency_hz"] = BAND_PRESETS[name]
+
+        if not target["host"]:
+            raise DecodeSourceError(
+                "I don't know which SpyServer to connect to.",
+                suggested_action=(
+                    "Save one first: PATCH /config with spyserver_host "
+                    "(and spyserver_port if it isn't 5555)."
+                ),
+            )
+        return target
+
     def _build_ptt_controller(
         self,
         ptt_config: dict,
@@ -305,6 +401,9 @@ class DSPManager:
         save_image: bool,
         callsign: str | None,
         device_id: str | None,
+        source: str = "audio",
+        band: str | None = None,
+        frequency_hz: int | None = None,
     ) -> None:
         """Start real decode operation for a session.
 
@@ -316,22 +415,52 @@ class DSPManager:
             save_image: Whether to save decoded image to disk
             callsign: Optional callsign for filename
             device_id: Audio input device ID as returned by GET /devices/audio
+            source: "audio" (sound card) or "spyserver" (saved server)
+            band: SpyServer only -- tune this band's calling frequency
+            frequency_hz: SpyServer only -- tune this exact frequency
 
         Raises:
             ValueError: If device_id matches no known audio device
+            DecodeSourceError: If the SpyServer target can't be resolved
 
         """
         logger.info(
-            "Starting decode session %s: mode=%s, auto_detect=%s, device=%s",
+            "Starting decode session %s: mode=%s, auto_detect=%s, source=%s, "
+            "device=%s, band=%s, frequency_hz=%s",
             session_id,
             mode,
             auto_detect,
+            source,
             device_id,
+            band,
+            frequency_hz,
         )
 
-        # Resolve the device BEFORE creating any state, so an unknown ID
-        # fails the request instead of silently opening the default device.
-        device_index = self._resolve_device_index(device_id)
+        # Resolve the source BEFORE creating any state, so an unknown device
+        # or an untunable band fails the request instead of silently opening
+        # the default device or starting a session that can't hear anything.
+        sdr_source: SpyServerSource | None = None
+        device_index: int | None = None
+        if source == "spyserver":
+            target = await self._resolve_spyserver_target(band, frequency_hz)
+            sdr_source = SpyServerSource(
+                host=str(target["host"]),
+                port=int(target["port"]),
+                frequency_hz=int(target["frequency_hz"]),
+                gain=None if target["gain"] is None else int(target["gain"]),
+                stall_timeout_sec=float(target["stall_timeout_sec"]),
+            )
+        else:
+            if band is not None or frequency_hz is not None:
+                raise DecodeSourceError(
+                    "Band and frequency only mean something for a SpyServer "
+                    "-- a sound card hears whatever the radio is tuned to.",
+                    suggested_action=(
+                        "Send source: spyserver, or tune the radio and drop "
+                        "band/frequency_hz."
+                    ),
+                )
+            device_index = self._resolve_device_index(device_id)
 
         # Create RX manager with the user's AFC/squelch settings -- these
         # knobs were stored and served by /config but consumed by nothing
@@ -349,7 +478,9 @@ class DSPManager:
             or (Path.home() / ".ssteve" / "images")
         ).expanduser()
         rx_mgr = RXManager(
-            stream_manager=self._stream_manager,
+            # RXManager starts and stops whichever source it is given; the
+            # SpyServer source demodulates to the same 48 kHz.
+            stream_manager=sdr_source if sdr_source is not None else self._stream_manager,
             sample_rate=48000,
             save_directory=save_directory,
             auto_afc=bool(decode_config["auto_afc"]),
@@ -378,8 +509,25 @@ class DSPManager:
         if set_spectrum is not None:
             set_spectrum(on_spectrum)
 
+        stream_ended = False
+
         def on_progress(progress: RXProgress):
             """Relay rx_manager progress updates to the event loop."""
+            nonlocal stream_ended
+            # A dead stream ends the session now, not at the timeout. The
+            # client latches the failure the moment it happens, but the
+            # listen loop has no reason to look -- the CLI once spent 3.5
+            # hours listening to a frozen buffer that way (#124). The
+            # listening heartbeat is the tick that notices; completion then
+            # reports it, because it can still tell a stall from a drop.
+            if (
+                sdr_source is not None
+                and not stream_ended
+                and sdr_source.stream_failure is not None
+            ):
+                stream_ended = True
+                _cancel = asyncio.create_task(rx_mgr.cancel())  # noqa: RUF006
+                return
             # Fire-and-forget by design: task lifetime is tied to the running loop.
             _task = asyncio.create_task(  # noqa: RUF006
                 self._handle_rx_progress(session_id, progress)
@@ -387,6 +535,8 @@ class DSPManager:
 
         rx_mgr.set_progress_callback(on_progress)
         self._rx_managers[session_id] = rx_mgr
+        if sdr_source is not None:
+            self._sdr_sources[session_id] = sdr_source
         self._session_started[session_id] = time.time()
 
         # Start decode as background task
@@ -433,6 +583,7 @@ class DSPManager:
 
         self._rx_managers.pop(session_id, None)
         self._decode_tasks.pop(session_id, None)
+        self._sdr_sources.pop(session_id, None)
 
         logger.info("Decode session %s stopped", session_id)
 
@@ -870,8 +1021,44 @@ class DSPManager:
             else:
                 # Decode failed or cancelled
                 rx_mgr = self._rx_managers.get(session_id)
+                sdr_source = self._sdr_sources.get(session_id)
+                failure = sdr_source.stream_failure if sdr_source else None
                 unsupported = rx_mgr.get_unsupported_mode() if rx_mgr else None
-                if unsupported:
+                # The stream first. A stream that died also returns no
+                # image, and checking anything else before it would report
+                # a dead link as a quiet band -- the one thing this path
+                # must never do.
+                if failure is not None:
+                    stalled = isinstance(failure, StreamStalledError)
+                    cause = (
+                        "that's the server or the radio"
+                        if stalled
+                        else "that's the network"
+                    )
+                    logger.warning(
+                        "Session %s: stream %s: %s",
+                        session_id,
+                        "stalled" if stalled else "lost",
+                        failure.message,
+                    )
+                    await session_manager.update_decode_state(
+                        session_id,
+                        DecodeState.FAILED,
+                        {"error": failure.message},
+                    )
+                    await websocket_manager.broadcast(
+                        session_id,
+                        ErrorEvent(
+                            error_code="STREAM_STALLED" if stalled else "STREAM_LOST",
+                            message=(
+                                f"{failure.message} I stopped listening -- "
+                                f"{cause}, not a weak signal."
+                            ),
+                            recoverable=True,
+                            suggested_action=failure.suggested_action or None,
+                        ).model_dump(mode="json"),
+                    )
+                elif unsupported:
                     # VIS identified the mode; we have no decoder for it yet.
                     # A clean stop with an explanation, not a FAILED session --
                     # nothing broke, the operator just needs to know why.
@@ -925,6 +1112,27 @@ class DSPManager:
                 DecodeState.STOPPED,
             )
 
+        except SpyServerError as e:
+            # Raised while opening the stream -- unreachable host, a
+            # protocol mismatch, a gain past this device's ladder. The
+            # source already wrote copy for the operator; use it rather
+            # than a bare DECODE_ERROR with no way forward.
+            logger.warning("Session %s: SpyServer unavailable: %s", session_id, e.message)
+            await session_manager.update_decode_state(
+                session_id,
+                DecodeState.FAILED,
+                {"error": e.message},
+            )
+            await websocket_manager.broadcast(
+                session_id,
+                ErrorEvent(
+                    error_code="SPYSERVER_UNAVAILABLE",
+                    message=e.message,
+                    recoverable=True,
+                    suggested_action=e.suggested_action or None,
+                ).model_dump(mode="json"),
+            )
+
         except Exception as e:
             logger.error(
                 "Decode error for session %s: %s", session_id, e, exc_info=True
@@ -947,6 +1155,7 @@ class DSPManager:
             # Cleanup
             self._rx_managers.pop(session_id, None)
             self._decode_tasks.pop(session_id, None)
+            self._sdr_sources.pop(session_id, None)
             self._session_started.pop(session_id, None)
             self._guidance_players.pop(session_id, None)
             logger.info("Decode resources cleaned up for session %s", session_id)

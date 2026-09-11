@@ -64,6 +64,13 @@ class PTTMethod(str, Enum):
     NONE = "none"
 
 
+class DecodeSource(str, Enum):
+    """Where a decode session's audio comes from (#134)."""
+
+    AUDIO = "audio"
+    SPYSERVER = "spyserver"
+
+
 class ModeDetectionRequest(BaseModel):
     """Request for mode detection from sync timing."""
 
@@ -584,6 +591,30 @@ class DecodeStartRequest(BaseModel):
         default=None,
         max_length=256,
         description="Audio input device ID (null for system default)"
+    )
+    source: DecodeSource = Field(
+        default=DecodeSource.AUDIO,
+        description=(
+            "Where to listen: 'audio' is a sound-card input (device_id), "
+            "'spyserver' is the SpyServer saved in config (spyserver_host)"
+        ),
+    )
+    band: str | None = Field(
+        default=None,
+        max_length=8,
+        description=(
+            "SpyServer only: tune a band's SSTV calling frequency "
+            "(80m, 40m, 20m, 15m, 10m)"
+        ),
+    )
+    frequency_hz: int | None = Field(
+        default=None,
+        ge=0,
+        le=4_294_967_295,
+        description=(
+            "SpyServer only: tune this exact frequency in Hz. With neither "
+            "band nor frequency_hz, the saved spyserver_frequency_hz is used"
+        ),
     )
 
     @field_validator("callsign")

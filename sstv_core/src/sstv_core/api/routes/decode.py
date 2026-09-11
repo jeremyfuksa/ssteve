@@ -265,6 +265,7 @@ async def start_decode(
             "timeout_seconds": request.timeout_seconds,
             "save_image": request.save_image,
             "callsign": request.callsign,
+            "source": request.source.value,
         }
 
         session = await session_manager.create_decode_session(metadata=metadata)
@@ -278,6 +279,9 @@ async def start_decode(
             save_image=request.save_image,
             callsign=request.callsign,
             device_id=request.device_id,
+            source=request.source.value,
+            band=request.band,
+            frequency_hz=request.frequency_hz,
         )
 
         # Build WebSocket URL
@@ -291,7 +295,8 @@ async def start_decode(
         )
 
     except ValueError as e:
-        # Unknown audio device (or other rejected input) from dsp_manager.
+        # Unknown audio device, an untunable SpyServer target, or other
+        # rejected input from dsp_manager.
         if session is not None:
             await session_manager.update_decode_state(
                 session.session_id,
@@ -304,7 +309,13 @@ async def start_decode(
             detail={
                 "error": "INVALID_REQUEST",
                 "message": str(e),
-                "suggested_action": "Check GET /devices/audio for valid device IDs.",
+                # A DecodeSourceError knows its own fix; device advice is
+                # only right for the sound-card path it was written for.
+                "suggested_action": getattr(
+                    e,
+                    "suggested_action",
+                    "Check GET /devices/audio for valid device IDs.",
+                ),
             },
         ) from e
     except RuntimeError as e:
