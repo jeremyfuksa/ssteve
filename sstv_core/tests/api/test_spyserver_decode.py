@@ -33,6 +33,7 @@ STORED = {
     "frequency_hz": 7_171_000,
     "gain": 6,
     "stall_timeout_sec": 5.0,
+    "my_stations": [],
 }
 
 

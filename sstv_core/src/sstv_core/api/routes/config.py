@@ -107,6 +107,7 @@ _FIELD_TO_MANAGER_KEY: dict[str, str] = {
     "spyserver_frequency_hz": "spyserver.frequency_hz",
     "spyserver_gain": "spyserver.gain",
     "spyserver_stall_timeout_sec": "spyserver.stall_timeout_sec",
+    "spyserver_my_stations": "spyserver.my_stations",
 }
 
 # Handled by conversion code rather than the table: ptt_method splits into

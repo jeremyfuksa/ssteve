@@ -120,6 +120,13 @@ class SpyServerSettings(BaseModel):
     # after connect.
     gain: int | None = Field(default=None, ge=0, le=63)
     stall_timeout_sec: float = Field(default=5.0, gt=0.0, le=120.0)
+    # Servers that are the operator's own receiver, as "host:port" (#69).
+    # A SpyServer is not remote because it is a SpyServer -- the owner's
+    # Airspy over the LAN is their station. Keyed by server rather than a
+    # flag on the saved host, because a flag would silently carry over to
+    # the next host saved, and a stranger's receiver would start exporting
+    # QSOs. Empty means every server is remote.
+    my_stations: list[str] = Field(default_factory=list)
 
 
 class AdvancedSettings(BaseModel):

@@ -209,6 +209,26 @@ class SSTVImage(Base):
         comment="Full DecodeMetrics as JSON"
     )
 
+    # Provenance (#69, PRODUCT.md interaction requirement 12): where this
+    # was heard, on the row itself. NULL on all three means unknown -- a
+    # row from before provenance existed, or an import -- and unknown is
+    # never promoted to "my station".
+    source: Mapped[str | None] = mapped_column(
+        String(20),
+        nullable=True,
+        comment="How the audio arrived: audio | spyserver | file | sample",
+    )
+    receiver: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        comment="The receiver that heard it, e.g. 'airspy.local:5555'",
+    )
+    heard_at: Mapped[str | None] = mapped_column(
+        String(20),
+        nullable=True,
+        comment="my_station | remote -- fixed at decode time",
+    )
+
     # Relationships
     qsos: Mapped[list[QSO]] = relationship(
         "QSO",
@@ -260,6 +280,10 @@ class SSTVImage(Base):
             "rsv_signal": self.rsv_signal,
             "rsv_video": self.rsv_video,
             "rsv_report": self.rsv_report,
+            # Provenance
+            "source": self.source,
+            "receiver": self.receiver,
+            "heard_at": self.heard_at,
         }
 
 
@@ -303,6 +327,16 @@ class QSO(Base):
 
     # Direction: True = we initiated, False = they initiated
     is_sent: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    # What kind of record this is (#69): qso | reception_report |
+    # remote_reception. Only "qso" ever reaches ADIF -- a remote reception
+    # exported as a contact would put a QSO that never happened into LoTW.
+    record_type: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default="qso",
+        server_default="qso",
+    )
 
     # Relationships
     images: Mapped[list[SSTVImage]] = relationship(
@@ -561,11 +595,45 @@ def init_database(
 
     """
     engine = create_db_engine(db_path, echo=echo)
+    # Upgrade first. create_all never adds a column to a table that
+    # already exists, so an install created before a migration would
+    # otherwise keep its old tables and fail every query that selects
+    # the new column. A fresh database has no version yet and is skipped
+    # here; create_all builds it at head and the stamp records that.
+    _upgrade_to_head(engine)
     Base.metadata.create_all(engine)
     _stamp_alembic_head(engine)
 
     session_factory = create_session_factory(engine)
     return engine, session_factory
+
+
+def _upgrade_to_head(engine: Engine) -> None:
+    """Run pending migrations on a database that has a recorded version.
+
+    Raises rather than logging: an install left half-migrated would open
+    and then fail on its first image query, far from the cause.
+    """
+    from alembic import command
+    from alembic.config import Config
+    from sqlalchemy import inspect, text
+
+    if "alembic_version" not in inspect(engine).get_table_names():
+        return
+    with engine.connect() as connection:
+        current = connection.execute(
+            text("SELECT version_num FROM alembic_version")
+        ).scalar()
+    if current is None:
+        return
+
+    config = Config()
+    config.set_main_option(
+        "script_location", str(Path(__file__).resolve().parent / "migrations")
+    )
+    with engine.begin() as connection:
+        config.attributes["connection"] = connection
+        command.upgrade(config, "head")
 
 
 def _stamp_alembic_head(engine: Engine) -> None:

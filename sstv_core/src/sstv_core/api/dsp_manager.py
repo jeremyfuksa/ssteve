@@ -47,6 +47,20 @@ from sstv_core.sdr.spyserver.client import SpyServerError, StreamStalledError
 logger = logging.getLogger(__name__)
 
 
+def station_key(entry: str) -> str:
+    """Normalize "Host[:port]" so a saved station matches the server in use.
+
+    Case and a missing default port are the differences an operator would
+    not think of as a different server. Anything else -- an IP where the
+    hostname was saved -- stays a mismatch, which reads as remote: the
+    direction that can only withhold an export, never invent one.
+    """
+    host, _, port = entry.strip().lower().rpartition(":")
+    if not host or not port.isdigit():
+        return f"{entry.strip().lower()}:5555"
+    return f"{host}:{port}"
+
+
 class DecodeSourceError(ValueError):
     """A decode source the request named but I can't open (#134).
 
@@ -149,6 +163,12 @@ class DSPManager:
         # that died and a band with no SSTV on it both end with no image,
         # and only the source can tell them apart.
         self._sdr_sources: dict[UUID, SpyServerSource] = {}
+
+        # Where each decode session is listening, written onto the image
+        # row at completion (#69). Fixed at start: whether a receiver is
+        # the operator's own is a fact about when the picture was heard,
+        # and a later config change must not rewrite it.
+        self._provenance: dict[UUID, dict[str, Any]] = {}
 
         logger.info(
             "DSPManager initialized (database: %s)",
@@ -463,6 +483,16 @@ class DSPManager:
                 gain=None if target["gain"] is None else int(target["gain"]),
                 stall_timeout_sec=float(target["stall_timeout_sec"]),
             )
+            receiver = station_key(f"{target['host']}:{target['port']}")
+            own = {station_key(s) for s in target["my_stations"]}
+            provenance: dict[str, Any] = {
+                "source": "spyserver",
+                "receiver": receiver,
+                # Remote unless the operator named this server as theirs.
+                # Being wrong in this direction only withholds an export.
+                "heard_at": "my_station" if receiver in own else "remote",
+                "frequency_hz": int(target["frequency_hz"]),
+            }
         else:
             if band is not None or frequency_hz is not None:
                 raise DecodeSourceError(
@@ -474,6 +504,15 @@ class DSPManager:
                     ),
                 )
             device_index = self._resolve_device_index(device_id)
+            # A sound card is the operator's own radio. PRODUCT.md exists
+            # partly to kill the virtual-cable chain that would make this
+            # untrue (a WebSDR piped into an input), so it is not guarded.
+            provenance = {
+                "source": "audio",
+                "receiver": None,
+                "heard_at": "my_station",
+                "frequency_hz": None,
+            }
 
         # Create RX manager with the user's AFC/squelch settings -- these
         # knobs were stored and served by /config but consumed by nothing
@@ -559,6 +598,7 @@ class DSPManager:
         self._rx_managers[session_id] = rx_mgr
         if sdr_source is not None:
             self._sdr_sources[session_id] = sdr_source
+        self._provenance[session_id] = provenance
         self._session_started[session_id] = time.time()
 
         # Start decode as background task
@@ -606,6 +646,7 @@ class DSPManager:
         self._rx_managers.pop(session_id, None)
         self._decode_tasks.pop(session_id, None)
         self._sdr_sources.pop(session_id, None)
+        self._provenance.pop(session_id, None)
 
         logger.info("Decode session %s stopped", session_id)
 
@@ -1178,6 +1219,7 @@ class DSPManager:
             self._rx_managers.pop(session_id, None)
             self._decode_tasks.pop(session_id, None)
             self._sdr_sources.pop(session_id, None)
+            self._provenance.pop(session_id, None)
             self._session_started.pop(session_id, None)
             self._guidance_players.pop(session_id, None)
             logger.info("Decode resources cleaned up for session %s", session_id)
@@ -1217,6 +1259,9 @@ class DSPManager:
             mode = metadata.get("mode", "Unknown")
             callsign = metadata.get("callsign")
             signal_quality = metadata.get("signal_quality", 0.0)
+            # Absent only for a session this manager didn't start, which
+            # leaves the row's provenance NULL -- unknown, never guessed.
+            provenance = self._provenance.get(session_id, {})
 
             # Create database record in thread pool (SQLAlchemy is synchronous)
             from sstv_core.database.models import SSTVImage
@@ -1268,6 +1313,10 @@ class DSPManager:
                         callsign=record_callsign,
                         rx_quality_score=signal_quality,
                         is_received=True,  # This is a received image
+                        source=provenance.get("source"),
+                        receiver=provenance.get("receiver"),
+                        heard_at=provenance.get("heard_at"),
+                        frequency_hz=provenance.get("frequency_hz"),
                         **rsv_kwargs,
                         **fskid_kwargs,
                     )

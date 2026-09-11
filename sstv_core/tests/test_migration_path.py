@@ -56,3 +56,51 @@ def test_upgrade_head_is_a_noop_on_app_created_database(tmp_path, monkeypatch):
     config.set_main_option("script_location", str(MIGRATIONS_DIR))
     # Previously: OperationalError, "table configurations already exists".
     command.upgrade(config, "head")
+
+
+def _columns(engine, table: str) -> set[str]:
+    from sqlalchemy import inspect
+
+    return {c["name"] for c in inspect(engine).get_columns(table)}
+
+
+def test_existing_install_gains_new_columns_on_open(tmp_path):
+    """An install from before a migration must be upgraded when it opens.
+
+    create_all never adds a column to a table that exists, and the stamp
+    only writes a version where none exists -- so before #69 an old
+    database kept its old tables forever and failed the first query that
+    selected a new column. Reproduced here by downgrading a fresh database
+    to the revision every pre-provenance install is stamped at.
+    """
+    from alembic import command
+    from alembic.config import Config
+
+    from sstv_core.database.models import QSO
+
+    db_path = tmp_path / "old.db"
+    engine, _ = init_database(db_path=db_path)
+    config = Config()
+    config.set_main_option("script_location", str(MIGRATIONS_DIR))
+    with engine.begin() as connection:
+        config.attributes["connection"] = connection
+        command.downgrade(config, "2026011601")
+        connection.execute(
+            text(
+                "INSERT INTO qsos (start_time, mode, callsign, is_sent) "
+                "VALUES ('2026-08-01 12:00:00', 'ScottieS1', 'KG5JJ', 0)"
+            )
+        )
+    assert "record_type" not in _columns(engine, "qsos")
+    engine.dispose()
+
+    engine, session_factory = init_database(db_path=db_path)
+
+    assert {"source", "receiver", "heard_at"} <= _columns(engine, "sstv_images")
+    assert "record_type" in _columns(engine, "qsos")
+    with engine.connect() as connection:
+        version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar()
+    assert version == _current_head()
+    with session_factory() as session:
+        # A contact logged before record types existed stays a contact.
+        assert [q.record_type for q in session.query(QSO).all()] == ["qso"]

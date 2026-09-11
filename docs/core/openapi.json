@@ -480,6 +480,14 @@
             "title": "Spyserver Host",
             "type": "string"
           },
+          "spyserver_my_stations": {
+            "description": "SpyServers that are your own receiver, as 'host:port'. Decodes from any other server are remote receptions and never export as QSOs",
+            "items": {
+              "type": "string"
+            },
+            "title": "Spyserver My Stations",
+            "type": "array"
+          },
           "spyserver_port": {
             "default": 5555,
             "description": "SpyServer TCP port",
@@ -1288,6 +1296,18 @@
             "description": "Whether an FSKID burst was found",
             "title": "Fskid Detected"
           },
+          "heard_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "my_station | remote. Signal figures on a remote row are real measurements of someone else's path",
+            "title": "Heard At"
+          },
           "height": {
             "anyOf": [
               {
@@ -1341,6 +1361,18 @@
             ],
             "description": "Measured peak input amplitude (0-1)",
             "title": "Peak Amplitude"
+          },
+          "receiver": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The receiver that heard it, e.g. 'airspy.local:5555'",
+            "title": "Receiver"
           },
           "rsv_readability": {
             "anyOf": [
@@ -1421,6 +1453,18 @@
             ],
             "description": "Signal quality (RX only)",
             "title": "Snr Db"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How the audio arrived: audio | spyserver | file | sample",
+            "title": "Source"
           },
           "thumbnail_path": {
             "anyOf": [
@@ -1626,6 +1670,17 @@
             ],
             "description": "Override mode",
             "title": "Mode"
+          },
+          "record_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RecordType"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What this entry claims. Defaults to qso, or remote_reception for a picture heard at someone else's receiver -- which can't be logged as anything else"
           },
           "report": {
             "anyOf": [
@@ -2039,6 +2094,9 @@
             "title": "Mode",
             "type": "string"
           },
+          "record_type": {
+            "$ref": "#/components/schemas/RecordType"
+          },
           "report": {
             "anyOf": [
               {
@@ -2065,10 +2123,21 @@
           "end_time",
           "report",
           "comments",
-          "is_sent"
+          "is_sent",
+          "record_type"
         ],
         "title": "QSOResponse",
         "type": "object"
+      },
+      "RecordType": {
+        "description": "What a log entry claims (PRODUCT.md interaction requirement 12).",
+        "enum": [
+          "qso",
+          "reception_report",
+          "remote_reception"
+        ],
+        "title": "RecordType",
+        "type": "string"
       },
       "SSTVMode": {
         "description": "Supported SSTV modes.",
@@ -3300,6 +3369,25 @@
               "description": "Filter by callsign",
               "title": "Callsign"
             }
+          },
+          {
+            "description": "Filter by how the audio arrived",
+            "in": "query",
+            "name": "source",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^(audio|spyserver|file|sample)$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by how the audio arrived",
+              "title": "Source"
+            }
           }
         ],
         "responses": {
@@ -3725,7 +3813,7 @@
     },
     "/api/v1/qso/list": {
       "get": {
-        "description": "List QSOs with filtering and pagination.\n\nArgs:\n    limit: Maximum number of QSOs to return\n    offset: Offset for pagination\n    callsign_filter: Optional callsign substring filter\n    start_date: Optional start date filter\n    end_date: Optional end date filter\n    db: Database session\n\nReturns:\n    Paginated list of QSOs",
+        "description": "List QSOs with filtering and pagination.\n\nArgs:\n    limit: Maximum number of QSOs to return\n    offset: Offset for pagination\n    callsign_filter: Optional callsign substring filter\n    start_date: Optional start date filter\n    end_date: Optional end date filter\n    record_type: Optional record type filter\n    db: Database session\n\nReturns:\n    Paginated list of QSOs",
         "operationId": "list_qsos_api_v1_qso_list_get",
         "parameters": [
           {
@@ -3796,6 +3884,22 @@
                 }
               ],
               "title": "End Date"
+            }
+          },
+          {
+            "in": "query",
+            "name": "record_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/RecordType"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Record Type"
             }
           }
         ],

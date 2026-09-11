@@ -504,6 +504,31 @@ GET /images/{id}
     metadata: object
 ```
 
+#### Record provenance (#69)
+
+PRODUCT.md interaction requirement 12: every record says where it was heard.
+
+```yaml
+ImageMetadata (GET /images, GET /images/{id}) adds:
+  source: "audio" | "spyserver" | "file" | "sample" | null   # null = unknown
+  receiver: string | null      # e.g. "airspy.local:5555"
+  heard_at: "my_station" | "remote" | null   # fixed at decode time
+GET /images?source=spyserver   # filter by source
+
+QSOResponse (POST /qso/log, GET /qso/list, GET /qso/{id}) adds:
+  record_type: "qso" | "reception_report" | "remote_reception"
+POST /qso/log accepts record_type (default qso; remote_reception for a
+  remote picture, which refuses anything else with 400
+  RECORD_TYPE_NOT_ALLOWED; a sample picture can't be logged at all)
+GET /qso/list?record_type=...
+GET /qso/export               # ADIF: record_type "qso" only
+```
+
+"Remote" is decided per server, never by transport. A SpyServer listed in
+`spyserver_my_stations` (config, `"host:port"`) is the operator's own
+station. Every other server is remote. Case and a missing default port are
+normalized; an IP where a hostname was saved is not, and reads as remote.
+
 #### Device Management
 
 ```yaml
