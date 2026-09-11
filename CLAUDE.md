@@ -114,6 +114,12 @@ Work is done when, from `sstv_core/`:
 
 ## Docs to Reference
 
+- `docs/PROCESS.md` — how work is filed, labelled, milestoned and released.
+  Labels on four axes; milestones are releases (`v0.1.0` … `v1.0.0`); goals and
+  epics are never milestoned; intent lives on the project board's `Horizon`
+  field. Read before opening an issue or a PR.
+- `moscow.md` — scope as Must / Should / Could, with each claim annotated against
+  what the code actually does. Drafted 2026-08-21.
 - `PRODUCT.md` — durable product truth: users, operating context, interaction
   requirements, scope, open decisions, and what must not be fabricated. **Authoritative
   where it conflicts with anything in `docs/core/`.** Read before any UI work.

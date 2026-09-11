@@ -1,0 +1,46 @@
+name: Feature
+description: A new capability, or a change to one
+labels: ["feat"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        One shippable change. If it spans releases it is an epic — label it
+        `epic`, leave it out of a milestone, and attach children as sub-issues.
+        See [PROCESS.md](../blob/main/docs/PROCESS.md).
+  - type: textarea
+    id: story
+    attributes:
+      label: User story
+      description: >
+        Situation first. SSTeVe designs for operating situations, not user
+        types — at the desk, field ops, degraded signal, receive-only,
+        eyes-free, scripted.
+      placeholder: When I'm listening on a band that keeps fading, I want ... so that ...
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance
+      description: What has to be true. Each line should be checkable by someone else.
+      placeholder: |
+        - [ ] ...
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence and citations
+      description: >
+        Where this comes from — `file.py:line`, a spec section, a measurement,
+        a live session. A claim you cannot anchor is a guess; say so if it is one.
+    validations:
+      required: false
+  - type: input
+    id: area
+    attributes:
+      label: Area
+      description: engine, sdr, api, desktop, cli, ci, accessibility — add the label too.
+    validations:
+      required: false
