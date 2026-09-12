@@ -24,6 +24,7 @@ from sstv_core.api.models import (
     ModeDetectionResponse,
 )
 from sstv_core.api.session_manager import (
+    ConcurrentOperationError,
     concurrent_operation_detail,
     session_manager,
 )
@@ -334,7 +335,7 @@ async def start_decode(
             )
             await dsp_manager.stop_decode(session.session_id)
         # Half-duplex constraint violated
-        if "already active" in str(e) or "half-duplex" in str(e):
+        if isinstance(e, ConcurrentOperationError):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=concurrent_operation_detail(str(e)),

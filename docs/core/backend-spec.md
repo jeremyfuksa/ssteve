@@ -362,10 +362,10 @@ Response: HTTP 409 Conflict
 {
   "error": "CONCURRENT_OPERATION",
   "error_code": 6004,
-  "message": "A decode session is already active. Stop the current session before starting a new one.",
+  "message": "A decode is already running, and the radio can only do one thing at a time. Stop it before starting another.",
   "active_session_id": "abc-123-def-456",
   "recoverable": true,
-  "suggested_action": "Stop current decode/transmit before starting new operation"
+  "suggested_action": "Stop the active session before starting a new one."
 }
 ```
 
@@ -377,11 +377,11 @@ Response: HTTP 409 Conflict
 {
   "error": "CONCURRENT_OPERATION",
   "error_code": 6004,
-  "message": "Cannot transmit while decode session is active (half-duplex constraint).",
+  "message": "I'm listening, and the radio can only do one thing at a time. Stop listening before you transmit.",
   "active_session_id": "xyz-789-ghi-012",
   "session_type": "decode",
   "recoverable": true,
-  "suggested_action": "Stop decode session before transmitting"
+  "suggested_action": "Stop the active session before starting a new one."
 }
 ```
 
