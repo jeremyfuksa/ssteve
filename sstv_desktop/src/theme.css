@@ -1,0 +1,135 @@
+/* SSTeVe's provisional visual direction (#152).
+ *
+ * PRODUCT.md leaves the visual world undecided and forbids reviving the three
+ * deleted directions. This is deliberately a token set, not a style spread
+ * through the components, so changing the direction later is editing this file.
+ *
+ * The argument it makes: an instrument panel. A picture arriving out of noise
+ * is the only bright thing; the chrome is anodised metal and gets out of the
+ * way. One accent — dial-lamp amber — and it means "signal", never decoration.
+ */
+
+:root {
+  --ink: #10161b; /* unlit CRT */
+  --panel: #1a2228;
+  --panel-high: #222c34;
+  --edge: #2a353d; /* hairlines, only where they divide function */
+  --text: #dce4e8;
+  --muted: #8a9aa5;
+  --signal: #f2b63c; /* dial-lamp amber: signal present, active control */
+  --alert: #e2593b; /* the stream died; not "an error happened" */
+
+  --gap: 12px;
+  --strip-waterfall: 64px;
+  --strip-controls: 48px;
+
+  --mono: ui-monospace, "SF Mono", "Menlo", monospace;
+  --ui: system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  color-scheme: dark;
+}
+
+/* Operating Conditions (frontend-contract §20.5) are operational, not
+ * decorative: Night Vision protects scotopic adaptation, Sunlight needs 7:1.
+ * v0.1 ships Standard; the hooks live here so the others are a token swap. */
+:root[data-conditions="night"] {
+  --ink: #0b0d0e;
+  --panel: #14100d;
+  --panel-high: #1c1611;
+  --edge: #2a1d12;
+  --text: #e8c9a0;
+  --muted: #a8805a;
+  --signal: #ff9d2e;
+  --alert: #ff6b4a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  overflow: hidden; /* requirement 10: the main shell does not scroll */
+}
+
+body {
+  background: var(--ink);
+  color: var(--text);
+  font: 13px/1.45 var(--ui);
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font: inherit;
+  color: var(--text);
+  background: var(--panel-high);
+  border: 1px solid var(--edge);
+  border-radius: 3px;
+  padding: 6px 14px;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--muted);
+}
+
+button:disabled {
+  /* A disabled Listen must not read as the primary action waiting to be
+     pressed: drop the fill, not just the opacity. */
+  opacity: 0.5;
+  cursor: default;
+  background: transparent;
+  border-color: var(--edge);
+  color: var(--muted);
+}
+
+button.primary {
+  background: var(--signal);
+  border-color: var(--signal);
+  color: #1b1405;
+  font-weight: 600;
+}
+
+/* After .primary on purpose: a class selector of equal specificity defined
+   later wins, so without this a disabled Listen stays fully amber. */
+button.primary:disabled {
+  background: transparent;
+  border-color: var(--edge);
+  color: var(--muted);
+}
+
+button.stop {
+  background: transparent;
+  border-color: var(--alert);
+  color: var(--alert);
+}
+
+:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+}
+
+input,
+select {
+  font: inherit;
+  color: var(--text);
+  background: var(--ink);
+  border: 1px solid var(--edge);
+  border-radius: 3px;
+  padding: 5px 8px;
+}
+
+.mono {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}
