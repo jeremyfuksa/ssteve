@@ -59,6 +59,9 @@ the picture as it arrives. Receive only — transmit is v0.2.
 - **A half-duplex conflict reads plainly** and no longer leads with a session
   UUID the operator sees nowhere else. The id is still in the response for a
   client that wants to offer "stop that one and retry".
+- **The log shows a picture the moment it appears on disk**, whether this
+  window decoded it or something else put it there. The engine has always
+  announced it; the window was not listening.
 - **The window catches up after losing touch with the engine.** If the
   connection dropped while a decode was running and the decode ended during
   the gap, the window used to go on showing "Listening" for something that
