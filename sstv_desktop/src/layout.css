@@ -1,0 +1,276 @@
+/* Layout: a fixed-cost instrument, an elastic log.
+ * docs/superpowers/specs/2026-08-21-single-window-activity-log-design.md
+ *
+ * Named layout.css rather than app.css on purpose: macOS is case-insensitive,
+ * so app.css and the template's App.css are the same file.
+ */
+
+.shell {
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  height: 100%;
+}
+
+/* --------------------------------- bar ---------------------------------- */
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: var(--gap);
+  padding: 8px var(--gap);
+  background: var(--panel);
+  border-bottom: 1px solid var(--edge);
+}
+
+.receiver {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--muted);
+}
+
+.receiver .mono {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The lamp is the only thing that moves on its own, and it means one thing:
+ * the receiver is open. */
+.lamp {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--edge);
+  flex: none;
+}
+
+.lamp.on {
+  background: var(--signal);
+  box-shadow: 0 0 8px var(--signal);
+}
+
+.tag {
+  font-size: 11px;
+  color: var(--muted);
+  border: 1px solid var(--edge);
+  border-radius: 2px;
+  padding: 1px 5px;
+  white-space: nowrap;
+}
+
+.bands {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.band {
+  padding: 5px 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.band.on {
+  border-color: var(--signal);
+  color: var(--signal);
+}
+
+/* ----------------------------- instrument ------------------------------- */
+
+.instrument {
+  background: var(--panel);
+  border-bottom: 1px solid var(--edge);
+  padding: var(--gap) var(--gap) 0;
+}
+
+.canvas-frame {
+  display: flex;
+  justify-content: center;
+  padding-bottom: var(--gap);
+}
+
+.canvas-frame canvas {
+  background: #0b0f12;
+  border: 1px solid var(--edge);
+}
+
+.waterfall {
+  display: block;
+  width: 100%;
+  height: var(--strip-waterfall);
+  background: var(--ink);
+  border: 1px solid var(--edge);
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  height: var(--strip-controls);
+}
+
+.control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+}
+
+.control input[type="range"] {
+  width: 120px;
+  accent-color: var(--signal);
+}
+
+.control .value {
+  color: var(--text);
+  min-width: 48px;
+}
+
+.control.checkbox input {
+  accent-color: var(--signal);
+}
+
+.spacer {
+  flex: 1;
+}
+
+.status {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0;
+  text-align: right;
+}
+
+.status .mono,
+.status .muted {
+  color: var(--muted);
+}
+
+.status.failed {
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-end;
+  color: var(--alert);
+}
+
+.status.failed .muted {
+  color: var(--muted);
+}
+
+/* -------------------------------- log ----------------------------------- */
+
+.log {
+  overflow: auto; /* the one region allowed to scroll */
+  padding: var(--gap);
+}
+
+.rows {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: var(--gap);
+  align-content: start;
+}
+
+.row {
+  margin: 0;
+  background: var(--panel);
+  border: 1px solid var(--edge);
+}
+
+.row img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 5 / 4;
+  object-fit: cover;
+  background: var(--ink);
+  border-bottom: 1px solid var(--edge);
+}
+
+.row figcaption {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  padding: 6px 8px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.row .call {
+  color: var(--text);
+}
+
+/* Provenance is on the row, not in a detail panel (PRODUCT.md 12). A remote
+ * reception is marked because it is a different claim, not a lesser one. */
+.row .where.remote {
+  color: var(--signal);
+}
+
+.empty,
+.engine-down {
+  color: var(--muted);
+  margin: 0 0 var(--gap);
+}
+
+.engine-down {
+  color: var(--alert);
+}
+
+/* ------------------------------ settings -------------------------------- */
+
+.scrim {
+  position: fixed;
+  inset: 0;
+  background: #05080acc;
+  display: grid;
+  place-items: center;
+}
+
+.panel {
+  width: min(420px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  padding: 18px;
+  display: grid;
+  gap: 12px;
+}
+
+.panel h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.panel label {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+}
+
+.panel label.checkbox {
+  grid-auto-flow: column;
+  justify-content: start;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+}
+
+.panel .note {
+  margin: 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.panel .failed {
+  margin: 0;
+  color: var(--alert);
+}
+
+.panel .actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}

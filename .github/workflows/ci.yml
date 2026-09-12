@@ -126,3 +126,35 @@ jobs:
 
       - name: Run slow tests
         run: uv run pytest -q -m slow
+
+  # The desktop shell. A new job rather than a rename: branch protection requires
+  # `fast` and `slow` by name, and renaming a required job blocks every merge until
+  # the required-checks list is updated (2026-08-19). This one is not required, so a
+  # red build here is visible without wedging the repository.
+  desktop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: sstv_desktop
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: sstv_desktop/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Types and the production build only. The Rust side needs a GTK/webkit
+      # toolchain on Linux that takes longer to install than this job takes to
+      # run, and nothing here changes it yet; add a `tauri build` job when the
+      # sidecar packaging lands (#143).
+      - name: Check types
+        run: npx tsc --noEmit
+
+      - name: Build
+        run: npm run build
