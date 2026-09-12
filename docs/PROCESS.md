@@ -19,7 +19,7 @@ unenforced rules are the ones to suspect first when reality disagrees.
 | What is in this release? | The milestone |
 | When might this happen, if ever? | The project board's `Horizon` field |
 | Where is this right now? | The project board's `Status` field |
-| What changed for a user? | `CHANGELOG.md` (arrives with #154) |
+| What changed for a user? | `CHANGELOG.md` |
 | Is this branch finished? | It does not exist — merged branches are deleted |
 
 Where two objects could answer the same question, one of them is wrong. The
@@ -199,9 +199,33 @@ looking at the picture.
 
 ## 10. Release
 
-Deferred until #154, which brings the changelog, an advisory PR preflight and a
-tag gate that blocks on an unfinished milestone. Until then a release is
-whatever this document says it is, which is exactly the weakness #154 closes.
+**Write the changelog entry in the PR that makes the change.** `CHANGELOG.md`
+holds what an operator would notice; if nobody would, leave it out. The entry
+is cheap now and expensive later: reconstructing one at release time is how
+five user-visible fixes went missing from Bearpaw 1.1, because by then nobody
+could tell which commits had a user on the other end.
+
+Three things enforce this, and only one of them blocks:
+
+| | When | Blocks? |
+|---|---|---|
+| `preflight` (`.github/workflows/pr-preflight.yml`) | every PR | **No — and it must never be made required.** A required check that does not run on every PR makes those PRs permanently unmergeable. |
+| `release gate` (`.github/workflows/release-gate.yml`) | `v*` tags | **Yes.** No release is built until it passes. |
+| `scripts/release_status.py` | whenever you ask | n/a — it is what the gate runs |
+
+Before tagging, ask:
+
+```bash
+python3 scripts/release_status.py v0.1.0     # --offline skips the milestone check
+```
+
+It answers in one screen: do the four version strings agree
+(`pyproject.toml`, `package.json`, `tauri.conf.json`, `Cargo.toml` — all four
+ship), does `CHANGELOG.md` have a non-empty section for the version, does the
+milestone exist and has it reached zero. Exit 0 means a tag would be safe.
+
+The gate runs that same script rather than reimplementing it, so the answer
+before you tag is the answer after.
 
 ## When a rule here disagrees with reality
 
