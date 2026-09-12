@@ -5,8 +5,46 @@
  * socket events are not in the OpenAPI export because they are not HTTP.
  */
 
-export const BASE = "http://127.0.0.1:8000/api/v1";
-const WS = "ws://127.0.0.1:8000/api/v1";
+/** Where the engine is.
+ *
+ * The shell starts the engine on a port it picks, so the window has to ask
+ * rather than assume -- two copies of the app must not fight over 8000.
+ * Outside Tauri (a browser, for layout work) the default is what a developer
+ * running `uv run sstv-server` gets.
+ */
+const FALLBACK_ORIGIN = "http://127.0.0.1:8000";
+
+let origin = FALLBACK_ORIGIN;
+
+export async function locateEngine(): Promise<string> {
+  // Ask first, decide afterwards. Checking for Tauri before asking cost the
+  // real reason: the window reported a generic "can't reach it" while the
+  // shell knew the engine had exited with status 1.
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    origin = await invoke<string>("engine_base_url");
+  } catch {
+    // Either a plain browser (layout work) or an app whose engine did not
+    // start. Both fall back to the developer's port; the difference shows up
+    // when a request fails, and `engineProblem` answers it then. Detecting
+    // Tauri up front looked simpler and was wrong: isTauri() reported false
+    // inside the real window.
+  }
+  return origin;
+}
+
+/** What the shell knows about why the engine is missing, if anything. */
+export async function engineProblem(): Promise<string | null> {
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    return (await invoke<string | null>("engine_problem")) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export const BASE = () => `${origin}/api/v1`;
+const WS = () => `${origin.replace(/^http/, "ws")}/api/v1`;
 
 export const BANDS = ["80m", "40m", "20m", "15m", "10m"] as const;
 export type Band = (typeof BANDS)[number];
@@ -70,7 +108,7 @@ export class CoreError extends Error {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(`${BASE}${path}`, {
+    response = await fetch(`${BASE()}${path}`, {
       ...init,
       headers: { "content-type": "application/json", ...(init?.headers ?? {}) },
     });
@@ -147,7 +185,8 @@ export const adjustDecode = (
 export const listImages = (limit = 40) =>
   request<{ images: ImageRow[]; total: number }>(`/images?limit=${limit}`);
 
-export const imageUrl = (path: string) => `http://127.0.0.1:8000${path}`;
+/** An <img src> for a path the API gave us, on whichever port it is on. */
+export const imageUrl = (path: string) => `${origin}${path}`;
 
 /* ----------------------------- socket events ----------------------------- */
 
@@ -217,12 +256,12 @@ export function watchSession(
   sessionId: string,
   onEvent: (event: SessionEvent) => void,
 ): () => void {
-  return reconnecting(`${WS}/ws/decode/${sessionId}`, onEvent);
+  return reconnecting(`${WS()}/ws/decode/${sessionId}`, onEvent);
 }
 
 /** Subscribe to the app channel, which carries the waterfall. */
 export function watchApp(onEvent: (event: SpectrumUpdate | { event_type: string }) => void) {
-  return reconnecting(`${WS}/ws`, onEvent);
+  return reconnecting(`${WS()}/ws`, onEvent);
 }
 
 function reconnecting(url: string, onEvent: (event: any) => void): () => void {

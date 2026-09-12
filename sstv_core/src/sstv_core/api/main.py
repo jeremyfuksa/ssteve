@@ -329,14 +329,37 @@ app = create_app()
 def run_server() -> None:
     """Run the API server (CLI entry point).
 
-    Configured in pyproject.toml as 'sstv-server' command.
+    Configured in pyproject.toml as 'sstv-server', and the entry the desktop
+    shell spawns as a sidecar (#143).
+
+    Host and port come from --host/--port or SSTVE_HOST/SSTVE_PORT, so the
+    shell can hand it a port it picked rather than racing another instance
+    for 8000. The defaults are unchanged, so every existing command works as
+    before.
     """
+    import argparse
+    import os
+
     import uvicorn
+
+    parser = argparse.ArgumentParser(prog="sstv-server", description="SSTeVe engine")
+    parser.add_argument(
+        "--host",
+        default=os.environ.get("SSTVE_HOST", "127.0.0.1"),
+        help="Interface to bind. Loopback by design: this is a local engine.",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=int(os.environ.get("SSTVE_PORT", "8000")),
+        help="Port to bind (default 8000).",
+    )
+    arguments = parser.parse_args()
 
     uvicorn.run(
         "sstv_core.api.main:app",
-        host="127.0.0.1",
-        port=8000,
+        host=arguments.host,
+        port=arguments.port,
         # Not a dev server: auto-reload in the production console entry
         # restarted mid-transmission on any file change.
         reload=False,

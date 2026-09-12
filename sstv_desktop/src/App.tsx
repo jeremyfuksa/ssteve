@@ -6,6 +6,8 @@ import {
   getConfig,
   imageUrl,
   listImages,
+  engineProblem,
+  locateEngine,
   patchConfig,
   startFileDecode,
   startSpyServerDecode,
@@ -54,6 +56,7 @@ export default function App() {
   const [completedUrl, setCompletedUrl] = useState<string | null>(null);
   const [images, setImages] = useState<ImageRow[]>([]);
   const [engineError, setEngineError] = useState<string | null>(null);
+  const [engineAction, setEngineAction] = useState<string | null>(null);
   const [gain, setGain] = useState(1);
   const [squelch, setSquelch] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -68,18 +71,36 @@ export default function App() {
     }
   }, []);
 
+  const [starting, setStarting] = useState(true);
+
   useEffect(() => {
-    getConfig()
-      .then((loaded) => {
+    let stopWatching: (() => void) | undefined;
+    // Find the engine first: the shell starts it on a port it picks, so
+    // nothing can be fetched until we know where it is.
+    locateEngine()
+      .then(async () => {
+        const loaded = await getConfig();
         setConfig(loaded);
         setEngineError(null);
         if (loaded.input_gain_override) setGain(loaded.input_gain_override);
+        await refreshImages();
+        stopWatching = watchApp((event) => {
+          if (event.event_type === "spectrum_update") setSpectrum(event as SpectrumUpdate);
+        });
       })
-      .catch((error: CoreError) => setEngineError(error.message));
-    refreshImages();
-    return watchApp((event) => {
-      if (event.event_type === "spectrum_update") setSpectrum(event as SpectrumUpdate);
-    });
+      .catch(async (error: CoreError) => {
+        // The shell may know more than "I can't reach it" -- that the engine
+        // exited with a status, or is missing from the build.
+        const known = await engineProblem();
+        setEngineError(known ? `The SSTeVe engine didn't start: ${known}.` : error.message);
+        setEngineAction(
+          known
+            ? "Quit and reopen SSTeVe. If it keeps happening, this build's engine is broken."
+            : (error.suggestedAction ?? null),
+        );
+      })
+      .finally(() => setStarting(false));
+    return () => stopWatching?.();
   }, [refreshImages]);
 
   /** Start a decode and follow it. The starter decides where the audio comes
@@ -260,8 +281,14 @@ export default function App() {
       </section>
 
       <section className="log" aria-label="Log">
-        {engineError && <p className="engine-down">{engineError}</p>}
-        {!engineError && images.length === 0 && (
+        {starting && !engineError && <p className="empty">Starting the engine…</p>}
+        {engineError && (
+          <p className="engine-down">
+            {engineError}
+            {engineAction && <span className="muted"> {engineAction}</span>}
+          </p>
+        )}
+        {!starting && !engineError && images.length === 0 && (
           <p className="empty">Nothing decoded yet. The band is quiet most of the time.</p>
         )}
         <div className="rows">
