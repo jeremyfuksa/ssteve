@@ -131,3 +131,77 @@ class TestTheFilenameAndTheColumnAgree:
 def test_image_extensions_still_cover_the_formats_we_save():
     """A guard on the constant the thumbnail rule now reads."""
     assert {".png", ".jpg"} <= IMAGE_EXTENSIONS
+
+
+class TestTheWatcherFillsGapsAndNeverErases:
+    """#168's sting in the tail: FSKID read a callsign and the watcher wiped it.
+
+    The decode adopts a checksum-valid callsign off the air. Our own
+    filenames carry no callsign, so re-parsing one and assigning it wrote
+    None straight over the radio's answer. Same defect as the timestamp,
+    one field over.
+    """
+
+    def _decoded_row(self, picture: Path) -> SSTVImage:
+        return SSTVImage(
+            filename=picture.name,
+            filepath=str(picture.resolve()),
+            mode="MartinM2",
+            callsign="KD2TT",  # read by FSKID, checksum valid
+            timestamp=datetime(2026, 9, 12, 3, 54, 17),
+            is_received=True,
+            source="file",
+            fskid_detected=True,
+            fskid_checksum_valid=True,
+        )
+
+    def test_a_callsign_from_the_air_survives_the_watcher(
+        self, tmp_path, session_factory
+    ):
+        picture = _picture(tmp_path / "sstv_rx_MartinM2_20260912_035417.png")
+        with session_factory() as session:
+            session.add(self._decoded_row(picture))
+            session.commit()
+
+        with session_factory() as session:
+            ImageImporter(session).update_image_metadata(picture)
+
+        with session_factory() as session:
+            row = session.query(SSTVImage).one()
+            assert row.callsign == "KD2TT", "the watcher erased what FSKID heard"
+            assert row.mode == "MartinM2"
+            assert row.fskid_checksum_valid is True
+
+    def test_a_callsign_in_a_filename_still_fills_an_empty_one(
+        self, tmp_path, session_factory
+    ):
+        """The watcher may still add what nobody knew."""
+        picture = _picture(tmp_path / "20260912_035417_MartinM2_VA2PGB.png")
+        with session_factory() as session:
+            row = self._decoded_row(picture)
+            row.callsign = None
+            session.add(row)
+            session.commit()
+
+        with session_factory() as session:
+            ImageImporter(session).update_image_metadata(picture)
+
+        with session_factory() as session:
+            assert session.query(SSTVImage).one().callsign == "VA2PGB"
+
+    def test_moving_a_file_does_not_erase_it_either(self, tmp_path, session_factory):
+        picture = _picture(tmp_path / "sstv_rx_MartinM2_20260912_035417.png")
+        with session_factory() as session:
+            session.add(self._decoded_row(picture))
+            session.commit()
+
+        moved = tmp_path / "kept" / picture.name
+        moved.parent.mkdir()
+        picture.rename(moved)
+        with session_factory() as session:
+            ImageImporter(session).move_image(picture, moved)
+
+        with session_factory() as session:
+            row = session.query(SSTVImage).one()
+            assert row.callsign == "KD2TT"
+            assert row.timestamp == datetime(2026, 9, 12, 3, 54, 17)

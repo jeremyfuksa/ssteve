@@ -343,18 +343,30 @@ class ImageImporter:
             logger.error("Failed to parse metadata for %s: %s", filepath, e, exc_info=True)
             return None
 
-        # Update record
+        # Update record.
+        #
+        # **Fill gaps; never erase.** A row already exists, so something --
+        # a decode, or an earlier import -- already described this picture,
+        # and a filename knows less than either. Overwriting the timestamp
+        # moved every decoded picture by the machine's UTC offset (#161);
+        # overwriting the callsign wiped the one FSKID had just read off the
+        # air, because our own filenames carry no callsign to put back
+        # (found 2026-09-12, the same defect one field over).
+        #
+        # An update that can only add is also the right shape for what this
+        # is: the filesystem noticing a file, not the radio hearing a
+        # transmission.
         try:
-            # Deliberately not the timestamp. A row already exists, so
-            # something -- a decode, or an earlier import -- already recorded
-            # when this picture arrived, and the filename is a weaker source
-            # than either. Overwriting it moved every decoded picture by the
-            # machine's UTC offset (#161).
-            image.mode = metadata["mode"]
-            image.callsign = metadata.get("callsign")
-            image.operator_name = metadata.get("operator_name")
-            image.comments = metadata.get("comments")
-            image.is_received = metadata["is_received"]
+            if metadata.get("mode") and metadata["mode"] != "Unknown" and (
+                not image.mode or image.mode == "Unknown"
+            ):
+                image.mode = metadata["mode"]
+            if metadata.get("callsign") and not image.callsign:
+                image.callsign = metadata["callsign"]
+            if metadata.get("operator_name") and not image.operator_name:
+                image.operator_name = metadata["operator_name"]
+            if metadata.get("comments") and not image.comments:
+                image.comments = metadata["comments"]
 
             self._session.commit()
 
@@ -428,13 +440,25 @@ class ImageImporter:
             image.filepath = dest_str
             image.filename = dest_path.name
 
-            # Re-extract metadata from new path (filename may have changed)
+            # A rename is a statement, unlike a modify event: the operator
+            # chose the new name, so what it says wins. What it does *not*
+            # say must not erase what is already known, which is the half
+            # that was wrong -- moving a decoded picture wiped the callsign
+            # FSKID had read off the air, because our own names carry none.
             metadata = parse_image_metadata(dest_path)
-            image.timestamp = metadata["timestamp"]
-            image.mode = metadata["mode"]
-            image.callsign = metadata.get("callsign")
-            image.operator_name = metadata.get("operator_name")
-            image.comments = metadata.get("comments")
+            if metadata.get("mode") and metadata["mode"] != "Unknown":
+                image.mode = metadata["mode"]
+            if metadata.get("callsign"):
+                image.callsign = metadata["callsign"]
+            if metadata.get("operator_name"):
+                image.operator_name = metadata["operator_name"]
+            if metadata.get("comments"):
+                image.comments = metadata["comments"]
+            # Not the timestamp: renaming a file does not change when the
+            # picture was heard (#161).
+            #
+            # Direction is the exception that does follow the path: moving
+            # between received/ and transmitted/ is how it changes.
             image.is_received = metadata["is_received"]
 
             self._session.commit()
