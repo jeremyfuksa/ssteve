@@ -168,7 +168,11 @@
 
 .rows {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  /* Narrower cards at the field floor: at 1280x720 the log region is about
+     155px tall, and a card whose picture alone took 142 pushed the caption
+     off the bottom -- a row with no time, mode, callsign or provenance,
+     which is the one thing the log exists to keep (PRODUCT.md 12). */
+  grid-template-columns: repeat(auto-fill, minmax(clamp(148px, 12vw, 170px), 1fr));
   gap: var(--gap);
   align-content: start;
 }
@@ -182,19 +186,49 @@
 .row img {
   display: block;
   width: 100%;
-  aspect-ratio: 5 / 4;
+  /* Height, not aspect ratio: the picture is what gives way when the window
+     is short, exactly as the canvas does. 12vh keeps a whole card -- picture
+     and caption together -- inside the log region at 720px, and lets it grow
+     on a desk-sized window. */
+  height: clamp(64px, 12vh, 140px);
   object-fit: cover;
   background: var(--ink);
   border-bottom: 1px solid var(--edge);
 }
 
 .row figcaption {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 8px;
-  padding: 6px 8px;
+  /* Exactly two lines: the log region is ~155px at the field floor, so a
+     third falls off the bottom. Each line clips with an ellipsis rather
+     than pushing the card taller. */
+  display: grid;
+  gap: 2px;
+  padding: 5px 8px;
   font-size: 11px;
+  line-height: 1.35;
   color: var(--muted);
+}
+
+.row figcaption .line {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.row figcaption .line > * {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.row .rsv {
+  margin-left: auto;
+  color: var(--text);
+}
+
+.row .call.unknown {
+  color: var(--muted);
+  font-style: italic;
 }
 
 .row .call {
