@@ -173,6 +173,30 @@ export const startFileDecode = (filePath: string) =>
 export const stopDecode = (sessionId: string) =>
   request<void>(`/decode/stop/${sessionId}`, { method: "POST" });
 
+/** What the engine says a session is doing.
+ *
+ * The authority when the socket and the window disagree. The socket is a
+ * live feed, so a dropped connection loses whatever arrived while it was
+ * down -- including the `decode_complete` or `error` that ended the
+ * session. Only 10 of the 17 fields the engine returns are named here; the
+ * rest are not yet rendered anywhere.
+ */
+export interface DecodeStatus {
+  session_id: string;
+  state: DecodeState;
+  mode: string | null;
+  mode_confidence: number | null;
+  image_id: string | null;
+  error: string | null;
+  progress_percent: number;
+  scanlines_received: number;
+  total_scanlines: number | null;
+  vis_detected: boolean;
+}
+
+export const decodeStatus = (sessionId: string) =>
+  request<DecodeStatus>(`/decode/status/${sessionId}`);
+
 export const adjustDecode = (
   sessionId: string,
   changes: { input_gain?: number; auto_squelch?: boolean; squelch_threshold_db?: number },
@@ -278,12 +302,19 @@ export type SessionEvent =
   | CoreErrorEvent
   | { event_type: string };
 
-/** Subscribe to one decode session. Returns a closer. */
+/** Subscribe to one decode session. Returns a closer.
+ *
+ * `onOpen` fires on every connect, reconnects included, because the socket
+ * is a live feed and not a log: anything the engine sent while it was down
+ * is gone. The caller uses it to re-read `decodeStatus` and find out what
+ * it missed.
+ */
 export function watchSession(
   sessionId: string,
   onEvent: (event: SessionEvent) => void,
+  onOpen?: () => void,
 ): () => void {
-  return reconnecting(`${WS()}/ws/decode/${sessionId}`, onEvent);
+  return reconnecting(`${WS()}/ws/decode/${sessionId}`, onEvent, onOpen);
 }
 
 /** Subscribe to the app channel, which carries the waterfall. */
@@ -291,7 +322,11 @@ export function watchApp(onEvent: (event: SpectrumUpdate | { event_type: string 
   return reconnecting(`${WS()}/ws`, onEvent);
 }
 
-function reconnecting(url: string, onEvent: (event: any) => void): () => void {
+function reconnecting(
+  url: string,
+  onEvent: (event: any) => void,
+  onOpen?: () => void,
+): () => void {
   let socket: WebSocket | null = null;
   let timer: number | undefined;
   let closed = false;
@@ -299,6 +334,7 @@ function reconnecting(url: string, onEvent: (event: any) => void): () => void {
   const open = () => {
     if (closed) return;
     socket = new WebSocket(url);
+    socket.onopen = () => onOpen?.();
     socket.onmessage = (message) => {
       try {
         onEvent(JSON.parse(message.data));

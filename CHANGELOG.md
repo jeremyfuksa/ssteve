@@ -59,6 +59,13 @@ the picture as it arrives. Receive only — transmit is v0.2.
 - **A half-duplex conflict reads plainly** and no longer leads with a session
   UUID the operator sees nowhere else. The id is still in the response for a
   client that wants to offer "stop that one and retry".
+- **The window catches up after losing touch with the engine.** If the
+  connection dropped while a decode was running and the decode ended during
+  the gap, the window used to go on showing "Listening" for something that
+  had already finished. It now asks what happened as soon as it reconnects.
+- **Stop says so when it fails**, instead of returning to Idle as though it
+  had worked — and keeps offering Stop, because the radio can only do one
+  thing at a time and a decode that did not stop blocks the next one.
 - **A session ends when its stream dies**, rather than listening to a frozen
   buffer until the timeout. A dead network link no longer reads as a weak
   signal.
