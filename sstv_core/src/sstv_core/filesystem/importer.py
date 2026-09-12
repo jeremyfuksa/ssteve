@@ -267,6 +267,15 @@ class ImageImporter:
             logger.warning("Cannot import non-existent file: %s", filepath)
             return None
 
+        # Our own thumbnails live beside their pictures and are not pictures.
+        # Checked here as well as in the watcher because the MMSSTV import
+        # calls this directly (#160).
+        from sstv_core.filesystem.watcher import is_generated_thumbnail
+
+        if is_generated_thumbnail(filepath):
+            logger.debug("Skipping generated thumbnail: %s", filepath)
+            return None
+
         # Check if already imported
         filepath_str = str(filepath.resolve())
         existing = self._session.query(SSTVImage).filter_by(filepath=filepath_str).first()
@@ -336,7 +345,11 @@ class ImageImporter:
 
         # Update record
         try:
-            image.timestamp = metadata["timestamp"]
+            # Deliberately not the timestamp. A row already exists, so
+            # something -- a decode, or an earlier import -- already recorded
+            # when this picture arrived, and the filename is a weaker source
+            # than either. Overwriting it moved every decoded picture by the
+            # machine's UTC offset (#161).
             image.mode = metadata["mode"]
             image.callsign = metadata.get("callsign")
             image.operator_name = metadata.get("operator_name")

@@ -6,7 +6,7 @@ Handles saving decoded SSTV images with metadata to filesystem.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -71,8 +71,14 @@ class ImageSaver:
         return self._auto_save
 
     def _generate_filename(self, mode: str, is_transmitted: bool = False) -> str:
-        """Generate unique filename based on timestamp and mode."""
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        """Generate unique filename based on timestamp and mode.
+
+        UTC, because `SSTVImage.timestamp` stores UTC and the importer parses
+        this name back into that column. A local-time name there is what let a
+        picture's logged time jump by the UTC offset (#161) -- and amateur
+        radio logs in UTC anyway.
+        """
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         direction = "tx" if is_transmitted else "rx"
         return f"sstv_{direction}_{mode}_{timestamp}.{self._format}"
 
