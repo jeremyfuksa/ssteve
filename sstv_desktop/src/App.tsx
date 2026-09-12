@@ -12,6 +12,7 @@ import {
   patchConfig,
   startFileDecode,
   startSpyServerDecode,
+  decodeStatus,
   stopDecode,
   watchApp,
   watchSession,
@@ -34,7 +35,15 @@ type Posture =
   | { kind: "listening"; since: number }
   | { kind: "decoding"; mode: string; confidence: number }
   | { kind: "complete"; mode: string | null; rsv: string | null; fskid: string | null }
-  | { kind: "failed"; message: string; action: string | null; code: string }
+  // `retryStop` means the engine may still hold the session: a stop that
+  // did not take leaves the radio busy, so the control has to stay Stop.
+  | {
+      kind: "failed";
+      message: string;
+      action: string | null;
+      code: string;
+      retryStop?: true;
+    }
   // Hearing nothing is the band's normal state, not a fault. It gets its
   // own posture so it does not read in alarm red all day.
   | { kind: "nothing"; message: string; action: string | null };
@@ -111,6 +120,50 @@ export default function App() {
     return () => stopWatching?.();
   }, [refreshImages]);
 
+  /** Ask the engine what a session is actually doing, and believe it.
+   *
+   *  The socket is a live feed, not a log. If it drops mid-decode and the
+   *  session ends while it is down, the `decode_complete` or `error` that
+   *  ended it is simply gone, and the window would otherwise show
+   *  "listening" forever -- a session that looks healthy while nothing is
+   *  happening, which is exactly the failure of 2026-08-19.
+   *
+   *  Only terminal states are reconciled. A live session's detail is richer
+   *  on the socket than in the status payload, so overwriting "decoding
+   *  MartinM1 at 60%" with a coarser reading would be a downgrade. */
+  const resync = async (sessionId: string) => {
+    let status;
+    try {
+      status = await decodeStatus(sessionId);
+    } catch {
+      // If the status read fails too, the socket's own reconnect is still
+      // running and will try again. Saying something wrong here is worse
+      // than saying nothing.
+      return;
+    }
+    if (status.state === "listening" || status.state === "decoding") return;
+
+    if (status.state === "completed") {
+      setPosture({ kind: "complete", mode: status.mode, rsv: null, fskid: null });
+      if (status.image_id) {
+        setCompletedUrl(imageUrl(`/api/v1/images/${status.image_id}/file`));
+      }
+      refreshImages();
+      return;
+    }
+    setPosture({
+      kind: "failed",
+      // The status payload carries the engine's error string but not the
+      // error code or suggested action the socket event would have had, so
+      // this says plainly that it is a reconstruction.
+      message:
+        status.error ??
+        "The decode ended while I wasn't connected, and I don't know why.",
+      action: "Start listening again.",
+      code: "RECONCILED",
+    });
+  };
+
   /** Start a decode and follow it. The starter decides where the audio comes
    *  from; everything downstream is identical, which is the point of the
    *  source seam in the engine. */
@@ -122,57 +175,66 @@ export default function App() {
       setSession(started.session_id);
       setPosture({ kind: "listening", since: Date.now() });
       setEngineError(null);
-      closeSession.current = watchSession(started.session_id, (event) => {
-        switch (event.event_type) {
-          case "audio_levels":
-            setLevelDb((event as any).left_db);
-            break;
-          case "vis_detected":
-            setPosture({
-              kind: "decoding",
-              mode: (event as any).mode,
-              confidence: (event as any).confidence,
-            });
-            break;
-          case "scanline_update":
-            setScanline(event as ScanlineUpdate);
-            break;
-          case "decode_complete": {
-            const done = event as any;
-            setPosture({
-              kind: "complete",
-              mode: done.mode,
-              rsv: done.rsv_report,
-              fskid: done.fskid_detected
-                ? done.fskid_checksum_valid
-                  ? "verified"
-                  : "unverified"
-                : null,
-            });
-            if (done.image_id) setCompletedUrl(imageUrl(`/api/v1/images/${done.image_id}/file`));
-            refreshImages();
-            break;
+      closeSession.current = watchSession(
+        started.session_id,
+        (event) => {
+          switch (event.event_type) {
+            case "audio_levels":
+              setLevelDb((event as any).left_db);
+              break;
+            case "vis_detected":
+              setPosture({
+                kind: "decoding",
+                mode: (event as any).mode,
+                confidence: (event as any).confidence,
+              });
+              break;
+            case "scanline_update":
+              setScanline(event as ScanlineUpdate);
+              break;
+            case "decode_complete": {
+              const done = event as any;
+              setPosture({
+                kind: "complete",
+                mode: done.mode,
+                rsv: done.rsv_report,
+                fskid: done.fskid_detected
+                  ? done.fskid_checksum_valid
+                    ? "verified"
+                    : "unverified"
+                  : null,
+              });
+              if (done.image_id) setCompletedUrl(imageUrl(`/api/v1/images/${done.image_id}/file`));
+              refreshImages();
+              break;
+            }
+            case "error": {
+              const failure = event as any;
+              setPosture(
+                failure.error_code === "NOTHING_HEARD"
+                  ? {
+                      kind: "nothing",
+                      message: failure.message,
+                      action: failure.suggested_action,
+                    }
+                  : {
+                      kind: "failed",
+                      message: failure.message,
+                      action: failure.suggested_action,
+                      code: failure.error_code,
+                    },
+              );
+              break;
+            }
           }
-          case "error": {
-            const failure = event as any;
-            setPosture(
-              failure.error_code === "NOTHING_HEARD"
-                ? {
-                    kind: "nothing",
-                    message: failure.message,
-                    action: failure.suggested_action,
-                  }
-                : {
-                    kind: "failed",
-                    message: failure.message,
-                    action: failure.suggested_action,
-                    code: failure.error_code,
-                  },
-            );
-            break;
-          }
-        }
-      });
+        },
+        // On every connect, reconnects included. The socket is a live feed,
+        // so anything the engine sent while it was down is gone -- including
+        // the decode_complete or error that ended the session. Without this
+        // the window shows "listening" for a decode the engine finished,
+        // which is the 2026-08-19 stall wearing different clothes.
+        () => void resync(started.session_id),
+      );
     } catch (error) {
       const failure = error as CoreError;
       setPosture({
@@ -214,7 +276,34 @@ export default function App() {
   const replay = (filePath: string) => begin(() => startFileDecode(filePath));
 
   const stop = async () => {
-    if (session) await stopDecode(session).catch(() => undefined);
+    if (session) {
+      try {
+        await stopDecode(session);
+      } catch (error) {
+        const failure = error as CoreError;
+
+        // A session the engine has never heard of is a session that is not
+        // running, which is what Stop was for. Sessions live in the
+        // engine's memory, so restarting it loses them -- and treating
+        // that as "still decoding" traps the operator behind a Stop button
+        // that can never succeed. Found by doing it: kill the engine
+        // mid-listen, press Stop, bring the engine back, press Stop again.
+        if (failure.code !== "SESSION_NOT_FOUND") {
+          // A stop that did not take, reported as idle, is the worst of the
+          // three outcomes: the radio is half-duplex, so the engine is
+          // still holding the session and the next Listen comes back 409
+          // for something the operator believes they already stopped.
+          setPosture({
+            kind: "failed",
+            message: `I couldn't stop the decode. ${failure.message}`,
+            action: failure.suggestedAction ?? "Try Stop again.",
+            code: failure.code ?? "STOP_FAILED",
+            retryStop: true,
+          });
+          return;
+        }
+      }
+    }
     closeSession.current?.();
     closeSession.current = null;
     setSession(null);
@@ -222,7 +311,13 @@ export default function App() {
     setLevelDb(null);
   };
 
-  const live = posture.kind === "listening" || posture.kind === "decoding";
+  // Stop, not Listen, while the engine may still hold the session. Offering
+  // Listen after a failed stop sends the operator into a 409 for a decode
+  // they believe they already ended.
+  const live =
+    posture.kind === "listening" ||
+    posture.kind === "decoding" ||
+    (posture.kind === "failed" && posture.retryStop === true);
 
   // Canvas scale degrades before anything else. 2x at a comfortable window,
   // 1.5x at the field floor (moscow.md).
