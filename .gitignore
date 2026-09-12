@@ -140,3 +140,11 @@ alembic/versions/*.pyc
 # sstv_core/scripts/fetch_reference_audio.py. Never committed: these are
 # other people's recordings under their own licences.
 sstv_core/tests/reference/audio/_cache/
+
+# The engine's PyInstaller spec is source, not build output (#143). The
+# *.spec rule above is meant for generated ones.
+!sstv_core/packaging/*.spec
+# ...and the desktop app's Cargo.lock is committed on purpose: this is an
+# application, not a library, so the exact dependency versions that built a
+# release are part of the release.
+!sstv_desktop/src-tauri/Cargo.lock
