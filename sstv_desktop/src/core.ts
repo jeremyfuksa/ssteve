@@ -112,7 +112,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       ...init,
       headers: { "content-type": "application/json", ...(init?.headers ?? {}) },
     });
-  } catch (cause) {
+  } catch {
     // The engine is a separate process. "Not running" is the first-run state,
     // not an exception, so it gets copy rather than a stack trace.
     throw new CoreError(
