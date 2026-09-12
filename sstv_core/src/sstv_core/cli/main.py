@@ -27,19 +27,9 @@ from sstv_core.sdr.bands import BAND_PRESETS, FM_BANDS
 logger = logging.getLogger(__name__)
 
 
-#: RMS below which the receiver is effectively deaf rather than merely on
-#: a quiet band. Measured on an Airspy HF+ against WWV 10 MHz (issue #90):
-#: gain 0 gave rms 0.000231 with a spectral peak/mean of 4.5 -- noise, with
-#: no carrier distinguishable in it -- while gain 6 gave rms 0.004929 and a
-#: clean 155:1 carrier. This sits an order of magnitude above the deaf
-#: reading and an order below the working noise floor, so neither
-#: measurement lands near the boundary.
-DEAF_RMS = 0.0005
-
-#: RMS at or above which the input level is not the problem. The working
-#: noise floor at a usable gain measured ~0.005; at or above that, "raise
-#: the gain" would be bad advice.
-HEALTHY_RMS = 0.005
+# Level thresholds and their wording live in audio/levels.py: the API
+# needs the same judgement, and one copy of a measured threshold is enough.
+from sstv_core.audio.levels import DEAF_RMS, describe_level  # noqa: E402
 
 
 def stall_should_end_listen(failure: SpyServerError | None) -> bool:
@@ -57,21 +47,6 @@ def stall_should_end_listen(failure: SpyServerError | None) -> bool:
     wrong time. A frozen session and a quiet band looked identical.
     """
     return failure is not None
-
-
-def describe_level(rms: float) -> str:
-    """Describe an RMS figure in one word.
-
-    A bare float doesn't tell an operator whether 0.0002 is fine. These
-    three words are the whole point of the listening heartbeat: they make
-    "I'm hearing nothing at all" different from "I'm hearing noise" at a
-    glance (issue #90).
-    """
-    if rms < DEAF_RMS:
-        return "silent"
-    if rms < HEALTHY_RMS:
-        return "faint"
-    return "healthy"
 
 
 def _deaf_receiver_action(src: Any) -> str:

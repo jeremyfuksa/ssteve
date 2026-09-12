@@ -148,6 +148,21 @@
   color: var(--muted);
 }
 
+/* Not red: a quiet band is the normal state of this hobby, and an alarm
+   colour every time nothing arrives would teach the operator to ignore it. */
+.status.heard-nothing {
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-end;
+  color: var(--text);
+  max-width: 60%;
+  text-align: right;
+}
+
+.status.heard-nothing .muted {
+  color: var(--muted);
+}
+
 .status.failed {
   flex-direction: column;
   gap: 2px;
