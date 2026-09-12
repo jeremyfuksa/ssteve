@@ -71,7 +71,32 @@ Growing the window grows the log and nothing else.
 |---|---|---|
 | ~1920×1080 | Full grid, several rows | Nothing; the comfortable case |
 | ~1366×768 | Grid, 1–2 rows | Log rows, gradually |
-| 1280×720 (floor) | Single filmstrip row | Waterfall drops 200px → 80px minimum |
+| 1280×720 (floor) | Single filmstrip row | Canvas scale, 2× → 1.5× |
+
+**Measured 2026-09-12**, against a log of fourteen real decodes in the built
+shell. The floor holds, and what gives is the canvas rather than the
+waterfall:
+
+| Window | Canvas | Log |
+|---|---|---|
+| 1440×900 | 2× (640×512) | Full grid, complete captions |
+| **1280×720** | **1.5× (480×384)** | **One complete filmstrip card** |
+| 900×680 (window minimum) | 1× (320×256) | One row, time and mode ellipsised |
+
+Two corrections to what this table said before the measurement:
+
+- **The waterfall does not shrink; it was never 200px.** moscow.md settled it
+  as a ~64px presence strip rather than a tuning instrument, so there is no
+  200 → 80 compression to perform. The 80px figure in `frontend-contract.md`
+  §20.4 is an FFT-history floor the strip already clears.
+- **The canvas is what degrades**, which is what moscow.md says it should be,
+  and it needs a third step: below ~740px only 1× leaves the log enough room
+  to show a picture *with* its time, callsign and provenance.
+
+The first attempt at the floor fitted the picture and cut the caption off the
+bottom — a row with no time, no callsign and no provenance, which is the one
+thing the log exists to keep. A card that fits is a card whose **caption**
+fits; the picture is the part that gives way.
 
 Nothing reflows, nothing relocates, no region appears or disappears. One
 region gets a different amount of room. This satisfies PRODUCT.md interaction

@@ -165,7 +165,13 @@ export default function App() {
   // 1.5x at the field floor (moscow.md).
   const [scale, setScale] = useState(2);
   useEffect(() => {
-    const measure = () => setScale(window.innerHeight >= 860 ? 2 : 1.5);
+    // Measured against a populated log (2026-09-12): 2x needs ~860px of
+    // height, 1.5x fits the 1280x720 field floor with a whole filmstrip card
+    // under it, and below ~740px only 1x leaves the log enough room to show
+    // a picture with its time, callsign and provenance. The canvas is what
+    // gives way -- the log and the presence strip hold.
+    const measure = () =>
+      setScale(window.innerHeight >= 860 ? 2 : window.innerHeight >= 740 ? 1.5 : 1);
     measure();
     window.addEventListener("resize", measure);
     return () => window.removeEventListener("resize", measure);
@@ -266,19 +272,41 @@ export default function App() {
                 alt={`${row.mode ?? "Unknown mode"} decoded at ${heardAt(row.timestamp)}`}
               />
               <figcaption>
-                <span className="mono">{heardAt(row.timestamp)}</span>
-                <span>{row.mode ?? "unknown"}</span>
-                {row.callsign && <span className="call">{row.callsign}</span>}
-                <span className={row.heard_at === "remote" ? "where remote" : "where"}>
-                  {row.heard_at === "remote"
-                    ? `heard at ${row.receiver ?? "another receiver"}`
-                    : row.heard_at === "my_station"
-                      ? "my station"
-                      : row.source === "file"
-                        ? "from a recording"
-                        : "unknown source"}
+                {/* Two lines, fixed: what and when, then who and where.
+                    At the field floor the log gets ~155px, so a third line
+                    falls off the bottom. */}
+                <span className="line">
+                  <span className="mono">{heardAt(row.timestamp)}</span>
+                  <span>{row.mode ?? "unknown"}</span>
+                  {row.rsv_report && <span className="mono rsv">{row.rsv_report}</span>}
                 </span>
-                {row.rsv_report && <span className="mono">{row.rsv_report}</span>}
+                <span className="line">
+                  {row.callsign ? (
+                    <span className="call">{row.callsign}</span>
+                  ) : (
+                    <span className="call unknown">no callsign</span>
+                  )}
+                  <span
+                    className={row.heard_at === "remote" ? "where remote" : "where"}
+                    title={
+                      row.heard_at === "remote"
+                        ? `Heard at ${row.receiver ?? "another receiver"} — a remote reception, never exported as a contact`
+                        : row.heard_at === "my_station"
+                          ? "Heard at my station"
+                          : row.source === "file"
+                            ? "Decoded from a recording"
+                            : "Source unknown"
+                    }
+                  >
+                    {row.heard_at === "remote"
+                      ? "remote"
+                      : row.heard_at === "my_station"
+                        ? "my station"
+                        : row.source === "file"
+                          ? "recording"
+                          : "unknown"}
+                  </span>
+                </span>
               </figcaption>
             </figure>
           ))}
