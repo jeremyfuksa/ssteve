@@ -141,13 +141,14 @@ def test_decode_mmsstv_scottie_s1_audio(client, reference_audio):
 
 
 @pytest.mark.integration
-def test_forced_scottie_s2_rejected_no_decoder_exists(client):
-    """ScottieS2 has no decoder, so forcing it must be a 400, not a 201.
+def test_forced_scottie_s2_is_accepted(client):
+    """ScottieS2 decodes, so forcing it must start a session.
 
-    This test used to assert the lie: a forced ScottieS2 session returned
-    201 and then died silently inside the background task. If an S2 decoder
-    is ever implemented, add it to SUPPORTED_DECODE_MODES and repurpose the
-    EssexHAM reference audio for a real decode test.
+    This test asserted the opposite until 2026-09-11, on the premise that
+    no S2 decoder existed. One did: `RXManager.DECODABLE_MODES` had listed
+    ScottieS2 all along, and the API refused it only because it kept a
+    second, hand-maintained copy of that list which had drifted (#153).
+    S2 is the most-captured mode in the off-air corpus -- 6 of 14.
     """
     response = client.post(
         "/api/v1/decode/start",
@@ -157,6 +158,19 @@ def test_forced_scottie_s2_rejected_no_decoder_exists(client):
             "callsign": "TEST",
             "timeout_seconds": 120,
         },
+    )
+
+    assert response.status_code == 201, response.text
+    # Half-duplex: leaving this running fails every test after it.
+    client.post(f"/api/v1/decode/stop/{response.json()['session_id']}")
+
+
+@pytest.mark.integration
+def test_a_mode_with_no_decoder_is_still_refused(client):
+    """The guard still works; it just no longer names a mode we can decode."""
+    response = client.post(
+        "/api/v1/decode/start",
+        json={"device_id": "mock_input", "mode": "PD120", "timeout_seconds": 120},
     )
 
     assert response.status_code == 400
