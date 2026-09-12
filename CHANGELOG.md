@@ -50,6 +50,12 @@ the picture as it arrives. Receive only — transmit is v0.2.
   and a deaf receiver produce the same empty screen and call for opposite
   responses; the measured input level is what separates them, and it is now
   quoted rather than summarised.
+- **A session the engine has lost says so plainly.** Asking about a decode
+  that has already finished — or that a restarted engine no longer has —
+  used to answer with the session's UUID and "check the session ID", an id
+  the operator never sees or types. It now says which of the two happened.
+  Stopping a decode that is not running is no longer reported as a failure:
+  it is what stopping it was for.
 - **A half-duplex conflict reads plainly** and no longer leads with a session
   UUID the operator sees nowhere else. The id is still in the response for a
   client that wants to offer "stop that one and retry".

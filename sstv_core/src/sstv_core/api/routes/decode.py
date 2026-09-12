@@ -81,7 +81,15 @@ async def detect_mode(request: ModeDetectionRequest) -> ModeDetectionResponse:
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail={
                         "error": "SESSION_NOT_FOUND",
-                        "message": f"Can't find decode session {request.session_id}",
+                        "message": (
+                            "I don't have that decode session -- "
+                            "either it already finished, or the engine restarted and "
+                            "lost it -- sessions aren't saved to disk."
+                        ),
+                        "suggested_action": (
+                            "Start listening again, then ask for the mode "
+                            "while it is running."
+                        ),
                     },
                 )
 
@@ -375,8 +383,12 @@ async def get_decode_status(session_id: UUID) -> DecodeStatusResponse:
             status_code=status.HTTP_404_NOT_FOUND,
             detail={
                 "error": "SESSION_NOT_FOUND",
-                "message": f"Can't find decode session {session_id}",
-                "suggested_action": "Check the session ID or start a new session",
+                "message": (
+                    "I don't have that decode session -- "
+                    "either it already finished, or the engine restarted and "
+                    "lost it -- sessions aren't saved to disk."
+                ),
+                "suggested_action": "Start a new decode.",
             },
         )
 
@@ -431,8 +443,15 @@ async def stop_decode(session_id: UUID) -> None:
             status_code=status.HTTP_404_NOT_FOUND,
             detail={
                 "error": "SESSION_NOT_FOUND",
-                "message": f"Can't find decode session {session_id}",
-                "suggested_action": "Check the session ID",
+                # Nothing to stop is not a problem for the caller to solve:
+                # the session is not running, which is what stopping it was
+                # for. The shell treats this code as stopped.
+                "message": (
+                    "That decode isn't running -- "
+                    "either it already finished, or the engine restarted and "
+                    "lost it -- sessions aren't saved to disk."
+                ),
+                "suggested_action": "Nothing to stop. Start listening when you're ready.",
             },
         )
 
@@ -508,10 +527,14 @@ async def adjust_decode(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={
                 "error": "SESSION_NOT_FOUND",
-                "message": f"I don't have a decode session {session_id}.",
+                "message": (
+                    "I don't have that decode session -- "
+                    "either it already finished, or the engine restarted and "
+                    "lost it -- sessions aren't saved to disk."
+                ),
                 "suggested_action": (
-                    "Check the id, or start a decode first -- these adjust "
-                    "a session already running."
+                    "Start a decode first -- gain and squelch adjust a "
+                    "session that is already running."
                 ),
             },
         )
