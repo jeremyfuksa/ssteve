@@ -391,17 +391,30 @@ class TestDecodeErrorHandling:
     """Test error handling and SSTeVe voice."""
 
     def test_error_messages_use_ssteve_voice(self):
-        """Error messages should use conversational SSTeVe voice."""
-        # Try to get nonexistent session
+        """Error messages should use conversational SSTeVe voice.
+
+        This used to assert `"Can't find" in message`, which made the
+        sentence itself the contract: rewording the copy failed the test
+        even when the new wording was better. The same coupling turned a
+        409 into a 500 in #175. Assert what the voice *is* instead.
+        """
         fake_id = uuid4()
         response = client.get(f"/api/v1/decode/status/{fake_id}")
 
         data = response.json()
         message = data["detail"]["message"]
 
-        # Should use contractions and friendly language
-        assert "Can't find" in message or "can't find" in message
-        assert "suggested_action" in data["detail"]
+        # First person and a contraction: SSTeVe speaks as itself.
+        assert "I " in message or message.startswith("I")
+        assert "'" in message, f"no contraction in {message!r}"
+
+        # Never the id. The operator sees session ids nowhere else, so one
+        # in a sentence is a thing they cannot act on -- and they already
+        # know which session they asked about.
+        assert str(fake_id) not in message, "the operator was shown a session id"
+
+        # Something to do next, not a restatement of the problem.
+        assert data["detail"]["suggested_action"]
 
     def test_conflict_error_provides_suggestion(self):
         """Conflict errors should suggest resolution."""

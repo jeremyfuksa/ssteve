@@ -154,8 +154,12 @@ async def get_transmit_status(tx_id: UUID) -> TransmitStatusResponse:
             status_code=status.HTTP_404_NOT_FOUND,
             detail={
                 "error": "SESSION_NOT_FOUND",
-                "message": f"Can't find transmission {tx_id}",
-                "suggested_action": "Check the transmission ID",
+                "message": (
+                    "I don't have that transmission -- "
+                    "either it already finished, or the engine restarted and "
+                    "lost it -- sessions aren't saved to disk."
+                ),
+                "suggested_action": "Start a new transmission.",
             },
         )
 
@@ -206,8 +210,12 @@ async def cancel_transmit(tx_id: UUID) -> None:
             status_code=status.HTTP_404_NOT_FOUND,
             detail={
                 "error": "SESSION_NOT_FOUND",
-                "message": f"Can't find transmission {tx_id}",
-                "suggested_action": "Check the transmission ID",
+                "message": (
+                    "I don't have that transmission -- "
+                    "either it already finished, or the engine restarted and "
+                    "lost it -- sessions aren't saved to disk."
+                ),
+                "suggested_action": "Start a new transmission.",
             },
         )
 
