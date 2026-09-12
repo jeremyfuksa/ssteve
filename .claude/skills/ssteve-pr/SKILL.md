@@ -114,6 +114,22 @@ End PR bodies with:
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 ```
 
+## If an operator would notice it, write the CHANGELOG entry now
+
+In the same PR as the change, not at release time -- reconstructing a
+changelog is how Bearpaw 1.1 lost five user-visible fixes. `CHANGELOG.md`
+is at the repo root; add to the `[0.1.0]` section under Added / Changed /
+Fixed. Internal refactors, tests and CI plumbing do not belong there.
+
+The `preflight` job flags a `feat` or `bug` that skips it. It is
+**advisory and must never be made a required check** -- it does not run on
+every PR, and a required check that does not run makes a PR permanently
+unmergeable.
+
+Before a tag, `python3 scripts/release_status.py v0.1.0` says whether the
+milestone, the changelog and the four version strings agree. The tag gate
+runs that same script, and it does block.
+
 ## Merging
 
 `deleteBranchOnMerge` is on, and a global post-merge hook prunes local

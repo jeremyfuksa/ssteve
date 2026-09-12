@@ -1,0 +1,73 @@
+# Advisory only. Never add this to main's required status checks.
+#
+# A required check that does not run on every PR makes those PRs permanently
+# unmergeable -- Bearpaw learned that with a path-filtered job, and the fix
+# was a repo-admin setting change under time pressure. This job reports what
+# it finds in the PR's summary and always exits 0.
+#
+# What it looks for is the filing discipline in docs/PROCESS.md: one home per
+# fact, so a change is findable later by the person who did not make it.
+
+name: preflight
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled, edited]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  preflight:
+    name: preflight (advisory)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Look over the PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NUMBER: ${{ github.event.pull_request.number }}
+          BODY: ${{ github.event.pull_request.body }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -u
+          types=$(gh pr view "$NUMBER" --json labels \
+            -q '[.labels[].name] | map(select(. == "feat" or . == "bug" or . == "docs" or . == "chore")) | join(" ")')
+          count=$(printf '%s' "$types" | wc -w | tr -d ' ')
+          changed=$(git diff --name-only "$BASE" "$HEAD")
+
+          note() { echo "- $1" >> "$GITHUB_STEP_SUMMARY"; }
+          echo "## Preflight (advisory — nothing here blocks a merge)" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$count" -eq 0 ]; then
+            note "No type label. One of \`feat\`, \`bug\`, \`docs\`, \`chore\` says what this is."
+          elif [ "$count" -gt 1 ]; then
+            note "More than one type label (\`$types\`). One concern per PR — if it really is two, say so in the body."
+          fi
+
+          case " $types " in
+            *" feat "*)
+              if ! printf '%s' "$BODY" | grep -qiE '(close[sd]?|fixe?[sd]?|resolve[sd]?) +#[0-9]+|#[0-9]+'; then
+                note "A \`feat\` with no issue linked. The issue is where the acceptance criteria live."
+              fi
+              ;;
+          esac
+
+          case " $types " in
+            *" feat "*|*" bug "*)
+              if ! printf '%s\n' "$changed" | grep -qx 'CHANGELOG.md'; then
+                note "A \`$types\` that does not touch CHANGELOG.md. Write the entry now — reconstructing one at release time is how Bearpaw 1.1 lost five user-visible fixes. If no operator would notice this change, ignore this."
+              fi
+              ;;
+          esac
+
+          if [ "$(wc -l < "$GITHUB_STEP_SUMMARY")" -le 2 ]; then
+            echo "Nothing to flag." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          cat "$GITHUB_STEP_SUMMARY"

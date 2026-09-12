@@ -1,0 +1,54 @@
+# This one blocks. A tag that fails here produces no release.
+#
+# The tag is the moment a version stops being a plan, so it is the last
+# place a disagreement can still be cheap to fix. Everything it checks is
+# in scripts/release_status.py rather than here: the same question gets
+# asked the same way whether it is CI asking or a person, and the answer
+# before you tag is the answer after.
+
+name: release gate
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  issues: read
+
+jobs:
+  gate:
+    name: gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Is this tag ready?
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          python3 scripts/release_status.py "$TAG" | tee status.txt
+          {
+            echo "## \`$TAG\`"
+            echo ''
+            echo '```'
+            cat status.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # A tag that fails the gate must not leave a half-built release
+      # behind it, so nothing is built until the gate has passed.
+      - name: Build the engine
+        run: |
+          cd sstv_core
+          pipx install uv || pip install uv
+          uv sync --extra dev
+          uv run pytest -q
