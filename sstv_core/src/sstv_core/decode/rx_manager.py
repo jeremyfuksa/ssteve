@@ -15,6 +15,7 @@ with real-time audio processing will be enhanced in future versions.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -108,6 +109,12 @@ class RXProgress:
 
 class RXManager:
     """Manages complete SSTV reception pipeline."""
+
+    #: How long teardown waits for an in-flight open before stopping the
+    #: source anyway. Long enough for a SpyServer handshake against a slow
+    #: server, short enough that a wedged connect cannot hold a stopped
+    #: session open (#135).
+    START_TEARDOWN_WAIT_SEC = 10.0
 
     #: How often the listening phase reports input level while waiting for
     #: VIS. Slow enough that a 10-minute listen stays readable, frequent
@@ -461,6 +468,7 @@ class RXManager:
         self._afc_offset_hz = None
         self._afc_correction_applied_hz = None
         self._analysis_window = np.zeros(0, dtype=np.float32)
+        self._pending_start: asyncio.Task | None = None
         pre_vis_rms: list[float] = []
 
         try:
@@ -471,8 +479,25 @@ class RXManager:
                 None, 0.0, 0, 0, 0, 0, 0, "Listening for signal...", audio_levels=audio_levels
             )
 
-            # Start input stream
-            self._stream_manager.start_input(device_index=input_device_index)
+            # Off the event loop. Opening a source is blocking work: PortAudio
+            # for a sound card, and for SpyServer a TCP connect plus the
+            # DeviceInfo/ClientSync handshake, each read bounded by the stall
+            # timeout. Measured 40 ms against airspy.local on a LAN, but a
+            # server that accepts and then says nothing holds it for seconds --
+            # and while it held, the API served nothing: no HTTP, no
+            # WebSocket, no waterfall (#135). Public SpyServers are exactly
+            # where that happens.
+            #
+            # The task is kept so the teardown below can wait for it. A
+            # cancel landing mid-connect must not run stop_input against a
+            # source that is still opening: for a sound card that leaks the
+            # stream the thread is about to create.
+            self._pending_start = asyncio.create_task(
+                asyncio.to_thread(
+                    self._stream_manager.start_input, device_index=input_device_index
+                )
+            )
+            await asyncio.shield(self._pending_start)
             ring_buffer = self._stream_manager.get_input_buffer()
 
             if ring_buffer is None:
@@ -1135,6 +1160,17 @@ class RXManager:
             raise
 
         finally:
+            # Let an in-flight open finish before stopping it. Bounded, so a
+            # source wedged in connect cannot hold the session open forever;
+            # the shield keeps a second cancellation from skipping the wait.
+            pending = self._pending_start
+            self._pending_start = None
+            if pending is not None and not pending.done():
+                with contextlib.suppress(BaseException):
+                    await asyncio.wait_for(
+                        asyncio.shield(pending), timeout=self.START_TEARDOWN_WAIT_SEC
+                    )
+
             # Always stop input stream
             self._stream_manager.stop_input()
             self._state = RXState.IDLE
