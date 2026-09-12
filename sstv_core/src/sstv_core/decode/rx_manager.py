@@ -299,6 +299,25 @@ class RXManager:
         if setter is not None:
             setter(gain)
 
+    def settings_in_force(self) -> dict[str, float | bool | None]:
+        """Report what the running decode is actually using, read back.
+
+        The PATCH route used to answer with the request it had just been
+        given, which is not the same claim: a setter that clamped, or a
+        source with no gain stage, produced a reply saying the change had
+        been applied when it had not. An operator moving a control during
+        QSB is doing it because the picture is in trouble, so a control
+        that reports its own wish back is worse than no control.
+        """
+        source = getattr(self._stream_manager, "input_gain", None)
+        return {
+            "input_gain": source,
+            "auto_squelch": self._auto_squelch,
+            "squelch_threshold_db": self._squelch_threshold_db,
+            "auto_afc": self._auto_afc,
+            "afc_range_hz": self._afc_range_hz,
+        }
+
     @property
     def state(self) -> RXState:
         return self._state

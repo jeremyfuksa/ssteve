@@ -197,11 +197,25 @@ export interface DecodeStatus {
 export const decodeStatus = (sessionId: string) =>
   request<DecodeStatus>(`/decode/status/${sessionId}`);
 
-export const adjustDecode = (
-  sessionId: string,
-  changes: { input_gain?: number; auto_squelch?: boolean; squelch_threshold_db?: number },
-) =>
-  request<unknown>(`/decode/${sessionId}`, {
+export interface DecodeAdjustment {
+  input_gain?: number;
+  auto_squelch?: boolean;
+  squelch_threshold_db?: number;
+}
+
+/** What the decode is using now, after the change.
+ *
+ *  `applied` is read back from the running decode rather than echoed from
+ *  the request, so it is what to display -- not the value that was asked
+ *  for.
+ */
+export interface DecodeAdjusted {
+  session_id: string;
+  applied: DecodeAdjustment;
+}
+
+export const adjustDecode = (sessionId: string, changes: DecodeAdjustment) =>
+  request<DecodeAdjusted>(`/decode/${sessionId}`, {
     method: "PATCH",
     body: JSON.stringify(changes),
   });
@@ -427,9 +441,20 @@ export function watchSession(
 }
 
 /** Subscribe to the app channel, which carries the waterfall. */
-export function watchApp(onEvent: (event: AppEvent) => void) {
-  return reconnecting(`${WS()}/ws`, (frame) =>
-    onEvent(label<AppEvent>(APP_EVENTS, frame)),
+/** Subscribe to the app channel, which carries the waterfall.
+ *
+ *  `onOpen` is the dependable "the engine is reachable again" signal. The
+ *  session socket's is not: the engine closes that one *before* accepting
+ *  when it does not know the session (routes/websocket.py), so the browser
+ *  reports a failed handshake and never fires `open` -- in exactly the
+ *  case the caller most needs to hear about, a restarted engine that has
+ *  lost the session. This channel accepts unconditionally.
+ */
+export function watchApp(onEvent: (event: AppEvent) => void, onOpen?: () => void) {
+  return reconnecting(
+    `${WS()}/ws`,
+    (frame) => onEvent(label<AppEvent>(APP_EVENTS, frame)),
+    onOpen,
   );
 }
 

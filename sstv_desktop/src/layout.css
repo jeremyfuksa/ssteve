@@ -215,6 +215,15 @@
   flex: 1;
 }
 
+/* Beside the controls, not over the canvas: it explains a control the
+   operator just moved, and it must not cover the picture it is about. */
+.control-note {
+  color: var(--signal);
+  font-size: 12px;
+  max-width: 34ch;
+  line-height: 1.3;
+}
+
 .status {
   display: flex;
   align-items: baseline;
