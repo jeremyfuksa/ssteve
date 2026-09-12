@@ -27,12 +27,23 @@ _TRANSMIT_BODY = {"mode": "ScottieS1", "device_id": "default", "ptt_method": "no
 
 @contextmanager
 def _db(module, session):
-    """Override a route module's get_db for the duration of a request."""
+    """Override a route module's get_db for the duration of a request.
+
+    Restores whatever was there rather than popping. The app installs its
+    own override for these modules at import time, so popping deleted it
+    and left every later test in the session running against an
+    unconfigured database -- "Database session dependency not configured",
+    from a test that had passed in isolation.
+    """
+    previous = app.dependency_overrides.get(module.get_db)
     app.dependency_overrides[module.get_db] = lambda: session
     try:
         yield
     finally:
-        app.dependency_overrides.pop(module.get_db, None)
+        if previous is None:
+            app.dependency_overrides.pop(module.get_db, None)
+        else:
+            app.dependency_overrides[module.get_db] = previous
 
 
 def _assert_structured(detail, expected_error: str) -> None:
