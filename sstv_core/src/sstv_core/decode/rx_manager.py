@@ -31,7 +31,11 @@ from sstv_core.decode.correlation_vis_detector import (
 )
 from sstv_core.decode.hough_slant_corrector import HoughSlantCorrector
 from sstv_core.decode.image_saver import ImageSaver
-from sstv_core.decode.martin_decoder import MartinM1Config, MartinM1Decoder
+from sstv_core.decode.martin_decoder import (
+    MartinM1Config,
+    MartinM1Decoder,
+    MartinM2Config,
+)
 from sstv_core.decode.robot_decoder import Robot36Config, Robot36Decoder
 from sstv_core.decode.rsv import DecodeMetrics
 from sstv_core.decode.scottie_decoder import (
@@ -1160,6 +1164,7 @@ class RXManager:
         "ScottieS1",
         "ScottieS2",
         "MartinM1",
+        "MartinM2",
         "Robot36",
     )
 
@@ -1190,6 +1195,12 @@ class RXManager:
             return ScottieS1Decoder(ScottieS2Config(sample_rate=rate))
         elif mode_lower == "martinm1":
             return MartinM1Decoder(MartinM1Config(sample_rate=rate))
+        elif mode_lower == "martinm2":
+            # Same decoder, different timing -- as ScottieS2 above. The
+            # corpus suite has decoded M2 this way since the off-air
+            # fixtures landed; only the product could not (#140), and
+            # M2 is 4 of our 14 captures including both FSKID ones.
+            return MartinM1Decoder(MartinM2Config(sample_rate=rate))
         elif mode_lower == "robot36":
             return Robot36Decoder(Robot36Config(sample_rate=rate))
         else:

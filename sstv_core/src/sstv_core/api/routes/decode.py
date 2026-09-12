@@ -27,6 +27,7 @@ from sstv_core.api.session_manager import (
     concurrent_operation_detail,
     session_manager,
 )
+from sstv_core.decode.rx_manager import RXManager
 from sstv_core.smart_features.mode_detector import (
     detect_mode_from_sync_timing,
     get_suggestion_message,
@@ -39,7 +40,10 @@ router = APIRouter(prefix="/decode", tags=["decode"])
 # Modes with actual decoder implementations. The SSTVMode enum advertises 12
 # modes, but forcing any other one used to 201 and then die silently inside
 # the swallowed background task.
-SUPPORTED_DECODE_MODES = {"ScottieS1", "MartinM1", "Robot36"}
+#: Derived, never restated. A hand-maintained copy drifted from the engine
+#: and refused ScottieS2 -- the most-captured mode in the corpus -- while the
+#: decoder handled it fine (#153).
+SUPPORTED_DECODE_MODES = frozenset(RXManager.DECODABLE_MODES)
 
 
 @router.post("/detect_mode", response_model=ModeDetectionResponse, status_code=status.HTTP_200_OK)

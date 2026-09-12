@@ -46,38 +46,41 @@ and only one of them is evidence.*
 to know Scottie S2 and Martin M1 are common; not enough to conclude Robot 72 and
 PD 120 are rare. The right response is more capture, not a firmer claim.*
 
-#### Every mode we have actually heard is broken somewhere
+#### Every mode we have actually heard now decodes
 
-Found 2026-08-21 by cross-checking four sources. Verified state:
+Found broken 2026-08-21 by cross-checking four sources; fixed 2026-09-11
+(#140, #153). Verified state:
 
 | Mode | Engine (`rx_manager`) | API | Test suite | Off-air captures |
 |---|---|---|---|---|
 | Scottie S1 | ✅ | ✅ | ✅ | 0 |
-| **Scottie S2** | ✅ | ❌ **rejected** | ✅ | **6** |
+| **Scottie S2** | ✅ | ✅ *(was rejected)* | ✅ | **6** |
 | Martin M1 | ✅ | ✅ | ✅ | **4** |
-| **Martin M2** | ❌ **no dispatch** | ❌ | ✅ passes | **4** |
+| **Martin M2** | ✅ *(was no dispatch)* | ✅ | ✅ | **4** |
 | Robot 36 | ✅ | ✅ | — | 0 |
 
-**Robot 36 — never once heard on air — is the only mode that works end to end
-with no caveat. Every mode we have actually captured is blocked somewhere.**
+The finding that made this urgent still stands as a lesson: **Robot 36 —
+never once heard on air — was the only mode that worked end to end, while
+every mode we had actually captured was blocked somewhere.** Neither defect
+was in the DSP. Both were lists.
 
-Two distinct defects, both small:
+1. **Scottie S2 was rejected by the API.** `SUPPORTED_DECODE_MODES` restated
+   the engine's `DECODABLE_MODES` and drifted from it, so `POST /decode/start`
+   returned 400 for the most-captured mode in the corpus while the decoder
+   handled it fine. The API set is now derived from the engine's, and a test
+   fails if the two ever disagree again. Auto-detect was never affected, which
+   is why it went unnoticed: only a *forced* mode hit the list.
 
-1. **Scottie S2 is rejected by the API.** `api/routes/decode.py:42`
-   `SUPPORTED_DECODE_MODES` lists three modes; `rx_manager.py:1152`
-   `DECODABLE_MODES` lists four, including Scottie S2. `POST /decode/start`
-   returns 400 for the most-captured mode in the corpus. Only the CLI reaches
-   it. Fix by deriving the API set from `DECODABLE_MODES` instead of restating
-   it — the drift is the argument against two hand-maintained lists.
+2. **Martin M2 decoded in tests but not in the product.** The corpus suite
+   maps `MARTIN_M2 → (MartinM1Decoder, MartinM2Config, 226.798)` and all four
+   fixtures pass pixel-exact, but `rx_manager._get_decoder` had no `martinm2`
+   branch, so the product answered "I can't decode that yet" for both of the
+   only two captures carrying a verified FSKID callsign. It was a missing
+   `elif`, and the verification evidence already existed.
 
-2. **Martin M2 decodes in tests but not in the product.**
-   `tests/decode/regression/test_offair_corpus.py:49` maps
-   `MARTIN_M2 → (MartinM1Decoder, MartinM2Config, 226.798)` and all 4 M2
-   fixtures pass pixel-exact against accepted renders. `MartinM2Config` ships
-   in `decode/martin_decoder.py:75`. But `rx_manager._get_decoder` has no
-   `martinm2` branch, so the product returns `None` for a mode its own suite
-   proves it decodes. **This is a missing `elif`, not a DSP problem** — the
-   verification evidence already exists.
+*The suite proving a mode decodes while the product cannot reach it is the
+shape to watch for: a test that bypasses the wiring tests the DSP and nothing
+else.*
 
 *Contrast with Robot 72 / PD 120, which `AUTO_FIRST_PLAN.md` correctly calls
 blocked on capture: no recordings, no encoder, no independent oracle. Martin M2
