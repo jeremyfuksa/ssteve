@@ -46,6 +46,16 @@ class SessionData:
         return self.state in terminal_states
 
 
+class ConcurrentOperationError(RuntimeError):
+    """Half-duplex: the radio can only do one thing at a time.
+
+    A type rather than a recognisable sentence. Three routes used to decide
+    whether a RuntimeError meant 409 by matching "already active" in its
+    message, so rewording the copy for an operator turned the conflict into
+    a 500 -- the error voice and the status code were the same string.
+    """
+
+
 class SessionManager:
     """Singleton session manager for tracking SSTV sessions.
 
@@ -165,7 +175,7 @@ class SessionManager:
         """Create a new decode session.
 
         Raises:
-            RuntimeError: If a decode session is already active (half-duplex)
+            ConcurrentOperationError: If the radio is already busy (half-duplex)
 
         """
         async with self._lock:
@@ -173,18 +183,23 @@ class SessionManager:
             if self._active_decode_id is not None:
                 active = self._decode_sessions.get(self._active_decode_id)
                 if active and not active.is_terminal_state():
-                    raise RuntimeError(
-                        f"Decode session {self._active_decode_id} already active. "
-                        "Stop it before starting a new one."
+                    # No session id in the sentence: the operator never sees
+                    # one anywhere else, and the 409 body already carries it
+                    # as active_session_id for a client that wants to offer
+                    # "stop that one and retry".
+                    raise ConcurrentOperationError(
+                        "A decode is already running, and the radio can only "
+                        "do one thing at a time. Stop it before starting another."
                     )
 
             # Check for active transmit session (half-duplex enforcement)
             if self._active_transmit_id is not None:
                 active = self._transmit_sessions.get(self._active_transmit_id)
                 if active and not active.is_terminal_state():
-                    raise RuntimeError(
-                        f"Transmit session {self._active_transmit_id} is active. "
-                        "Can't decode while transmitting (half-duplex)."
+                    raise ConcurrentOperationError(
+                        "I'm transmitting, and the radio can only do one thing "
+                        "at a time. Wait for the picture to finish sending, or "
+                        "stop it, then start listening."
                     )
 
             # Create new session
@@ -205,7 +220,7 @@ class SessionManager:
         """Create a new transmit session.
 
         Raises:
-            RuntimeError: If a transmit session is already active (half-duplex)
+            ConcurrentOperationError: If the radio is already busy (half-duplex)
 
         """
         async with self._lock:
@@ -213,18 +228,19 @@ class SessionManager:
             if self._active_transmit_id is not None:
                 active = self._transmit_sessions.get(self._active_transmit_id)
                 if active and not active.is_terminal_state():
-                    raise RuntimeError(
-                        f"Transmit session {self._active_transmit_id} already active. "
-                        "Stop it before starting a new one."
+                    raise ConcurrentOperationError(
+                        "A transmission is already running, and the radio can "
+                        "only do one thing at a time. Stop it before starting "
+                        "another."
                     )
 
             # Check for active decode session (half-duplex enforcement)
             if self._active_decode_id is not None:
                 active = self._decode_sessions.get(self._active_decode_id)
                 if active and not active.is_terminal_state():
-                    raise RuntimeError(
-                        f"Decode session {self._active_decode_id} is active. "
-                        "Can't transmit while decoding (half-duplex)."
+                    raise ConcurrentOperationError(
+                        "I'm listening, and the radio can only do one thing at "
+                        "a time. Stop listening before you transmit."
                     )
 
             # Create new session

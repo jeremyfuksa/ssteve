@@ -9,7 +9,11 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
-from sstv_core.api.session_manager import SessionManager, SessionData
+from sstv_core.api.session_manager import (
+    ConcurrentOperationError,
+    SessionData,
+    SessionManager,
+)
 from sstv_core.api.models import DecodeState, TransmitState
 
 
@@ -131,7 +135,7 @@ class TestHalfDuplexEnforcement:
         session1 = await manager.create_decode_session()
 
         # Try to create second session
-        with pytest.raises(RuntimeError, match="already active"):
+        with pytest.raises(ConcurrentOperationError):
             await manager.create_decode_session()
 
     @pytest.mark.asyncio
@@ -154,7 +158,7 @@ class TestHalfDuplexEnforcement:
         session1 = await manager.create_transmit_session()
 
         # Try to create second session
-        with pytest.raises(RuntimeError, match="already active"):
+        with pytest.raises(ConcurrentOperationError):
             await manager.create_transmit_session()
 
     @pytest.mark.asyncio
@@ -164,7 +168,7 @@ class TestHalfDuplexEnforcement:
         await manager.create_transmit_session()
 
         # Try to start decoding
-        with pytest.raises(RuntimeError, match="half-duplex"):
+        with pytest.raises(ConcurrentOperationError):
             await manager.create_decode_session()
 
     @pytest.mark.asyncio
@@ -174,7 +178,7 @@ class TestHalfDuplexEnforcement:
         await manager.create_decode_session()
 
         # Try to start transmitting
-        with pytest.raises(RuntimeError, match="half-duplex"):
+        with pytest.raises(ConcurrentOperationError):
             await manager.create_transmit_session()
 
     @pytest.mark.asyncio
