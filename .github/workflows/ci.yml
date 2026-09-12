@@ -86,8 +86,11 @@ jobs:
   # meaningless, so this job does not.
   slow:
     runs-on: ubuntu-latest
-    # Serial by design and measured at 6m03s; 20 minutes is a wedge, not work.
-    timeout-minutes: 20
+    # Serial by design. Measured 6m03s when this job was written, 14m45s on
+    # 2026-09-11 once the 48 kHz VIS sweep (#137) joined it -- five minutes of
+    # headroom against the old 20, which a slower runner would have eaten.
+    # 30 still means wedged rather than slow.
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: sstv_core
