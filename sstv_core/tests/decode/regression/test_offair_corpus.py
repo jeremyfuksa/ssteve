@@ -238,6 +238,92 @@ def _detect_vis(audio: np.ndarray, rate: int, chunk: int):
     return None
 
 
+#: The live path runs at 48 kHz -- a sound card, or SpyServer audio the
+#: demodulator resamples -- while the corpus is stored at 11025. The sweep
+#: above therefore proved chunk-independence at a rate nothing in production
+#: uses, and at 48 kHz it was still broken: measured 2026-09-11 on three
+#: captures across seven block sizes, 3/7, 3/7 and 2/7 correct, with **1024**
+#: -- a sound card's own callback size -- missing all three (#137).
+#:
+#: The cause was the pre-filter running on each arriving chunk, so `filtfilt`
+#: wrote its edge transient into the buffer at every caller boundary. It now
+#: runs on the analysis window instead. After that, 13 of the 14 captures read
+#: back correctly at all thirteen swept block sizes, and no capture reports a
+#: wrong mode at any of them.
+ENGINE_RATE = 48_000
+
+#: cap1_023873s remains the marginal header the manifest flags, at this rate
+#: too: it detects at some block sizes and declines at others, and never
+#: misidentifies. Excluded from the 48 kHz sweep rather than marked xfail per
+#: chunk, because which alignments happen to work is exactly the sampling
+#: accident KNOWN_VIS_ALIGNMENT_GAP already documents, and pinning eight of
+#: them would pin the accident.
+VIS_SWEEP_FILES_48K = tuple(f for f in VIS_SWEEP_FILES if f != KNOWN_VIS_ALIGNMENT_GAP[0])
+
+
+def _at_engine_rate(entry: dict) -> np.ndarray:
+    """The capture resampled to the rate the live path decodes at."""
+    from math import gcd
+
+    from scipy.signal import resample_poly
+
+    audio, rate = _load(entry)
+    if rate == ENGINE_RATE:
+        return audio
+    divisor = gcd(ENGINE_RATE, rate)
+    resampled = resample_poly(audio, ENGINE_RATE // divisor, rate // divisor)
+    # The header is in the first seconds; eight of them keeps the sweep quick.
+    return np.asarray(resampled[: ENGINE_RATE * 8], dtype=np.float32)
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize(
+    ("entry", "chunk"),
+    [
+        pytest.param(entry, chunk, id=f"{entry['file']}-{chunk}")
+        for entry in ENTRIES
+        if entry["file"] in VIS_SWEEP_FILES_48K
+        for chunk in (1024, 3072, 4096, 4800, 6144, 9600, 16384)
+    ],
+)
+def test_vis_detection_does_not_depend_on_chunk_size_at_48k(
+    entry: dict, chunk: int
+) -> None:
+    """The same property, at the rate the product actually runs.
+
+    1024 and 4096 are the block sizes a sound card and the file replay
+    deliver; 4800 is one 100 ms turn of RXManager's listen loop at 48 kHz.
+    Every one of them missed at least one capture before the fix.
+    """
+    detected = _detect_vis(_at_engine_rate(entry), ENGINE_RATE, chunk)
+
+    assert detected is not None, f"no VIS in {entry['file']} at 48 kHz, chunk={chunk}"
+    assert detected.mode.name == entry["mode"], (
+        f"{entry['file']} at 48 kHz chunk={chunk}: read {detected.mode.name}, "
+        f"expected {entry['mode']}"
+    )
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize(
+    "chunk", [1024, 3072, 4096, 4800, 6144, 9600, 16384], ids=lambda c: f"chunk-{c}"
+)
+def test_the_marginal_header_declines_rather_than_misreads_at_48k(chunk: int) -> None:
+    """The weak one may go undetected; it must never name the wrong mode.
+
+    A wrong mode decodes the picture with the wrong geometry and the operator
+    sees garbage. No detection just asks them to choose, which is the failure
+    this detector is built to prefer (MIN_MODE_MARGIN).
+    """
+    entry = next(e for e in ENTRIES if e["file"] == KNOWN_VIS_ALIGNMENT_GAP[0])
+
+    detected = _detect_vis(_at_engine_rate(entry), ENGINE_RATE, chunk)
+
+    assert detected is None or detected.mode.name == entry["mode"], (
+        f"misread as {detected.mode.name} at 48 kHz chunk={chunk}"
+    )
+
+
 @pytest.mark.parametrize(("entry", "chunk"), _vis_cases(VIS_CHUNK_SIZES))
 def test_vis_detection_does_not_depend_on_chunk_size(entry: dict, chunk: int) -> None:
     """VIS reads back the same mode however the caller buffers the audio.

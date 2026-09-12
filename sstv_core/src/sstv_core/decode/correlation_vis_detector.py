@@ -308,9 +308,16 @@ class CorrelationVISDetector:
 
     def _process_step(self, samples: np.ndarray) -> VISDetectionResult | None:
         """Buffer one bounded chunk and correlate against every template."""
-        # Apply pre-filtering if enabled
-        if self._config.enable_pre_filter:
-            samples = self._apply_bandpass_filter(samples)
+        # The buffer holds RAW audio. Filtering each arriving chunk instead
+        # made the answer depend on the caller's block size: `filtfilt` lays
+        # a transient at both ends of whatever it is handed, so every chunk
+        # boundary wrote a smeared edge into the buffer and the alignment
+        # search could not recover what the filter had already blurred.
+        # Measured at 48 kHz before this change, on three off-air captures
+        # fed at seven block sizes: 3/7, 3/7 and 2/7 correct, with 1024 --
+        # a sound card's own callback size -- missing all three (#137).
+        # The filter still runs; it runs on the analysis window instead,
+        # below, where the audio in it is the same however it arrived.
 
         # Update rolling buffer
         buffer_size = len(self._buffer)
@@ -351,6 +358,14 @@ class CorrelationVISDetector:
         # is still filling its tail holds the audio; once full it is the whole
         # buffer.
         filled = self._buffer[-self._samples_buffered :]
+        if self._config.enable_pre_filter:
+            # One filter pass over the whole window, not per chunk. Dropping
+            # the filter altogether is not the alternative it looks like:
+            # with it off, the two weaker captures above went from 3/7 and
+            # 2/7 to 0/7 -- never detected at any block size. It earns its
+            # place, it just has to be applied to the window rather than to
+            # the arrivals.
+            filled = self._apply_bandpass_filter(filled)
         buffer_envelope = frequency_envelope(filled, self._config.sample_rate)
 
         for mode, template in self._templates.items():
