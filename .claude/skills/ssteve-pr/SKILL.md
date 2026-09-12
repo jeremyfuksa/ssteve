@@ -68,6 +68,23 @@ echo '{"strict":true,"contexts":["fast","slow"]}' | \
 That is a repo-wide security setting, so expect to hand it to Jeremy rather
 than run it unprompted.
 
+## `git checkout main && git pull` can leave you on main, silently
+
+The checkout succeeds; only the *pull* aborts when the tree is dirty:
+
+```
+$ git checkout -q main && git pull -q
+Aborting                       <- this is the pull, not the checkout
+```
+
+One line of output, from the second command, and you are now on main with
+your work uncommitted on top of it. This happened twice on 2026-09-12, and
+the second time produced a commit on main.
+
+Check `git branch --show-current` after any checkout you did not see
+succeed, and prefer `git checkout -b <branch>` from wherever you are over
+round-tripping through main.
+
 ## Branch, then PR. Never commit to main.
 
 This repo has CI, so main is off limits for direct pushes. If you find you
