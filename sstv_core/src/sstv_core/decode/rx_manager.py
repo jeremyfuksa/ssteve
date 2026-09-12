@@ -110,6 +110,22 @@ class RXProgress:
 class RXManager:
     """Manages complete SSTV reception pipeline."""
 
+    #: How long to keep collecting after the picture stops advancing, so a
+    #: burst still on its way is not missed. Short: on a live stream the ID
+    #: follows the image immediately.
+    FSKID_TAIL_WAIT_SEC = 3.0
+
+    #: One FSKID attempt covers this much audio. The decoder gives up after
+    #: three seconds of scanning, so a window has to be about that long to
+    #: hold a burst wherever it starts inside it.
+    FSKID_WINDOW_SEC = 3.5
+
+    #: How far the search advances between attempts. Measured on the two
+    #: verified captures: the burst decodes from windows starting within
+    #: about a second of it (57.0, 57.5 and 58.5s for VA2PGB), so half a
+    #: second lands on it without a wasteful sweep.
+    FSKID_HOP_SEC = 0.5
+
     #: How long teardown waits for an in-flight open before stopping the
     #: source anyway. Long enough for a SpyServer handshake against a slow
     #: server, short enough that a wedged connect cannot hold a stopped
@@ -220,7 +236,15 @@ class RXManager:
         # Rolling window of RAW input for on-demand analysis (session-based
         # mode detection). ~15s covers >30 scanlines of every mode.
         self._analysis_window = np.zeros(0, dtype=np.float32)
-        self._analysis_window_samples = self._sample_rate * 15
+        # 30s, not 15. Mode detection and the noise floor only ever read the
+        # most recent 15 (get_recent_audio slices it), but FSKID has to look
+        # *back*: the callsign burst follows the picture, and a decode that
+        # gave up at line 194 of 256 keeps consuming audio for another
+        # quarter of the transmission before the loop ends. Measured on the
+        # two off-air captures that carry a verified callsign, the burst sits
+        # at 57-59s in a 75s recording -- outside a 15s window by the time
+        # the loop stops (#168).
+        self._analysis_window_samples = self._sample_rate * 30
 
         # AFC: correct the video frequency mapping by the measured sync
         # offset. Manual override is auto_afc=False -- auto-only AFC is
@@ -360,14 +384,51 @@ class RXManager:
         return offset
 
     def get_recent_audio(self) -> np.ndarray:
-        """Copy of the last ~15s of raw input (session mode detection)."""
-        window: np.ndarray = self._analysis_window.copy()
+        """Copy of the last ~15s of raw input (session mode detection).
+
+        The buffer behind this holds 30s for FSKID's sake; this contract is
+        15, so it slices rather than handing over everything it has.
+        """
+        wanted = self._sample_rate * 15
+        window: np.ndarray = self._analysis_window[-wanted:].copy()
         return window
 
     def _extend_analysis_window(self, samples: np.ndarray) -> None:
         self._analysis_window = np.concatenate(
             (self._analysis_window, samples)
         )[-self._analysis_window_samples:]
+
+    def _search_for_fskid(self, audio: np.ndarray) -> Any | None:
+        """Find the callsign burst in recent audio, aiming by checksum.
+
+        The decoder needs its window within about 200ms of the preamble
+        (2026-08-19), and nothing tells us where that is: the picture may
+        have stopped decoding well before the transmission ended. So this
+        steps a window across the audio and takes the first decode whose
+        checksum validates -- the only trustworthy oracle FSKID has.
+
+        A decode that fails its checksum is kept only as a fallback, so the
+        operator is told "unverified" rather than nothing; callers already
+        refuse to adopt an unverified callsign.
+        """
+        from sstv_core.decode.fsk_decoder import FSKIDDecoder
+
+        window = int(self._sample_rate * self.FSKID_WINDOW_SEC)
+        hop = max(1, int(self._sample_rate * self.FSKID_HOP_SEC))
+        unverified = None
+
+        for start in range(0, max(1, len(audio) - window + 1), hop):
+            result = FSKIDDecoder(sample_rate=self._sample_rate).decode(
+                audio[start : start + window]
+            )
+            if result is None:
+                continue
+            if result.checksum_valid:
+                return result
+            if unverified is None:
+                unverified = result
+
+        return unverified
 
     def get_fskid_result(self) -> Any | None:
         """FSKID callsign result from the most recent decode, if any."""
@@ -1004,29 +1065,29 @@ class RXManager:
                         stream_audio = stream_audio[keep_from:]
                         stream_base_position += keep_from
 
-            # FSKID: the callsign ID follows the image immediately
-            # (docs/features/FSKID_SPECIFICATION.md). Only worth looking for
-            # after a full decode; collect up to ~3s more audio.
-            if line_number >= total_lines and not self._cancel_requested:
-                fskid_tail = stream_audio
-                fskid_deadline = time.monotonic() + 3.0
-                fskid_needed = int(self._sample_rate * 3.0)
-                while (
-                    len(fskid_tail) < len(stream_audio) + fskid_needed
-                    and time.monotonic() < fskid_deadline
-                ):
+            # FSKID: the callsign ID follows the image
+            # (docs/features/FSKID_SPECIFICATION.md).
+            #
+            # Attempted after ANY picture, not only a complete frame. Real
+            # off-air transmissions rarely finish 256 of 256 -- both captures
+            # in the corpus that carry a verified callsign decode about 194 --
+            # so gating on a full frame meant FSKID never ran on real air at
+            # all, while its unit tests passed on pre-trimmed bursts (#168).
+            if line_number > 0 and not self._cancel_requested:
+                # A little more audio first: on a live stream the burst may
+                # still be arriving when the picture stops advancing.
+                tail_deadline = time.monotonic() + self.FSKID_TAIL_WAIT_SEC
+                while time.monotonic() < tail_deadline:
                     await asyncio.sleep(0.1)
                     extra = ring_buffer.pop(len(ring_buffer))
                     if len(extra):
-                        fskid_tail = np.concatenate(
-                            (fskid_tail, self._bandpass_filter.filter(extra))
-                        )
+                        self._extend_analysis_window(extra)
                 try:
-                    from sstv_core.decode.fsk_decoder import FSKIDDecoder
-
-                    self._fskid_result = FSKIDDecoder(
-                        sample_rate=self._sample_rate
-                    ).decode(fskid_tail)
+                    # Off the loop: a scan is ~0.7s of arithmetic, and this
+                    # runs while a client is waiting for the completion event.
+                    self._fskid_result = await asyncio.to_thread(
+                        self._search_for_fskid, self._analysis_window.copy()
+                    )
                     if self._fskid_result:
                         logger.info(
                             "FSKID: %s (confidence %.2f, checksum %s)",
