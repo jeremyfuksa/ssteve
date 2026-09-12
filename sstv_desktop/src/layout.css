@@ -60,6 +60,86 @@
   white-space: nowrap;
 }
 
+/* The propagation verdict: one word of state, the sentence on hover, the
+   indices behind a click. It sits with the band buttons because that is what
+   it is about -- this band, right now. */
+.propagation-wrap {
+  position: relative;
+}
+
+.propagation {
+  padding: 5px 10px;
+  border-color: var(--edge);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.propagation.open {
+  color: var(--text);
+  border-color: var(--muted);
+}
+
+.propagation.closed,
+.propagation.storm {
+  color: var(--signal);
+  border-color: var(--signal);
+}
+
+/* Louder than good news (requirement 13): a missing report is a fact about
+   our own reach, and a quiet chip would read as "nothing to report". */
+.propagation.unknown {
+  color: var(--alert);
+  border-color: var(--alert);
+}
+
+.indices {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 2;
+  width: 280px;
+  padding: 12px;
+  background: var(--panel-high);
+  border: 1px solid var(--edge);
+  border-radius: 3px;
+  font-size: 12px;
+}
+
+.indices p {
+  margin: 0 0 8px;
+}
+
+.indices dl {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 12px;
+  margin: 0;
+}
+
+.indices dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.indices dt {
+  color: var(--muted);
+}
+
+.indices dd {
+  margin: 0;
+}
+
+.indices .muted {
+  color: var(--muted);
+  margin: 8px 0 0;
+}
+
+.indices .partial {
+  color: var(--signal);
+  margin: 8px 0 0;
+}
+
 .bands {
   display: flex;
   gap: 4px;
