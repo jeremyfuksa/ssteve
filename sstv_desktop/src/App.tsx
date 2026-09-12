@@ -32,7 +32,10 @@ type Posture =
   | { kind: "listening"; since: number }
   | { kind: "decoding"; mode: string; confidence: number }
   | { kind: "complete"; mode: string | null; rsv: string | null; fskid: string | null }
-  | { kind: "failed"; message: string; action: string | null; code: string };
+  | { kind: "failed"; message: string; action: string | null; code: string }
+  // Hearing nothing is the band's normal state, not a fault. It gets its
+  // own posture so it does not read in alarm red all day.
+  | { kind: "nothing"; message: string; action: string | null };
 
 /** Times are shown in UTC, which is what amateur radio logs in — and what the
  *  engine stores. Marked as such, because a bare "2:14" that is neither the
@@ -147,12 +150,20 @@ export default function App() {
           }
           case "error": {
             const failure = event as any;
-            setPosture({
-              kind: "failed",
-              message: failure.message,
-              action: failure.suggested_action,
-              code: failure.error_code,
-            });
+            setPosture(
+              failure.error_code === "NOTHING_HEARD"
+                ? {
+                    kind: "nothing",
+                    message: failure.message,
+                    action: failure.suggested_action,
+                  }
+                : {
+                    kind: "failed",
+                    message: failure.message,
+                    action: failure.suggested_action,
+                    code: failure.error_code,
+                  },
+            );
             break;
           }
         }
@@ -369,6 +380,14 @@ function Status({
   scanline: ScanlineUpdate | null;
   spectrum: SpectrumUpdate | null;
 }) {
+  if (posture.kind === "nothing") {
+    return (
+      <p className="status heard-nothing">
+        <span>{posture.message}</span>
+        {posture.action && <span className="muted">{posture.action}</span>}
+      </p>
+    );
+  }
   if (posture.kind === "failed") {
     return (
       <p className="status failed">

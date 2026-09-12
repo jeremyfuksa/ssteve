@@ -221,6 +221,7 @@ class RXManager:
 
         # FSKID result from the most recent decode (None = none detected).
         self._fskid_result: Any | None = None
+        self._loudest_listening_rms = 0.0
 
         # Set when VIS identified a mode we have no decoder for, so the API
         # can tell "known mode, not supported yet" from an ordinary stop.
@@ -430,6 +431,15 @@ class RXManager:
 
         return unverified
 
+    def get_loudest_listening_rms(self) -> float:
+        """Return the loudest input seen while listening for a transmission.
+
+        The measurement that separates "the band was quiet" from "this
+        receiver is deaf" -- two situations with identical output and
+        opposite remedies.
+        """
+        return self._loudest_listening_rms
+
     def get_fskid_result(self) -> Any | None:
         """FSKID callsign result from the most recent decode, if any."""
         return self._fskid_result
@@ -530,6 +540,7 @@ class RXManager:
         self._afc_correction_applied_hz = None
         self._analysis_window = np.zeros(0, dtype=np.float32)
         self._pending_start: asyncio.Task | None = None
+        self._loudest_listening_rms = 0.0
         pre_vis_rms: list[float] = []
 
         try:
@@ -625,6 +636,13 @@ class RXManager:
                         # the transmission's leading edge.
                         chunk_rms = float(np.sqrt(np.mean(samples.astype(np.float64) ** 2)))
                         pre_vis_rms.append(chunk_rms)
+                        # The loudest moment of the listen, kept so a session
+                        # that hears nothing can say which kind of nothing it
+                        # was. Peak rather than last: one quiet moment must
+                        # not mask a band that was alive earlier (#90).
+                        self._loudest_listening_rms = max(
+                            self._loudest_listening_rms, chunk_rms
+                        )
 
                         # Squelch: below the threshold there is no signal to
                         # correlate against; skip the (expensive) VIS work

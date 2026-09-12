@@ -35,6 +35,7 @@ from sstv_core.api.session_manager import session_manager
 from sstv_core.api.websocket_manager import websocket_manager
 from sstv_core.audio.device_manager import AudioDeviceManager
 from sstv_core.audio.file_source import FileSource
+from sstv_core.audio.levels import nothing_heard
 from sstv_core.audio.ptt_controller import PTTController, PTTMethod
 from sstv_core.audio.stream_manager import AudioStreamManager
 from sstv_core.decode.fsk_decoder import FSKIDResult
@@ -1201,12 +1202,38 @@ class DSPManager:
                         ).model_dump(mode="json"),
                     )
                 else:
-                    logger.warning(
-                        "Decode failed or cancelled for session %s", session_id
+                    # A listen that heard no transmission. Not a failure --
+                    # the band is silent 97.4% of the time -- but the
+                    # operator is owed which kind of silence it was: a quiet
+                    # band and a deaf receiver produce identical output and
+                    # call for opposite responses. The CLI has said so since
+                    # #90; over the API the session simply stopped, and the
+                    # window had nothing to show.
+                    loudest = (
+                        rx_mgr.get_loudest_listening_rms()
+                        if rx_mgr is not None
+                        and hasattr(rx_mgr, "get_loudest_listening_rms")
+                        else 0.0
+                    )
+                    message, detail, action = nothing_heard(loudest)
+                    logger.info(
+                        "Session %s heard nothing (loudest %.6f RMS)",
+                        session_id,
+                        loudest,
                     )
                     await session_manager.update_decode_state(
                         session_id,
                         DecodeState.STOPPED,
+                        {"nothing_heard": message, "loudest_rms": loudest},
+                    )
+                    await websocket_manager.broadcast(
+                        session_id,
+                        ErrorEvent(
+                            error_code="NOTHING_HEARD",
+                            message=f"{message} {detail}",
+                            recoverable=True,
+                            suggested_action=action,
+                        ).model_dump(mode="json"),
                     )
 
         except asyncio.CancelledError:
