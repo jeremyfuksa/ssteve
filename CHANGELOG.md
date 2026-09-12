@@ -84,6 +84,11 @@ the picture as it arrives. Receive only — transmit is v0.2.
 - **FSKID is found on real air**, not only in a clip trimmed to the burst.
 - **Forcing a mode over the API works.** Asking for Scottie S2 explicitly was
   refused.
+- **An imported picture's time is the time it was heard.** A picture the
+  watcher found on disk was stamped with the importing machine's local
+  clock but labelled UTC, so on a computer five hours behind UTC it was
+  recorded as heard five hours early — and that time goes into the log and
+  into anything exported from it.
 - **The file watcher fills gaps rather than erasing them.** Importing no
   longer overwrites what a decode recorded, and a picture's timestamp no
   longer shifts by the UTC offset the first time the watcher sees it.

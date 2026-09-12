@@ -95,7 +95,15 @@ def parse_image_metadata(filepath: Path) -> dict[str, Any]:
     if metadata["timestamp"] is None:
         try:
             mtime = filepath.stat().st_mtime
-            metadata["timestamp"] = datetime.fromtimestamp(mtime)
+            # Naive UTC, like every other timestamp in the database.
+            # `fromtimestamp(mtime)` with no tz returns *local* time, so a
+            # picture imported at 17:41 CDT was recorded as 17:41Z -- five
+            # hours before it happened, and stated as fact in the log and in
+            # anything exported from it. Invisible on a machine running UTC,
+            # which is why CI never saw it (#180).
+            metadata["timestamp"] = datetime.fromtimestamp(
+                mtime, timezone.utc
+            ).replace(tzinfo=None)
             logger.debug("Using file mtime as timestamp: %s", metadata["timestamp"])
         except OSError as e:
             logger.warning("Failed to get file mtime for %s: %s", filepath, e)
