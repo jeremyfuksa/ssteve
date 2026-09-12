@@ -32,6 +32,15 @@ type Posture =
   | { kind: "complete"; mode: string | null; rsv: string | null; fskid: string | null }
   | { kind: "failed"; message: string; action: string | null; code: string };
 
+/** Times are shown in UTC, which is what amateur radio logs in — and what the
+ *  engine stores. Marked as such, because a bare "2:14" that is neither the
+ *  operator's clock nor obviously not it is the worst of both. */
+function heardAt(timestamp: string): string {
+  const at = new Date(timestamp);
+  if (Number.isNaN(at.getTime())) return "unknown time";
+  return `${at.toISOString().slice(11, 19)}Z`;
+}
+
 const DEFAULT_FRAME = { width: 320, height: 256 };
 
 export default function App() {
@@ -254,10 +263,10 @@ export default function App() {
             <figure key={row.id} className="row">
               <img
                 src={imageUrl(row.thumbnail_url ?? row.url)}
-                alt={`${row.mode ?? "Unknown mode"} decoded ${new Date(row.timestamp).toLocaleString()}`}
+                alt={`${row.mode ?? "Unknown mode"} decoded at ${heardAt(row.timestamp)}`}
               />
               <figcaption>
-                <span className="mono">{new Date(row.timestamp).toLocaleTimeString()}</span>
+                <span className="mono">{heardAt(row.timestamp)}</span>
                 <span>{row.mode ?? "unknown"}</span>
                 {row.callsign && <span className="call">{row.callsign}</span>}
                 <span className={row.heard_at === "remote" ? "where remote" : "where"}>

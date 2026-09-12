@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from sstv_core.api.image_ids import db_image_id_to_uuid
 from sstv_core.api.image_lookup import resolve_image_uuid
+from sstv_core.api.timestamps import as_utc
 
 from ...database.models import QSO
 from ...smart_features.qso_logger import (
@@ -215,8 +216,8 @@ async def log_qso(
             callsign=qso.callsign,
             mode=qso.mode,
             frequency_hz=qso.frequency_hz,
-            start_time=qso.start_time,
-            end_time=qso.end_time,
+            start_time=as_utc(qso.start_time),
+            end_time=as_utc(qso.end_time),
             report=qso.report,
             comments=qso.comments,
             is_sent=qso.is_sent,
@@ -304,8 +305,8 @@ async def list_qsos(
             callsign=qso.callsign,
             mode=qso.mode,
             frequency_hz=qso.frequency_hz,
-            start_time=qso.start_time,
-            end_time=qso.end_time,
+            start_time=as_utc(qso.start_time),
+            end_time=as_utc(qso.end_time),
             report=qso.report,
             comments=qso.comments,
             is_sent=qso.is_sent,
@@ -415,8 +416,8 @@ async def get_qso(
         callsign=qso.callsign,
         mode=qso.mode,
         frequency_hz=qso.frequency_hz,
-        start_time=qso.start_time,
-        end_time=qso.end_time,
+        start_time=as_utc(qso.start_time),
+        end_time=as_utc(qso.end_time),
         report=qso.report,
         comments=qso.comments,
         is_sent=qso.is_sent,

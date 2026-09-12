@@ -23,6 +23,7 @@ from sstv_core.api.thumbnails import (
     is_servable,
     thumbnail_path_for,
 )
+from sstv_core.api.timestamps import as_utc
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +99,7 @@ def _db_image_to_api(db_image) -> ImageMetadata:
         mode=mode,
         direction=direction,
         callsign=db_image.callsign,
-        timestamp=db_image.timestamp,
+        timestamp=as_utc(db_image.timestamp),
         # rx_snr_db is the dB column; rx_quality_score is a 0-1 number and
         # was previously served here as dB.
         snr_db=db_image.rx_snr_db,
