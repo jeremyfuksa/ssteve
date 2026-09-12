@@ -4,6 +4,7 @@ import {
   CoreError,
   adjustDecode,
   getConfig,
+  getPropagation,
   imageUrl,
   listImages,
   engineProblem,
@@ -17,6 +18,7 @@ import {
   type Band,
   type Config,
   type ImageRow,
+  type Propagation,
   type ScanlineUpdate,
   type SpectrumUpdate,
 } from "./core";
@@ -63,6 +65,9 @@ export default function App() {
   const [gain, setGain] = useState(1);
   const [squelch, setSquelch] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [propagation, setPropagation] = useState<Propagation | null>(null);
+  const [propagationProblem, setPropagationProblem] = useState<string | null>(null);
+  const [indicesOpen, setIndicesOpen] = useState(false);
   const closeSession = useRef<(() => void) | null>(null);
 
   const refreshImages = useCallback(async () => {
@@ -179,6 +184,32 @@ export default function App() {
     }
   };
 
+  useEffect(() => {
+    let cancelled = false;
+    const ask = () =>
+      getPropagation(band)
+        .then((report) => {
+          if (cancelled) return;
+          setPropagation(report);
+          setPropagationProblem(null);
+        })
+        .catch((error: CoreError) => {
+          if (cancelled) return;
+          setPropagation(null);
+          // Requirement 13: unreachable sources must look louder than good
+          // news. A blank panel reads as "nothing to report", which is the
+          // opposite of the truth.
+          setPropagationProblem(error.message);
+        });
+    ask();
+    // The indices update a few times a day; a quarter of an hour is plenty.
+    const timer = window.setInterval(ask, 15 * 60 * 1000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [band]);
+
   const listen = () => begin(() => startSpyServerDecode(band, 3600));
   const replay = (filePath: string) => begin(() => startFileDecode(filePath));
 
@@ -250,6 +281,12 @@ export default function App() {
             </button>
           ))}
         </div>
+        <Propagation
+          report={propagation}
+          problem={propagationProblem}
+          open={indicesOpen}
+          onToggle={() => setIndicesOpen((was) => !was)}
+        />
         {live ? (
           <button className="stop" onClick={stop}>
             Stop
@@ -300,7 +337,10 @@ export default function App() {
           </p>
         )}
         {!starting && !engineError && images.length === 0 && (
-          <p className="empty">Nothing decoded yet. The band is quiet most of the time.</p>
+          <p className="empty">
+            Nothing decoded yet. The band is quiet most of the time.
+            {propagation && ` ${propagation.explanation}`}
+          </p>
         )}
         <div className="rows">
           {images.map((row) => (
@@ -364,6 +404,65 @@ export default function App() {
             setSettingsOpen(false);
           }}
         />
+      )}
+    </div>
+  );
+}
+
+/** Whether the band should be carrying signal.
+ *
+ * One sentence, not a dashboard (requirement 13). The indices sit behind
+ * disclosure for operators who read them; they are not the deliverable.
+ * And it states support, never activity: an open band does not promise
+ * anybody will transmit.
+ */
+function Propagation({
+  report,
+  problem,
+  open,
+  onToggle,
+}: {
+  report: Propagation | null;
+  problem: string | null;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  if (problem) {
+    return (
+      <button className="propagation unknown" onClick={onToggle} title={problem}>
+        no propagation report
+      </button>
+    );
+  }
+  if (!report) return null;
+
+  return (
+    <div className="propagation-wrap">
+      <button
+        className={`propagation ${report.state.toLowerCase()}`}
+        onClick={onToggle}
+        title={report.explanation}
+        aria-expanded={open}
+      >
+        {report.band} {report.state.toLowerCase()}
+      </button>
+      {open && (
+        <div className="indices">
+          <p>{report.explanation}</p>
+          <dl className="mono">
+            <div><dt>SFI</dt><dd>{report.solar_flux}</dd></div>
+            <div><dt>K</dt><dd>{report.k_index}</dd></div>
+            <div><dt>A</dt><dd>{report.a_index || "—"}</dd></div>
+            <div><dt>Sunspots</dt><dd>{report.sunspots || "—"}</dd></div>
+            <div><dt>X-ray</dt><dd>{report.xray || "—"}</dd></div>
+          </dl>
+          {report.updated && <p className="muted">Updated {report.updated}</p>}
+          {report.source_errors.length > 0 && (
+            <p className="partial">
+              Partial report: {report.source_errors.join("; ")}
+            </p>
+          )}
+        </div>
       )}
     </div>
   );

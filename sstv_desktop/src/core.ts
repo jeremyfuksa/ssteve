@@ -182,6 +182,33 @@ export const adjustDecode = (
     body: JSON.stringify(changes),
   });
 
+export interface Propagation {
+  band: string;
+  state: "OPEN" | "CLOSED" | "STORM" | "UNKNOWN";
+  condition: string;
+  time_of_day: string;
+  /** The sentence a fault report needs, written by the engine. */
+  explanation: string;
+  solar_flux: string;
+  k_index: string;
+  a_index: string;
+  sunspots: string;
+  xray: string;
+  updated: string;
+  source_errors: string[];
+}
+
+/** Whether the band should be carrying signal.
+ *
+ * The only answer that cannot fail in the same direction as our own gain,
+ * antenna or demodulator -- which is what makes it worth asking when a
+ * capture reads dead (PRODUCT.md requirement 13). A 503 means the sources
+ * were unreachable, never that conditions are poor, and the caller must
+ * render that difference.
+ */
+export const getPropagation = (band: Band) =>
+  request<Propagation>(`/propagation?band=${band}`);
+
 export const listImages = (limit = 40) =>
   request<{ images: ImageRow[]; total: number }>(`/images?limit=${limit}`);
 
