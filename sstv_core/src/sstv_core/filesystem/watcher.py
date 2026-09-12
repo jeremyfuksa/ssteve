@@ -59,6 +59,22 @@ def _public_image_id(db_id: int) -> str:
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp"}
 
 
+def is_generated_thumbnail(path: Path) -> bool:
+    """Report whether this is one of our own thumbnails, not a picture.
+
+    Thumbnails are written beside their picture (api/thumbnails.py) so they
+    travel with it. That puts them in the watched library, where the importer
+    logged each one as a received picture: every decode produced two rows,
+    the second with no mode and no provenance (#160).
+
+    Matches the exact shape the generator produces -- ``name.thumb.png`` --
+    so a user's own ``thumbnails_of_my_holiday.png`` still imports.
+    """
+    from sstv_core.api.thumbnails import THUMBNAIL_SUFFIX
+
+    return Path(path).suffixes[-2:-1] == [THUMBNAIL_SUFFIX]
+
+
 class DebouncedEventHandler(FileSystemEventHandler):
     """Event handler with debouncing for file system changes.
 
@@ -97,6 +113,8 @@ class DebouncedEventHandler(FileSystemEventHandler):
 
     def _is_image_file(self, path: str) -> bool:
         """Check if path is an image file we should monitor."""
+        if is_generated_thumbnail(Path(path)):
+            return False
         return Path(path).suffix.lower() in IMAGE_EXTENSIONS
 
     def _debounce_event(self, path: str, event_type: str, callback: Callable[[], None]) -> None:
