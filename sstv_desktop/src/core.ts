@@ -294,13 +294,118 @@ export interface CoreErrorEvent {
   suggested_action: string | null;
 }
 
+/** Transmit progress. Nothing renders it yet -- v0.1 is receive-only --
+ *  but it arrives on the session socket, so it is named rather than
+ *  silently dropped. */
+export interface TxProgress {
+  event_type: "tx_progress";
+  progress_percent: number;
+  scanline_number: number;
+  total_scanlines: number;
+}
+
+export interface TransmitComplete {
+  event_type: "transmit_complete";
+  tx_id: string;
+  duration_seconds: number;
+}
+
+/** An image entered, changed or left the library on disk.
+ *
+ *  `broadcast_library_event` sends this to the app channel *and* to every
+ *  session connection (websocket_manager.py:250-272), so it arrives on
+ *  both.
+ */
+export interface LibraryUpdated {
+  event_type: "library_updated";
+  action: "created" | "modified" | "deleted";
+  image_id: string | null;
+  filepath: string;
+}
+
+export interface DeviceChanged {
+  event_type: "device_changed";
+  added: string[];
+  removed: string[];
+  total: number;
+}
+
+export interface MonitorState {
+  event_type: "monitor_state";
+  monitoring: boolean;
+  device_id: string | null;
+}
+
+/** An event type this build does not know.
+ *
+ *  Not the same as one it chooses to ignore. A newer engine may send
+ *  something this window has never heard of, and the difference between
+ *  "not handled yet" and "handled by doing nothing" is the difference
+ *  between a gap and a decision.
+ */
+export interface UnknownEvent {
+  event_type: "__unknown__";
+  raw: { event_type?: string };
+}
+
+/** Everything the session socket can deliver.
+ *
+ *  The seven the engine broadcasts to a session, plus library_updated,
+ *  which goes to both sockets. Listing them is the point: the switch that
+ *  consumes this is checked for exhaustiveness, so adding an event to the
+ *  engine and not to the window becomes a lint error rather than a silent
+ *  drop. Seven of the twelve were being dropped before this (#145).
+ */
 export type SessionEvent =
   | AudioLevels
   | VISDetected
   | ScanlineUpdate
   | DecodeComplete
   | CoreErrorEvent
-  | { event_type: string };
+  | TxProgress
+  | TransmitComplete
+  | LibraryUpdated
+  | UnknownEvent;
+
+/** Everything the app channel can deliver. */
+export type AppEvent =
+  | SpectrumUpdate
+  | DeviceChanged
+  | MonitorState
+  | LibraryUpdated
+  | UnknownEvent;
+
+const SESSION_EVENTS = new Set([
+  "audio_levels",
+  "vis_detected",
+  "scanline_update",
+  "decode_complete",
+  "error",
+  "tx_progress",
+  "transmit_complete",
+  "library_updated",
+]);
+
+const APP_EVENTS = new Set([
+  "spectrum_update",
+  "device_changed",
+  "monitor_state",
+  "library_updated",
+]);
+
+/** Give an unrecognised frame a name the type system can see.
+ *
+ *  Without this the union needed a `{ event_type: string }` member, which
+ *  matched everything and made exhaustiveness checking impossible: the
+ *  compiler could not tell a handled event from an unhandled one, so the
+ *  switch with no default type-checked perfectly while dropping seven
+ *  event types.
+ */
+function label<T>(known: Set<string>, frame: { event_type?: string }): T {
+  return (known.has(frame.event_type ?? "")
+    ? frame
+    : { event_type: "__unknown__", raw: frame }) as T;
+}
 
 /** Subscribe to one decode session. Returns a closer.
  *
@@ -314,17 +419,23 @@ export function watchSession(
   onEvent: (event: SessionEvent) => void,
   onOpen?: () => void,
 ): () => void {
-  return reconnecting(`${WS()}/ws/decode/${sessionId}`, onEvent, onOpen);
+  return reconnecting(
+    `${WS()}/ws/decode/${sessionId}`,
+    (frame) => onEvent(label<SessionEvent>(SESSION_EVENTS, frame)),
+    onOpen,
+  );
 }
 
 /** Subscribe to the app channel, which carries the waterfall. */
-export function watchApp(onEvent: (event: SpectrumUpdate | { event_type: string }) => void) {
-  return reconnecting(`${WS()}/ws`, onEvent);
+export function watchApp(onEvent: (event: AppEvent) => void) {
+  return reconnecting(`${WS()}/ws`, (frame) =>
+    onEvent(label<AppEvent>(APP_EVENTS, frame)),
+  );
 }
 
 function reconnecting(
   url: string,
-  onEvent: (event: any) => void,
+  onEvent: (frame: { event_type?: string }) => void,
   onOpen?: () => void,
 ): () => void {
   let socket: WebSocket | null = null;

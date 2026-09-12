@@ -102,7 +102,23 @@ export default function App() {
         if (loaded.input_gain_override) setGain(loaded.input_gain_override);
         await refreshImages();
         stopWatching = watchApp((event) => {
-          if (event.event_type === "spectrum_update") setSpectrum(event as SpectrumUpdate);
+          switch (event.event_type) {
+            case "spectrum_update":
+              setSpectrum(event);
+              break;
+            case "library_updated":
+              refreshImages();
+              break;
+            // Nothing here chooses an audio device or monitors input yet; the
+            // shell receives from a SpyServer. Named so that adding either
+            // feature is a change to this list rather than a discovery.
+            case "device_changed":
+            case "monitor_state":
+              break;
+            case "__unknown__":
+              console.debug("unhandled app event", event.raw.event_type);
+              break;
+          }
         });
       })
       .catch(async (error: CoreError) => {
@@ -180,36 +196,43 @@ export default function App() {
         (event) => {
           switch (event.event_type) {
             case "audio_levels":
-              setLevelDb((event as any).left_db);
+              setLevelDb(event.left_db);
               break;
             case "vis_detected":
               setPosture({
                 kind: "decoding",
-                mode: (event as any).mode,
-                confidence: (event as any).confidence,
+                mode: event.mode,
+                confidence: event.confidence,
               });
               break;
             case "scanline_update":
-              setScanline(event as ScanlineUpdate);
+              setScanline(event);
               break;
             case "decode_complete": {
-              const done = event as any;
               setPosture({
                 kind: "complete",
-                mode: done.mode,
-                rsv: done.rsv_report,
-                fskid: done.fskid_detected
-                  ? done.fskid_checksum_valid
+                mode: event.mode,
+                rsv: event.rsv_report,
+                fskid: event.fskid_detected
+                  ? event.fskid_checksum_valid
                     ? "verified"
                     : "unverified"
                   : null,
               });
-              if (done.image_id) setCompletedUrl(imageUrl(`/api/v1/images/${done.image_id}/file`));
+              if (event.image_id) {
+                setCompletedUrl(imageUrl(`/api/v1/images/${event.image_id}/file`));
+              }
               refreshImages();
               break;
             }
+            // The watcher found a picture on disk -- an import, or a decode
+            // this window did not run. The log is a view of the library, so
+            // it should show it without being asked twice.
+            case "library_updated":
+              refreshImages();
+              break;
             case "error": {
-              const failure = event as any;
+              const failure = event;
               setPosture(
                 failure.error_code === "NOTHING_HEARD"
                   ? {
@@ -226,6 +249,18 @@ export default function App() {
               );
               break;
             }
+            // Reached only in v0.2, when this window can transmit. Named
+            // rather than ignored by omission: the difference between a
+            // decision and a gap is whether anyone wrote it down.
+            case "tx_progress":
+            case "transmit_complete":
+              break;
+            // A newer engine sent something this build has never heard of.
+            // Worth one line in the console -- not worth interrupting an
+            // operator who is waiting for a picture.
+            case "__unknown__":
+              console.debug("unhandled session event", event.raw.event_type);
+              break;
           }
         },
         // On every connect, reconnects included. The socket is a live feed,

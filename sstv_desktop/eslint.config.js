@@ -6,18 +6,18 @@
 // against the `any` that `response.json()` returns -- a refactor of the
 // client, not a gate on this change.
 //
-// Two type-aware rules are worth having and are deliberately absent until
-// the defects they would flag are fixed, so that neither lands as a
-// warning nobody reads:
+// Type-aware rules are turned on one at a time, as the defect each would
+// flag is fixed, so that none of them lands as a warning nobody reads:
 //
-//   no-floating-promises        -- #148: `adjustDecode(...).catch(() => undefined)`
-//                                  swallows a rejected PATCH, so a setting the
-//                                  engine clamped shows as applied.
-//   switch-exhaustiveness-check -- #145: the session event switch has no
-//                                  default and silently drops seven of the
-//                                  engine's twelve event types.
-//
-// Turn each on in the PR that fixes its defect.
+//   switch-exhaustiveness-check -- on since #145. The session and app event
+//                                  unions are discriminated, so adding an
+//                                  event type to the engine and not to the
+//                                  window is a lint error rather than a
+//                                  silent drop.
+//   no-floating-promises        -- still off, pending #148:
+//                                  `adjustDecode(...).catch(() => undefined)`
+//                                  swallows a rejected PATCH, so a setting
+//                                  the engine clamped shows as applied.
 
 import js from "@eslint/js";
 import globals from "globals";
@@ -48,14 +48,17 @@ export default tseslint.config(
     rules: {
       ...reactHooks.configs.recommended.rules,
 
-      // Warn, not error, and only until #145. Every instance is an
-      // `event as any` in the session-event switch, which exists because
-      // the event union is not discriminated -- the same root cause as
-      // #145's "every spec event rendered or explicitly ignored in one
-      // place". Typing the union removes all of them at once, and this
-      // becomes an error in that PR. Left visible rather than disabled so
-      // the count going up is noticeable.
-      "@typescript-eslint/no-explicit-any": "warn",
+      // An error since #145 removed the last instance. Every one was an
+      // `event as any` in the session-event switch, and they existed
+      // because the event union was not discriminated.
+      "@typescript-eslint/no-explicit-any": "error",
+
+      // The reason the union is discriminated. A switch over it must
+      // handle every member or say out loud that it is ignoring one.
+      "@typescript-eslint/switch-exhaustiveness-check": [
+        "error",
+        { considerDefaultExhaustiveForUnions: true },
+      ],
 
       // Unused arguments are usually a signature being ignored; a leading
       // underscore is how you say you meant it.
