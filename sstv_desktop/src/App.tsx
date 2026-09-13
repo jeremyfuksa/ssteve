@@ -84,6 +84,8 @@ export default function App() {
   // Why the last adjustment did not take, when it did not.
   const [adjustment, setAdjustment] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // The picture being looked at full size, if any.
+  const [viewing, setViewing] = useState<ImageRow | null>(null);
   const [propagation, setPropagation] = useState<Propagation | null>(null);
   const [propagationProblem, setPropagationProblem] = useState<string | null>(null);
   const [indicesOpen, setIndicesOpen] = useState(false);
@@ -588,10 +590,20 @@ export default function App() {
         <div className="rows">
           {images.map((row) => (
             <figure key={row.id} className="row">
-              <img
-                src={imageUrl(row.thumbnail_url ?? row.url)}
-                alt={`${row.mode ?? "Unknown mode"} decoded at ${heardAt(row.timestamp)}`}
-              />
+              <button
+                type="button"
+                className="open-picture"
+                onClick={() => setViewing(row)}
+                // The thumbnail is ~120px wide: enough to see that a
+                // picture arrived, not enough to read a callsign off it,
+                // which is the whole reason for opening it.
+                title="See the whole picture"
+              >
+                <img
+                  src={imageUrl(row.thumbnail_url ?? row.url)}
+                  alt={`${row.mode ?? "Unknown mode"} decoded at ${heardAt(row.timestamp)}`}
+                />
+              </button>
               <figcaption>
                 {/* Two lines, fixed: what and when, then who and where.
                     At the field floor the log gets ~155px, so a third line
@@ -633,6 +645,8 @@ export default function App() {
           ))}
         </div>
       </section>
+
+      {viewing && <Viewer row={viewing} onClose={() => setViewing(null)} />}
 
       {settingsOpen && config && (
         <Settings
@@ -799,6 +813,55 @@ function Status({
     );
   }
   return <p className="status muted">Idle</p>;
+}
+
+/** One picture, as large as the window allows.
+ *
+ *  The log's thumbnails are ~120px: enough to see that something arrived,
+ *  not enough to read a callsign, which is what an operator actually wants
+ *  from a picture they heard hours ago. Borrowing the window rather than
+ *  opening a second one keeps the single-window model intact -- the same
+ *  thing Settings does.
+ */
+function Viewer({ row, onClose }: { row: ImageRow; onClose: () => void }) {
+  useEffect(() => {
+    // Escape closes it. A picture viewer that can only be dismissed by
+    // finding a small button is a picture viewer you stop opening.
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div className="scrim" onClick={onClose}>
+      <figure className="viewer" onClick={(event) => event.stopPropagation()}>
+        <img
+          src={imageUrl(row.url)}
+          alt={`${row.mode ?? "Unknown mode"} decoded at ${heardAt(row.timestamp)}`}
+        />
+        <figcaption>
+          <span className="mono">{heardAt(row.timestamp)}</span>
+          <span>{row.mode ?? "unknown mode"}</span>
+          {row.callsign && <span className="call">{row.callsign}</span>}
+          {row.rsv_report && <span className="mono rsv">{row.rsv_report}</span>}
+          <span className={row.heard_at === "remote" ? "where remote" : "where"}>
+            {row.heard_at === "remote"
+              ? `heard at ${row.receiver ?? "another receiver"}`
+              : row.heard_at === "my_station"
+                ? "my station"
+                : row.source === "file"
+                  ? "from a recording"
+                  : "source unknown"}
+          </span>
+          <button type="button" onClick={onClose}>
+            Close
+          </button>
+        </figcaption>
+      </figure>
+    </div>
+  );
 }
 
 function Settings({

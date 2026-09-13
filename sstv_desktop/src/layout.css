@@ -365,6 +365,54 @@
   place-items: center;
 }
 
+/* The thumbnail is a control, so it has to look like one to the keyboard
+   as well as the mouse. No chrome: the picture is the affordance. */
+.open-picture {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  line-height: 0;
+}
+
+.open-picture:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+}
+
+/* As large as the window allows and no larger: the point is to read a
+   callsign, and a picture scaled past its pixels does not help with that. */
+.viewer {
+  margin: 0;
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+  max-width: calc(100vw - 48px);
+}
+
+/* Fill the space, rather than sit at 320x256 in the middle of a 1280x720
+   window. Opening a picture is how an operator reads a callsign off it,
+   and the log's ~120px thumbnail is what made that impossible; a viewer
+   that only doubles it has not solved much. object-fit keeps the aspect
+   and pixelated keeps the pixels honest -- this is a 320-wide picture
+   made large, and it should look like one rather than like a photograph. */
+.viewer img {
+  width: calc(100vw - 48px);
+  height: calc(100vh - 120px);
+  object-fit: contain;
+  image-rendering: pixelated;
+  border: 1px solid var(--edge);
+}
+
+.viewer figcaption {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  color: var(--muted);
+}
+
 .panel {
   width: min(420px, calc(100vw - 32px));
   max-height: calc(100vh - 32px);
