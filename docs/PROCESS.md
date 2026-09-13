@@ -191,6 +191,22 @@ never a statistic.** A gate that would have passed uniform random noise was
 nearly shipped as decode-quality protection. Verify a new gate by injecting a
 real regression and watching it fail.
 
+## 8a. The shell is checked against the engine, not trusted to match
+
+`sstv_desktop/src/core.ts` is hand-written, and so is its copy of the band
+table. Both are checked from the Python suite rather than assumed:
+
+| check | catches |
+|---|---|
+| `tests/test_shell_client_matches_the_contract.py` | a call to a route the engine does not serve, and a field the window reads that no schema sends |
+| `tests/test_band_table_matches_the_shell.py` | the two band tables drifting apart |
+
+Each has a companion test asserting the parser still finds something, because
+a check that silently matches nothing passes forever.
+
+If one of these fails, the engine and the window disagree. Decide which is
+right before changing either.
+
 ## 9. Merge deliberately
 
 Wait for both checks, then `gh pr merge <n> --squash --delete-branch`. Then

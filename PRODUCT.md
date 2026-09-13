@@ -479,6 +479,18 @@ overlay, PD/Wraase modes.
   behavior, not appearance: the Operating Conditions requirements in
   `docs/core/frontend-contract.md` §20.5 name physiological and environmental
   conditions, and any future visual system must satisfy them.
+- **v0.1 ships the provisional-neutral treatment, by decision** (Jeremy,
+  2026-09-12: "it's fine for 0.1. i haven't had my design idea yet"). What is
+  on screen — system type, one amber accent, flat surfaces — is a deliberate
+  placeholder that proves the window model and the data flow without
+  committing to an aesthetic. It is **not** the answer, and the visual world
+  stays open. Do not treat any token in `sstv_desktop/src/theme.css` as
+  settled, and do not spend effort refining it: the direction, when it
+  arrives, will replace it wholesale.
+- **v0.1 ships Standard only** (Jeremy, 2026-09-12). Night Vision and
+  Sunlight are deferred to #188, not dropped: §20.5 names a physiological
+  and an environmental condition, so they are operational features waiting
+  on a palette, not styling that was cut.
 
 ## Evidence on Hand
 
