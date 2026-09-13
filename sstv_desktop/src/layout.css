@@ -413,6 +413,13 @@
   color: var(--muted);
 }
 
+/* Only shown when no band button is lit, so it never competes with them. */
+.tuned {
+  color: var(--signal);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 .panel {
   width: min(420px, calc(100vw - 32px));
   max-height: calc(100vh - 32px);
