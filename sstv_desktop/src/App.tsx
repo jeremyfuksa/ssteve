@@ -35,7 +35,14 @@ type Posture =
   | { kind: "idle" }
   | { kind: "listening"; since: number }
   | { kind: "decoding"; mode: string; confidence: number }
-  | { kind: "complete"; mode: string | null; rsv: string | null; fskid: string | null }
+  | {
+      kind: "complete";
+      mode: string | null;
+      rsv: string | null;
+      fskid: string | null;
+      /** For looking up where it was heard; the event does not carry that. */
+      imageId: string | null;
+    }
   // `retryStop` means the engine may still hold the session: a stop that
   // did not take leaves the radio busy, so the control has to stay Stop.
   | {
@@ -198,7 +205,13 @@ export default function App() {
     if (status.state === "listening" || status.state === "decoding") return;
 
     if (status.state === "completed") {
-      setPosture({ kind: "complete", mode: status.mode, rsv: null, fskid: null });
+      setPosture({
+        kind: "complete",
+        imageId: status.image_id,
+        mode: status.mode,
+        rsv: null,
+        fskid: null,
+      });
       if (status.image_id) {
         setCompletedUrl(imageUrl(`/api/v1/images/${status.image_id}/file`));
       }
@@ -259,6 +272,7 @@ export default function App() {
             case "decode_complete": {
               setPosture({
                 kind: "complete",
+                imageId: event.image_id,
                 mode: event.mode,
                 rsv: event.rsv_report,
                 fskid: event.fskid_detected
@@ -397,6 +411,16 @@ export default function App() {
   // Stop, not Listen, while the engine may still hold the session. Offering
   // Listen after a failed stop sends the operator into a 409 for a decode
   // they believe they already ended.
+  // Where the picture that just finished was heard. The decode_complete
+  // event does not carry it -- provenance lives on the library row -- and a
+  // decode that was worth recording is worth being able to place six months
+  // later (#139), which means saying so at the moment it lands and not only
+  // in the log.
+  const heardOn =
+    posture.kind === "complete" && posture.imageId
+      ? (images.find((row) => row.id === posture.imageId) ?? null)
+      : null;
+
   const live =
     posture.kind === "listening" ||
     posture.kind === "decoding" ||
@@ -502,7 +526,13 @@ export default function App() {
       </header>
 
       <section className="instrument">
-        <Canvas scanline={scanline} frame={frame} scale={scale} completedUrl={completedUrl} />
+        <Canvas
+          scanline={scanline}
+          frame={frame}
+          scale={scale}
+          completedUrl={completedUrl}
+          failed={posture.kind === "failed"}
+        />
         <Waterfall frame={spectrum} />
         <div className="controls">
           <label className="control">
@@ -531,7 +561,13 @@ export default function App() {
             </span>
           )}
           <span className="spacer" />
-          <Status posture={posture} levelDb={levelDb} scanline={scanline} spectrum={spectrum} />
+          <Status
+            posture={posture}
+            levelDb={levelDb}
+            scanline={scanline}
+            spectrum={spectrum}
+            heardOn={heardOn}
+          />
         </div>
       </section>
 
@@ -680,11 +716,14 @@ function Status({
   levelDb,
   scanline,
   spectrum,
+  heardOn,
 }: {
   posture: Posture;
   levelDb: number | null;
   scanline: ScanlineUpdate | null;
   spectrum: SpectrumUpdate | null;
+  /** The library row for a picture that just finished, if it is known. */
+  heardOn: ImageRow | null;
 }) {
   if (posture.kind === "nothing") {
     return (
@@ -719,7 +758,21 @@ function Status({
       <p className="status">
         Decode complete
         <span className="mono">
-          {[posture.mode, posture.rsv, posture.fskid && `FSKID ${posture.fskid}`]
+          {[
+            posture.mode,
+            posture.rsv,
+            posture.fskid && `FSKID ${posture.fskid}`,
+            // Where it was heard, said now rather than only in the log. A
+            // remote reception is not a contact, and that is the fact most
+            // easily lost between the decode and the logbook (#139).
+            heardOn?.heard_at === "remote"
+              ? `heard at ${heardOn.receiver ?? "another receiver"}`
+              : heardOn?.heard_at === "my_station"
+                ? "my station"
+                : heardOn?.source === "file"
+                  ? "from a recording"
+                  : null,
+          ]
             .filter(Boolean)
             .join(" · ")}
         </span>
