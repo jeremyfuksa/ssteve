@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  BAND_FREQUENCIES,
   BANDS,
   CoreError,
   adjustDecode,
   type DecodeAdjustment,
+  bandFor,
+  nearestBand,
   getConfig,
   getPropagation,
   imageUrl,
@@ -69,7 +72,10 @@ const DEFAULT_FRAME = { width: 320, height: 256 };
 
 export default function App() {
   const [config, setConfig] = useState<Config | null>(null);
-  const [band, setBand] = useState<Band>("20m");
+  // Null means the operator saved a frequency that is not one of the five
+  // presets -- 14.233, say. The buttons then show none selected, because
+  // none of them is what the radio is on.
+  const [band, setBand] = useState<Band | null>("20m");
   const [session, setSession] = useState<string | null>(null);
   const [posture, setPosture] = useState<Posture>({ kind: "idle" });
   const [spectrum, setSpectrum] = useState<SpectrumUpdate | null>(null);
@@ -119,6 +125,11 @@ export default function App() {
         setConfig(loaded);
         setEngineError(null);
         if (loaded.input_gain_override) setGain(loaded.input_gain_override);
+        // The band survives a restart now. It used to be component state
+        // only, so the app reopened on 20m whatever you had been listening
+        // to -- and "listening is one click from then on" (#150) is not
+        // true if the first click is putting the band back.
+        setBand(bandFor(loaded.spyserver_frequency_hz) ?? null);
         // Squelch was hard-coded off, which happened to match what the
         // engine does for a SpyServer and silently disagreed with it for
         // anything else. Read the saved setting like the gain beside it.
@@ -345,10 +356,17 @@ export default function App() {
     }
   };
 
+  const frequencyHz = config?.spyserver_frequency_hz ?? BAND_FREQUENCIES["20m"];
+
+  // Propagation is reported per band, so a custom frequency asks about the
+  // band it sits in. Tuning uses the frequency itself; only this question
+  // needs a name for it.
+  const propagationBand = band ?? nearestBand(frequencyHz);
+
   useEffect(() => {
     let cancelled = false;
     const ask = () =>
-      getPropagation(band)
+      getPropagation(propagationBand)
         .then((report) => {
           if (cancelled) return;
           setPropagation(report);
@@ -369,7 +387,26 @@ export default function App() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [band]);
+  }, [propagationBand]);
+
+  /** Pick a band, and remember it.
+   *
+   *  `decode/start` takes the band by name, so the decode does not need
+   *  this; config stores a frequency, so persisting the choice does.
+   *  Failing to save is not worth interrupting the operator -- the band
+   *  they just pressed is still the band they are listening on.
+   */
+  const chooseBand = async (option: Band) => {
+    setBand(option);
+    try {
+      const saved = await patchConfig({
+        spyserver_frequency_hz: BAND_FREQUENCIES[option],
+      });
+      setConfig(saved);
+    } catch {
+      /* It will be right for this session and wrong after a restart. */
+    }
+  };
 
   const listen = () => begin(() => startSpyServerDecode(band, 3600));
   const replay = (filePath: string) => begin(() => startFileDecode(filePath));
@@ -497,12 +534,17 @@ export default function App() {
           <span className="mono">{host || "no receiver saved"}</span>
           {host && <span className="tag">{mine ? "my station" : "remote"}</span>}
         </div>
+        {band === null && (
+          <span className="mono tuned" title="Not one of the band presets">
+            {(frequencyHz / 1000).toFixed(1)} kHz
+          </span>
+        )}
         <div className="bands" role="group" aria-label="Band">
           {BANDS.map((option) => (
             <button
               key={option}
               className={option === band ? "band on" : "band"}
-              onClick={() => setBand(option)}
+              onClick={() => void chooseBand(option)}
               disabled={live}
             >
               {option}
@@ -658,6 +700,11 @@ export default function App() {
           onClose={() => setSettingsOpen(false)}
           onSaved={(saved) => {
             setConfig(saved);
+            // The frequency may have moved off a preset, or onto one. The
+            // buttons have to agree with the radio: leaving 40m lit while
+            // the saved frequency is 14.233 is a control stating something
+            // that is not true.
+            setBand(bandFor(saved.spyserver_frequency_hz) ?? null);
             setSettingsOpen(false);
           }}
         />
@@ -884,6 +931,14 @@ function Settings({
   const [mine, setMine] = useState(
     (config.spyserver_my_stations ?? []).some((entry) => entry.toLowerCase() === key),
   );
+  // In kHz, because that is how an operator says it: 14230, not 14230000.
+  const [frequencyKHz, setFrequencyKHz] = useState(
+    String(config.spyserver_frequency_hz / 1000),
+  );
+  const [stallTimeout, setStallTimeout] = useState(
+    String(config.spyserver_stall_timeout_sec ?? 5),
+  );
+  const [libraryPath, setLibraryPath] = useState(config.image_library_path ?? "");
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [recording, setRecording] = useState("");
@@ -901,6 +956,9 @@ function Settings({
           spyserver_port: port,
           spyserver_gain: gainIndex === "" ? null : Number(gainIndex),
           spyserver_my_stations: mine ? [...others, key] : others,
+          spyserver_frequency_hz: Math.round(Number(frequencyKHz) * 1000),
+          spyserver_stall_timeout_sec: Number(stallTimeout),
+          image_library_path: libraryPath.trim(),
         }),
       );
     } catch (error) {
@@ -926,6 +984,38 @@ function Settings({
           />
         </label>
         <label>
+          Frequency (kHz)
+          <input
+            type="number"
+            min={0}
+            step={0.1}
+            value={frequencyKHz}
+            onChange={(event) => setFrequencyKHz(event.target.value)}
+          />
+        </label>
+        <p className="note">
+          The band buttons set this. Type one in for a frequency that is not
+          a button — 14233, say — and the buttons will show none selected,
+          because none of them is where the radio is.
+        </p>
+        <label>
+          Give up after
+          <input
+            type="number"
+            min={1}
+            max={120}
+            step={1}
+            value={stallTimeout}
+            onChange={(event) => setStallTimeout(event.target.value)}
+          />
+        </label>
+        <p className="note">
+          Seconds of silence before I decide the stream has died rather than
+          the band being quiet. A network receiver can stop sending without
+          closing the connection, and on 2026-08-19 a session listened to a
+          frozen buffer for three and a half hours.
+        </p>
+        <label>
           Receiver gain
           <input
             type="number"
@@ -945,6 +1035,21 @@ function Settings({
           exported as contacts.
         </p>
         {problem && <p className="failed">{problem}</p>}
+        <h2>Pictures</h2>
+        <label>
+          Library folder
+          <input
+            value={libraryPath}
+            onChange={(event) => setLibraryPath(event.target.value)}
+            placeholder="~/.ssteve/images"
+          />
+        </label>
+        <p className="note">
+          Where decoded pictures are written, and watched: anything you drop
+          in here joins the log. They are ordinary files -- the database
+          only remembers what was heard, never the pictures themselves.
+        </p>
+
         <h2>Replay a recording</h2>
         <label>
           Path on this machine

@@ -49,6 +49,46 @@ const WS = () => `${origin.replace(/^http/, "ws")}/api/v1`;
 export const BANDS = ["80m", "40m", "20m", "15m", "10m"] as const;
 export type Band = (typeof BANDS)[number];
 
+/** The SSTV calling frequency for each band, in Hz.
+ *
+ *  A copy of `sdr/bands.py`'s table, and the only one in this app. It is
+ *  here so the band buttons can be *saved* -- the engine resolves a band
+ *  name on `decode/start`, but `config` stores a frequency, so persisting
+ *  the chosen band means knowing which frequency it is. Adding a band
+ *  means editing both, which `bandFor` makes loud by returning undefined
+ *  rather than guessing.
+ */
+export const BAND_FREQUENCIES: Record<Band, number> = {
+  "80m": 3_845_000,
+  "40m": 7_171_000,
+  "20m": 14_230_000,
+  "15m": 21_340_000,
+  "10m": 28_680_000,
+};
+
+/** Which band a saved frequency belongs to, if it is one of the presets.
+ *
+ *  A frequency typed in by hand need not be a band, and saying so is
+ *  better than rounding it to the nearest button.
+ */
+export function bandFor(frequencyHz: number): Band | undefined {
+  return BANDS.find((band) => BAND_FREQUENCIES[band] === frequencyHz);
+}
+
+/** The band a frequency sits closest to.
+ *
+ *  Only for asking about propagation, which is reported per band and has
+ *  no notion of an exact frequency. Tuning uses the frequency itself.
+ */
+export function nearestBand(frequencyHz: number): Band {
+  return BANDS.reduce((closest, band) =>
+    Math.abs(BAND_FREQUENCIES[band] - frequencyHz) <
+    Math.abs(BAND_FREQUENCIES[closest] - frequencyHz)
+      ? band
+      : closest,
+  );
+}
+
 export type DecodeState =
   | "listening"
   | "vis_detected"
@@ -63,6 +103,8 @@ export interface Config {
   spyserver_frequency_hz: number;
   spyserver_gain: number | null;
   spyserver_my_stations: string[];
+  /** How long a silent stream may go before the session gives up on it. */
+  spyserver_stall_timeout_sec?: number;
   image_library_path?: string;
   input_gain_override?: number | null;
   auto_squelch?: boolean;
@@ -146,12 +188,19 @@ export interface StartedSession {
   websocket_url: string;
 }
 
-export const startSpyServerDecode = (band: Band, timeoutSeconds: number) =>
+/** Listen on a SpyServer.
+ *
+ *  A null band means "the frequency that is saved": the engine falls back
+ *  to `spyserver_frequency_hz` when given neither a band nor a frequency,
+ *  which is how an operator who typed 14.233 gets 14.233 rather than the
+ *  20m preset they did not ask for.
+ */
+export const startSpyServerDecode = (band: Band | null, timeoutSeconds: number) =>
   request<StartedSession>("/decode/start", {
     method: "POST",
     body: JSON.stringify({
       source: "spyserver",
-      band,
+      ...(band ? { band } : {}),
       auto_detect: true,
       save_image: true,
       timeout_seconds: timeoutSeconds,
