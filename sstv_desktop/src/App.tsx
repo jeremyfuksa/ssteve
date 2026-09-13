@@ -3,6 +3,7 @@ import {
   BANDS,
   CoreError,
   adjustDecode,
+  type DecodeAdjustment,
   getConfig,
   getPropagation,
   imageUrl,
@@ -73,6 +74,8 @@ export default function App() {
   const [engineAction, setEngineAction] = useState<string | null>(null);
   const [gain, setGain] = useState(1);
   const [squelch, setSquelch] = useState(false);
+  // Why the last adjustment did not take, when it did not.
+  const [adjustment, setAdjustment] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [propagation, setPropagation] = useState<Propagation | null>(null);
   const [propagationProblem, setPropagationProblem] = useState<string | null>(null);
@@ -88,6 +91,13 @@ export default function App() {
     }
   }, []);
 
+  // Bumped every time the app channel connects, including reconnects.
+  // This is the dependable "the engine is back" signal: the session socket
+  // is closed *before* being accepted when the engine does not know the
+  // session, so the browser sees a refused handshake and never fires open
+  // -- in exactly the case that matters, an engine that restarted and lost
+  // the decode.
+  const [engineReachedAt, setEngineReachedAt] = useState(0);
   const [starting, setStarting] = useState(true);
 
   useEffect(() => {
@@ -100,26 +110,37 @@ export default function App() {
         setConfig(loaded);
         setEngineError(null);
         if (loaded.input_gain_override) setGain(loaded.input_gain_override);
+        // Squelch was hard-coded off, which happened to match what the
+        // engine does for a SpyServer and silently disagreed with it for
+        // anything else. Read the saved setting like the gain beside it.
+        setSquelch(loaded.auto_squelch ?? false);
         await refreshImages();
-        stopWatching = watchApp((event) => {
-          switch (event.event_type) {
-            case "spectrum_update":
-              setSpectrum(event);
-              break;
-            case "library_updated":
-              refreshImages();
-              break;
-            // Nothing here chooses an audio device or monitors input yet; the
-            // shell receives from a SpyServer. Named so that adding either
-            // feature is a change to this list rather than a discovery.
-            case "device_changed":
-            case "monitor_state":
-              break;
-            case "__unknown__":
-              console.debug("unhandled app event", event.raw.event_type);
-              break;
-          }
-        });
+        stopWatching = watchApp(
+          (event) => {
+            switch (event.event_type) {
+              case "spectrum_update":
+                setSpectrum(event);
+                break;
+              case "library_updated":
+                void refreshImages();
+                break;
+              // Nothing here chooses an audio device or monitors input yet; the
+              // shell receives from a SpyServer. Named so that adding either
+              // feature is a change to this list rather than a discovery.
+              case "device_changed":
+              case "monitor_state":
+                break;
+              case "__unknown__":
+                console.debug("unhandled app event", event.raw.event_type);
+                break;
+            }
+          },
+          // Count connections rather than act on them. The handler is
+          // installed once and would otherwise close over a stale session;
+          // a counter in state lets an effect that *does* see the current
+          // session react to it.
+          () => setEngineReachedAt((n) => n + 1),
+        );
       })
       .catch(async (error: CoreError) => {
         // The shell may know more than "I can't reach it" -- that the engine
@@ -147,14 +168,31 @@ export default function App() {
    *  Only terminal states are reconciled. A live session's detail is richer
    *  on the socket than in the status payload, so overwriting "decoding
    *  MartinM1 at 60%" with a coarser reading would be a downgrade. */
-  const resync = async (sessionId: string) => {
+  const resync = useCallback(async (sessionId: string) => {
     let status;
     try {
       status = await decodeStatus(sessionId);
-    } catch {
-      // If the status read fails too, the socket's own reconnect is still
-      // running and will try again. Saying something wrong here is worse
-      // than saying nothing.
+    } catch (error) {
+      // A session the engine does not have is a session that is not
+      // running. This is what a restarted engine looks like from here:
+      // the socket reconnects to a new process that never knew the id,
+      // and swallowing the 404 left the window saying "Listening" for a
+      // decode that no longer existed. Found by restarting the engine
+      // under a live session and watching the status stay put.
+      if ((error as CoreError).code === "SESSION_NOT_FOUND") {
+        setSession(null);
+        setLevelDb(null);
+        setPosture({
+          kind: "failed",
+          message: "The decode stopped: the engine restarted and lost it.",
+          action: "Start listening again.",
+          code: "SESSION_NOT_FOUND",
+        });
+        return;
+      }
+      // Any other failure: the socket's own reconnect is still running
+      // and will try again. Saying something wrong is worse than saying
+      // nothing.
       return;
     }
     if (status.state === "listening" || status.state === "decoding") return;
@@ -164,7 +202,7 @@ export default function App() {
       if (status.image_id) {
         setCompletedUrl(imageUrl(`/api/v1/images/${status.image_id}/file`));
       }
-      refreshImages();
+      void refreshImages();
       return;
     }
     setPosture({
@@ -178,7 +216,17 @@ export default function App() {
       action: "Start listening again.",
       code: "RECONCILED",
     });
-  };
+  }, [refreshImages]);
+
+  useEffect(() => {
+    // Nothing to reconcile before the first connection, or with no decode.
+    if (engineReachedAt === 0 || !session) return;
+    // Not a cascading render: resync awaits a request before it touches
+    // any state, so nothing is set synchronously here. The rule cannot
+    // see past the call.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void resync(session);
+  }, [engineReachedAt, session, resync]);
 
   /** Start a decode and follow it. The starter decides where the audio comes
    *  from; everything downstream is identical, which is the point of the
@@ -222,14 +270,14 @@ export default function App() {
               if (event.image_id) {
                 setCompletedUrl(imageUrl(`/api/v1/images/${event.image_id}/file`));
               }
-              refreshImages();
+              void refreshImages();
               break;
             }
             // The watcher found a picture on disk -- an import, or a decode
             // this window did not run. The log is a view of the library, so
             // it should show it without being asked twice.
             case "library_updated":
-              refreshImages();
+              void refreshImages();
               break;
             case "error": {
               const failure = event;
@@ -298,7 +346,7 @@ export default function App() {
           // opposite of the truth.
           setPropagationProblem(error.message);
         });
-    ask();
+    void ask();
     // The indices update a few times a day; a quarter of an hour is plenty.
     const timer = window.setInterval(ask, 15 * 60 * 1000);
     return () => {
@@ -376,15 +424,39 @@ export default function App() {
     return { width, height: total && total > 1 ? total : DEFAULT_FRAME.height };
   }, [scanline]);
 
-  const pushGain = async (value: number) => {
-    setGain(value);
-    if (session) await adjustDecode(session, { input_gain: value }).catch(() => undefined);
+  /** Move a control, then show what the engine says is in force.
+   *
+   *  The optimistic set is what keeps the slider from lagging the thumb.
+   *  The correction afterwards is what stops it lying: `applied` is read
+   *  back from the running decode, so a value that was clamped, or that
+   *  the open source could not take, comes back different from what was
+   *  asked for -- and `ignored` names it when the control did nothing at
+   *  all. Both used to be discarded by `.catch(() => undefined)`, which
+   *  showed every adjustment as successful including the refused ones.
+   */
+  const push = async (changes: DecodeAdjustment, optimistic: () => void) => {
+    optimistic();
+    if (!session) return;
+
+    let answer;
+    try {
+      answer = await adjustDecode(session, changes);
+    } catch (error) {
+      setAdjustment((error as CoreError).message);
+      return;
+    }
+
+    // The engine has the last word on what the decode is using.
+    if (answer.applied.input_gain !== undefined) setGain(answer.applied.input_gain);
+    if (answer.applied.auto_squelch !== undefined) setSquelch(answer.applied.auto_squelch);
+    setAdjustment(null);
   };
 
-  const pushSquelch = async (value: boolean) => {
-    setSquelch(value);
-    if (session) await adjustDecode(session, { auto_squelch: value }).catch(() => undefined);
-  };
+  const pushGain = (value: number) =>
+    push({ input_gain: value }, () => setGain(value));
+
+  const pushSquelch = (value: boolean) =>
+    push({ auto_squelch: value }, () => setSquelch(value));
 
   const host = config?.spyserver_host ?? "";
   const mine = (config?.spyserver_my_stations ?? []).some(
@@ -441,7 +513,7 @@ export default function App() {
               max={2}
               step={0.05}
               value={gain}
-              onChange={(event) => pushGain(Number(event.target.value))}
+              onChange={(event) => void pushGain(Number(event.target.value))}
             />
             <span className="mono value">{gain.toFixed(2)}×</span>
           </label>
@@ -449,10 +521,15 @@ export default function App() {
             <input
               type="checkbox"
               checked={squelch}
-              onChange={(event) => pushSquelch(event.target.checked)}
+              onChange={(event) => void pushSquelch(event.target.checked)}
             />
             Squelch
           </label>
+          {adjustment && (
+            <span className="control-note" role="status">
+              {adjustment}
+            </span>
+          )}
           <span className="spacer" />
           <Status posture={posture} levelDb={levelDb} scanline={scanline} spectrum={spectrum} />
         </div>
@@ -526,7 +603,7 @@ export default function App() {
           config={config}
           onReplay={(path) => {
             setSettingsOpen(false);
-            replay(path);
+            void replay(path);
           }}
           onClose={() => setSettingsOpen(false)}
           onSaved={(saved) => {

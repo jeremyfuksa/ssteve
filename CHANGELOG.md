@@ -66,6 +66,11 @@ the picture as it arrives. Receive only — transmit is v0.2.
   connection dropped while a decode was running and the decode ended during
   the gap, the window used to go on showing "Listening" for something that
   had already finished. It now asks what happened as soon as it reconnects.
+- **Gain and squelch show what the engine is actually using**, not what
+  they were asked for, and say so when a change doesn't take. The squelch
+  checkbox now starts from the saved setting instead of always unchecked.
+- **A decode lost to a restarted engine is noticed**, instead of the window
+  going on reporting "Listening" for something that stopped.
 - **Stop says so when it fails**, instead of returning to Idle as though it
   had worked — and keeps offering Stop, because the radio can only do one
   thing at a time and a decode that did not stop blocks the next one.

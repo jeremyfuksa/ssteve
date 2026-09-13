@@ -551,4 +551,13 @@ async def adjust_decode(
             auto=request.auto_afc, range_hz=request.afc_range_hz
         )
 
-    return {"session_id": str(session_id), "applied": changes}
+    # Read back rather than echo. `applied` used to be the request itself,
+    # so the reply restated the question: a value a setter clamped would
+    # still come back reported as applied. Every source ships a gain stage
+    # today and nothing clamps, so the two agree -- which is exactly when
+    # it is cheap to make the reply mean what it says.
+    in_force = rx_manager.settings_in_force()
+    return {
+        "session_id": str(session_id),
+        "applied": {name: in_force[name] for name in changes if name in in_force},
+    }

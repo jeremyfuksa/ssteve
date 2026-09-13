@@ -14,10 +14,18 @@
 //                                  event type to the engine and not to the
 //                                  window is a lint error rather than a
 //                                  silent drop.
-//   no-floating-promises        -- still off, pending #148:
-//                                  `adjustDecode(...).catch(() => undefined)`
-//                                  swallows a rejected PATCH, so a setting
-//                                  the engine clamped shows as applied.
+//   no-floating-promises        -- on since #148. NOTE: #177 claimed this
+//                                  rule would have caught #148's bug. It
+//                                  would not. `.catch(() => undefined)`
+//                                  satisfies it -- the promise is handled,
+//                                  just handled by discarding the answer.
+//                                  Checked by putting the original line
+//                                  back: eslint says nothing. Nothing in
+//                                  this rule set catches an empty catch
+//                                  handler; only reading the code did.
+//                                  The rule earns its place anyway: it
+//                                  found six unmarked fire-and-forget
+//                                  calls, each now `void` with a reason.
 
 import js from "@eslint/js";
 import globals from "globals";
@@ -52,6 +60,19 @@ export default tseslint.config(
       // `event as any` in the session-event switch, and they existed
       // because the event union was not discriminated.
       "@typescript-eslint/no-explicit-any": "error",
+
+      // Every promise is either awaited or marked `void` with a reason.
+      // This does not catch a catch-handler that throws the answer away
+      // (see the note above); it catches the ones nobody thought about.
+      "@typescript-eslint/no-floating-promises": "error",
+
+      // `void f()` is how a handler says "this returns a promise and I
+      // mean not to wait for it" -- which is true of a DOM event handler
+      // and false of everything else here.
+      "@typescript-eslint/no-misused-promises": [
+        "error",
+        { checksVoidReturn: { attributes: false } },
+      ],
 
       // The reason the union is discriminated. A switch over it must
       // handle every member or say out loud that it is ignoring one.
