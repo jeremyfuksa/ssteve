@@ -66,6 +66,13 @@ the picture as it arrives. Receive only — transmit is v0.2.
   connection dropped while a decode was running and the decode ended during
   the gap, the window used to go on showing "Listening" for something that
   had already finished. It now asks what happened as soon as it reconnects.
+- **A decode that stopped early looks like one.** The rows that arrived
+  stay on screen — on a weak signal they are often the only thing carrying
+  a callsign — and the part that never arrived is hatched, with a line
+  where the signal stopped. Before, a picture cut off near the bottom was
+  indistinguishable from one that simply ended dark.
+- **A finished decode says where it was heard**, not just its mode and
+  report.
 - **Gain and squelch show what the engine is actually using**, not what
   they were asked for, and say so when a change doesn't take. The squelch
   checkbox now starts from the saved setting instead of always unchecked.
